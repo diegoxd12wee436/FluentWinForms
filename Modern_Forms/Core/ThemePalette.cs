@@ -4,7 +4,7 @@ using System.Drawing;
 using System.Windows.Forms;
 using Microsoft.Win32;
 
-namespace Modern_Forms.Core
+namespace FluentWinForms.Core
 {
     /// <summary>
     /// Molde para crear paletas de colores. 

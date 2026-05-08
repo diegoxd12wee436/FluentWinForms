@@ -7,7 +7,7 @@ using System.Windows.Forms;
 using System.Collections.Generic;
 using System.Collections.ObjectModel; // 🔥 INYECCIÓN: Para Reactividad del Árbol
 
-namespace Modern_Forms.Core
+namespace FluentWinForms.Core
 {
     // ==========================================
     // ENUMS DE ESTILO (Nivel CSS)

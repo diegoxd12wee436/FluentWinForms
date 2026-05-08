@@ -11,7 +11,7 @@ using System.IO;
 using System.Runtime.InteropServices; // 🔥 INYECCIÓN: Para Marshal.Copy
 using System.Windows.Forms;
 
-namespace Modern_Forms.Core
+namespace FluentWinForms.Core
 {
     public abstract partial class ModernControlBase
     {
@@ -356,15 +356,23 @@ namespace Modern_Forms.Core
                 }
             }
 
-            // 10. TEXTO ALINEADO
+            // 10. TEXTO ALINEADO (CALIDAD RETINA / CSS)
             if (!string.IsNullOrEmpty(node.Content.Text))
             {
                 _sharedPaint.Reset();
-                _sharedPaint.IsAntialias = true;
-                _sharedPaint.Color = node.Content.TextColor.ToSKColor();
-                _sharedPaint.TextSize = node.Content.FontSize;
 
-                // 🔥 FIX LEAK 1: Usar la caché estática de fuentes
+                // 🔥 1. EL MOTOR SUBPÍXEL (El secreto de la nitidez Web)
+                _sharedPaint.IsAntialias = true;                     // Suavizado general de curvas
+                _sharedPaint.LcdRenderText = true;                   // Activa ClearType (usa focos RGB del monitor)
+                _sharedPaint.SubpixelText = true;                    // Permite espaciado fraccional perfecto
+                _sharedPaint.HintingLevel = SKPaintHinting.Full;     // Encaja las letras exacto en los píxeles físicos
+
+                _sharedPaint.Color = node.Content.TextColor.ToSKColor();
+
+                // 🔥 2. EL FIX DPI: Escalar la fuente con tu propia función S()
+                _sharedPaint.TextSize = S(node.Content.FontSize);
+
+                // Caché estática Zero-Allocation
                 _sharedPaint.Typeface = GetOrCreateTypeface(node.Content.FontFamily, node.Content.IsBold);
 
                 float tx = rect.Left;
@@ -380,6 +388,7 @@ namespace Modern_Forms.Core
                 else if (node.Content.VerticalAlignment == StringAlignment.Far) ty = rect.Bottom - textBounds.Bottom;
                 else ty = rect.Top - textBounds.Top;
 
+                // Dibujado ultra-HD
                 canvas.DrawText(node.Content.Text, tx, ty, _sharedPaint);
             }
 

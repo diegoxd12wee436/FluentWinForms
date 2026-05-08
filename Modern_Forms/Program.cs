@@ -2,7 +2,7 @@
 using System;
 using System.Windows.Forms;
 
-namespace Modern_Forms
+namespace FluentWinForms
 {
     internal static class Program
     {

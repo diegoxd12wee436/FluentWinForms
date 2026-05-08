@@ -4,7 +4,7 @@ using System.Collections.Concurrent;
 using System.Drawing;
 using System.Windows.Forms;
 
-namespace Modern_Forms.Core
+namespace FluentWinForms.Core
 {
     /// <summary>
     /// StackBlur Ultra: versión altamente optimizada para BGRA interleaved (4 bytes/pixel).

@@ -17,7 +17,7 @@ using SkiaSharp.Views.Desktop;
 using System.Runtime.InteropServices; // 🔥 INYECCIÓN: Para CopyMemory
 using System.Collections.Concurrent; // 🔥 INYECCIÓN: Para Caché Concurrente
 
-namespace Modern_Forms.Core
+namespace FluentWinForms.Core
 {
     public enum RenderLayer { Background, Shadow, Acrylic, Image, Ripple, Content, Overlay }
 
@@ -67,7 +67,7 @@ namespace Modern_Forms.Core
                 if (_visualNode != null)
                 {
                     _visualNode.Children.CollectionChanged += VisualNode_ChildrenChanged;
-                    Modern_Forms.Core.LayoutEngine.ComputeLayout(_visualNode, new RectangleF(0, 0, Width, Height));
+                    FluentWinForms.Core.LayoutEngine.ComputeLayout(_visualNode, new RectangleF(0, 0, Width, Height));
                 }
                 RefreshVisuals();
             }
@@ -78,7 +78,7 @@ namespace Modern_Forms.Core
         {
             if (_visualNode != null)
             {
-                Modern_Forms.Core.LayoutEngine.ComputeLayout(_visualNode, new RectangleF(0, 0, Width, Height));
+                FluentWinForms.Core.LayoutEngine.ComputeLayout(_visualNode, new RectangleF(0, 0, Width, Height));
                 RefreshVisuals();
             }
         }
@@ -232,7 +232,7 @@ namespace Modern_Forms.Core
 
             if (_visualNode != null)
             {
-                Modern_Forms.Core.LayoutEngine.ComputeLayout(_visualNode, new RectangleF(0, 0, Width, Height));
+                FluentWinForms.Core.LayoutEngine.ComputeLayout(_visualNode, new RectangleF(0, 0, Width, Height));
             }
 
             RebuildCanvas();

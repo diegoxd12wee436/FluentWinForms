@@ -9,7 +9,7 @@ using System.Threading.Tasks;
 
 using System.Windows.Forms;
 
-namespace Modern_Forms.Core
+namespace FluentWinForms.Core
 {
     public abstract partial class ModernControlBase
     {

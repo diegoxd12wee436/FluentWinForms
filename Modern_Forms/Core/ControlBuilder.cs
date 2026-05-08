@@ -3,7 +3,7 @@ using System;
 using System.Drawing;
 using System.Windows.Forms;
 
-namespace Modern_Forms.Core
+namespace FluentWinForms.Core
 {
     /// <summary>
     /// Fluent builder para RenderNode. Diseñado para ergonomía suprema (Patrón Lambda y Atajos Directos).

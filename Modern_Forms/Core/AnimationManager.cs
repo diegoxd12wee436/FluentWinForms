@@ -6,7 +6,7 @@ using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace Modern_Forms.Core
+namespace FluentWinForms.Core
 {
     // -------------------------------------------------------------------------
     // AnimationManager vFinalPlus (Enterprise / WinUI Level)

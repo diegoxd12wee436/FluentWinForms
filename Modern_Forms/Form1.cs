@@ -1,6 +1,6 @@
 using System;
 using System.Windows.Forms;
-namespace Modern_Forms
+namespace FluentWinForms
 {
     public partial class Form1 : Form
     {

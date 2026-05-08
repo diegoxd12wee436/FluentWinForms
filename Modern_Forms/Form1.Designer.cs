@@ -1,7 +1,7 @@
 ﻿using System;
 using System.Windows.Forms;
 using System.Drawing;
-namespace Modern_Forms
+namespace FluentWinForms
 {
     partial class Form1
     {
@@ -31,13 +31,13 @@ namespace Modern_Forms
         /// </summary>
         private void InitializeComponent()
         {
-            modernThemeToggle2 = new Modern_Forms.Custom_Buttons.ModernThemeToggle();
-            modernThemeToggle1 = new Modern_Forms.Custom_Buttons.ModernThemeToggle();
-            modernThemeToggle3 = new Modern_Forms.Custom_Buttons.ModernThemeToggle();
-            modernThemeToggle4 = new Modern_Forms.Custom_Buttons.ModernThemeToggle();
-            modernThemeToggle5 = new Modern_Forms.Custom_Buttons.ModernThemeToggle();
-            modernThemeToggle6 = new Modern_Forms.Custom_Buttons.ModernThemeToggle();
-            modernThemeToggle7 = new Modern_Forms.Custom_Buttons.ModernThemeToggle();
+            modernThemeToggle2 = new FluentWinForms.Custom_Buttons.ModernThemeToggle();
+            modernThemeToggle1 = new FluentWinForms.Custom_Buttons.ModernThemeToggle();
+            modernThemeToggle3 = new FluentWinForms.Custom_Buttons.ModernThemeToggle();
+            modernThemeToggle4 = new FluentWinForms.Custom_Buttons.ModernThemeToggle();
+            modernThemeToggle5 = new FluentWinForms.Custom_Buttons.ModernThemeToggle();
+            modernThemeToggle6 = new FluentWinForms.Custom_Buttons.ModernThemeToggle();
+            modernThemeToggle7 = new FluentWinForms.Custom_Buttons.ModernThemeToggle();
             SuspendLayout();
             // 
             // modernThemeToggle2

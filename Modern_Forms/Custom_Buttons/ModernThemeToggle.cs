@@ -1,5 +1,5 @@
 ﻿#nullable enable
-using Modern_Forms.Core; 
+using FluentWinForms.Core; 
 using SkiaSharp;
 using SkiaSharp.Views.Desktop;
 using System;
@@ -8,7 +8,7 @@ using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Windows.Forms;
 
-namespace Modern_Forms.Custom_Buttons 
+namespace FluentWinForms.Custom_Buttons 
 {
     /// <summary>
     /// Enumeración de los estilos visuales disponibles para el Toggle. 

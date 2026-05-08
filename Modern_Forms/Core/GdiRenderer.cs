@@ -17,7 +17,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 
-namespace Modern_Forms.Core
+namespace FluentWinForms.Core
 {
     public readonly struct ShadowKey : IEquatable<ShadowKey>
     {
