@@ -279,14 +279,45 @@ namespace FluentWinForms.Core
                 _sharedPaint.ImageFilter = null;
             }
 
-            // 7. FONDO Y FILTROS
+            // 🔥 7. CABLE CONECTADO: FONDO Y FILTROS CSS
             _sharedPaint.Reset();
             _sharedPaint.IsAntialias = true;
 
+            SKImageFilter? blurFilter = null;
+            SKColorFilter? colorFilter = null;
+
             if (node.Filters.Blur > 0)
             {
-                _sharedPaint.ImageFilter = SKImageFilter.CreateBlur(node.Filters.Blur, node.Filters.Blur);
+                blurFilter = SKImageFilter.CreateBlur(node.Filters.Blur, node.Filters.Blur);
             }
+
+            if (node.Filters.Grayscale > 0 || node.Filters.Brightness != 1f || node.Filters.Contrast != 1f)
+            {
+                float b = node.Filters.Brightness;
+                float c = node.Filters.Contrast;
+                float t = (1.0f - c) / 2.0f;
+                float g = node.Filters.Grayscale;
+                float invG = 1f - g;
+
+                float lumR = 0.2126f * g;
+                float lumG = 0.7152f * g;
+                float lumB = 0.0722f * g;
+
+                float[] matrix = new float[] {
+                    (lumR + invG) * c * b, (lumG) * c * b,        (lumB) * c * b,        0, t * 255,
+                    (lumR) * c * b,        (lumG + invG) * c * b, (lumB) * c * b,        0, t * 255,
+                    (lumR) * c * b,        (lumG) * c * b,        (lumB + invG) * c * b, 0, t * 255,
+                    0,                     0,                     0,                     1, 0
+                };
+                colorFilter = SKColorFilter.CreateColorMatrix(matrix);
+            }
+
+            if (blurFilter != null && colorFilter != null)
+                _sharedPaint.ImageFilter = SKImageFilter.CreateCompose(blurFilter, SKImageFilter.CreateColorFilter(colorFilter));
+            else if (blurFilter != null)
+                _sharedPaint.ImageFilter = blurFilter;
+            else if (colorFilter != null)
+                _sharedPaint.ColorFilter = colorFilter;
 
             if (bg.Color1.A > 0 || bg.Color2.A > 0)
             {
@@ -311,6 +342,8 @@ namespace FluentWinForms.Core
 
             _sharedPaint.ImageFilter?.Dispose();
             _sharedPaint.ImageFilter = null;
+            _sharedPaint.ColorFilter?.Dispose();
+            _sharedPaint.ColorFilter = null;
 
             // 8. RIPPLE EFFECT EN NODO
             if (_isRippling && Enabled && node == _currentPressedNode && node.Ripple.Color.A > 0)
@@ -356,23 +389,42 @@ namespace FluentWinForms.Core
                 }
             }
 
-            // 10. TEXTO ALINEADO (CALIDAD RETINA / CSS)
+            // 🔥 9.5 CABLE CONECTADO: IMÁGENES DEL NODO
+            if (node.Content.Image != null && node.Content.ImageOpacity > 0)
+            {
+                _sharedPaint.Reset();
+                _sharedPaint.IsAntialias = true;
+
+                if (node.Content.ImageOpacity < 1.0f)
+                {
+                    _sharedPaint.ColorFilter = SKColorFilter.CreateBlendMode(
+                        SKColors.White.WithAlpha((byte)(node.Content.ImageOpacity * 255)), SKBlendMode.DstIn);
+                }
+
+                using (var ms = new System.IO.MemoryStream())
+                {
+                    node.Content.Image.Save(ms, System.Drawing.Imaging.ImageFormat.Png);
+                    ms.Position = 0;
+                    using (var skImage = SKImage.FromEncodedData(ms))
+                    {
+                        var destRect = rect;
+                        canvas.DrawImage(skImage, destRect, _sharedPaint);
+                    }
+                }
+                _sharedPaint.ColorFilter?.Dispose();
+                _sharedPaint.ColorFilter = null;
+            }
+
+            // 🔥 10. CABLE CONECTADO: TEXTO ALINEADO, WORDWRAP Y DECORACIONES
             if (!string.IsNullOrEmpty(node.Content.Text))
             {
                 _sharedPaint.Reset();
-
-                // 🔥 1. EL MOTOR SUBPÍXEL (El secreto de la nitidez Web)
-                _sharedPaint.IsAntialias = true;                     // Suavizado general de curvas
-                _sharedPaint.LcdRenderText = true;                   // Activa ClearType (usa focos RGB del monitor)
-                _sharedPaint.SubpixelText = true;                    // Permite espaciado fraccional perfecto
-                _sharedPaint.HintingLevel = SKPaintHinting.Full;     // Encaja las letras exacto en los píxeles físicos
-
+                _sharedPaint.IsAntialias = true;
+                _sharedPaint.LcdRenderText = true;
+                _sharedPaint.SubpixelText = true;
+                _sharedPaint.HintingLevel = SKPaintHinting.Full;
                 _sharedPaint.Color = node.Content.TextColor.ToSKColor();
-
-                // 🔥 2. EL FIX DPI: Escalar la fuente con tu propia función S()
                 _sharedPaint.TextSize = S(node.Content.FontSize);
-
-                // Caché estática Zero-Allocation
                 _sharedPaint.Typeface = GetOrCreateTypeface(node.Content.FontFamily, node.Content.IsBold);
 
                 float tx = rect.Left;
@@ -380,16 +432,63 @@ namespace FluentWinForms.Core
                 else if (node.Content.HorizontalAlignment == StringAlignment.Far) { _sharedPaint.TextAlign = SKTextAlign.Right; tx = rect.Right; }
                 else { _sharedPaint.TextAlign = SKTextAlign.Left; }
 
-                SKRect textBounds = new SKRect();
-                _sharedPaint.MeasureText(node.Content.Text, ref textBounds);
+                if (node.Content.WordWrap)
+                {
+                    var lines = WrapTextSkia(node.Content.Text, _sharedPaint, rect.Width);
+                    float lineHeight = _sharedPaint.FontMetrics.Descent - _sharedPaint.FontMetrics.Ascent;
+                    float totalHeight = lines.Count * lineHeight;
 
-                float ty = rect.Top;
-                if (node.Content.VerticalAlignment == StringAlignment.Center) ty = rect.MidY - textBounds.MidY;
-                else if (node.Content.VerticalAlignment == StringAlignment.Far) ty = rect.Bottom - textBounds.Bottom;
-                else ty = rect.Top - textBounds.Top;
+                    float ty = rect.Top - _sharedPaint.FontMetrics.Ascent;
+                    if (node.Content.VerticalAlignment == StringAlignment.Center) ty = rect.MidY - (totalHeight / 2f) - _sharedPaint.FontMetrics.Ascent;
+                    else if (node.Content.VerticalAlignment == StringAlignment.Far) ty = rect.Bottom - totalHeight - _sharedPaint.FontMetrics.Ascent;
 
-                // Dibujado ultra-HD
-                canvas.DrawText(node.Content.Text, tx, ty, _sharedPaint);
+                    foreach (var line in lines)
+                    {
+                        canvas.DrawText(line, tx, ty, _sharedPaint);
+
+                        // Decoraciones Multilínea
+                        if (node.Content.Decoration == TextDecoration.Underline)
+                        {
+                            SKRect lb = new SKRect();
+                            _sharedPaint.MeasureText(line, ref lb);
+                            float underlineY = ty + S(2f);
+                            canvas.DrawLine(lb.Left + tx, underlineY, lb.Right + tx, underlineY, _sharedPaint);
+                        }
+                        else if (node.Content.Decoration == TextDecoration.Strikethrough)
+                        {
+                            SKRect lb = new SKRect();
+                            _sharedPaint.MeasureText(line, ref lb);
+                            float strikeY = ty - (lb.Height / 2f);
+                            canvas.DrawLine(lb.Left + tx, strikeY, lb.Right + tx, strikeY, _sharedPaint);
+                        }
+
+                        ty += lineHeight;
+                    }
+                }
+                else
+                {
+                    SKRect textBounds = new SKRect();
+                    _sharedPaint.MeasureText(node.Content.Text, ref textBounds);
+
+                    float ty = rect.Top;
+                    if (node.Content.VerticalAlignment == StringAlignment.Center) ty = rect.MidY - textBounds.MidY;
+                    else if (node.Content.VerticalAlignment == StringAlignment.Far) ty = rect.Bottom - textBounds.Bottom;
+                    else ty = rect.Top - textBounds.Top;
+
+                    // Decoraciones Simple
+                    if (node.Content.Decoration == TextDecoration.Underline)
+                    {
+                        float underlineY = ty + S(2f);
+                        canvas.DrawLine(textBounds.Left + tx, underlineY, textBounds.Right + tx, underlineY, _sharedPaint);
+                    }
+                    else if (node.Content.Decoration == TextDecoration.Strikethrough)
+                    {
+                        float strikeY = ty - (textBounds.Height / 2f);
+                        canvas.DrawLine(textBounds.Left + tx, strikeY, textBounds.Right + tx, strikeY, _sharedPaint);
+                    }
+
+                    canvas.DrawText(node.Content.Text, tx, ty, _sharedPaint);
+                }
             }
 
             // 11. RECURSIVIDAD DE HIJOS
@@ -398,7 +497,7 @@ namespace FluentWinForms.Core
                 canvas.Save();
                 if (node.Corners.TopLeft > 0)
                 {
-                    using var clipPath = new SKPath(); // 🔥 FIX LEAK: Cierre hermético de memoria C++
+                    using var clipPath = new SKPath();
                     clipPath.AddRoundRect(rect, node.Corners.TopLeft, node.Corners.TopLeft);
                     canvas.ClipPath(clipPath, SKClipOperation.Intersect, true);
                 }

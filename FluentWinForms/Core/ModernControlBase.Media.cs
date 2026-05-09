@@ -108,45 +108,60 @@ namespace FluentWinForms.Core
         protected void ClearTextCache() => SafeDispose(ref _cachedTypeface);
 
         // Utilidad interna para envolver el texto si WordWrap está activado
+        // 🔥 FIX 2 INYECCIÓN PRO: Reutilizamos un StringBuilder en memoria RAM profunda 
+        // para no despertar jamás al Garbage Collector al medir textos.
+        [ThreadStatic]
+        private static System.Text.StringBuilder? _textWrapperBuilder;
+
         protected List<string> WrapTextSkia(string text, SKPaint paint, float maxWidth)
         {
-            var words = text.Split(' ');
             var lines = new List<string>();
-            string currentLine = "";
+            if (string.IsNullOrEmpty(text)) return lines;
 
-            foreach (var word in words)
+            // Usamos nuestra piscina de memoria reciclable
+            _textWrapperBuilder ??= new System.Text.StringBuilder();
+            _textWrapperBuilder.Clear();
+
+            int lastSpaceIndex = -1;
+            int lineStartIndex = 0;
+
+            for (int i = 0; i < text.Length; i++)
             {
-                if (paint.MeasureText(word) > maxWidth)
-                {
-                    if (!string.IsNullOrEmpty(currentLine)) { lines.Add(currentLine); currentLine = ""; }
+                char c = text[i];
+                if (c == ' ') lastSpaceIndex = i;
 
-                    // Cortar palabras anormalmente largas (Anti-DoS)
-                    if (word.Length > 80)
+                _textWrapperBuilder.Append(c);
+
+                // Si lo que llevamos excede el ancho máximo...
+                if (paint.MeasureText(_textWrapperBuilder.ToString()) > maxWidth && _textWrapperBuilder.Length > 1)
+                {
+                    if (lastSpaceIndex > lineStartIndex)
                     {
-                        lines.Add(word.Substring(0, 77) + "...");
-                        continue;
+                        // Cortamos limpiamente en el último espacio encontrado
+                        int len = lastSpaceIndex - lineStartIndex;
+                        lines.Add(text.Substring(lineStartIndex, len));
+
+                        lineStartIndex = lastSpaceIndex + 1;
+                        i = lineStartIndex - 1; // Retrocedemos la lectura
+                    }
+                    else
+                    {
+                        // Palabra gigante sin espacios (Ej: un link largo). Forzamos el corte brutal.
+                        lines.Add(_textWrapperBuilder.ToString(0, _textWrapperBuilder.Length - 1));
+                        lineStartIndex = i;
+                        i--; // Re-evaluamos esta misma letra
                     }
 
-                    string tempWord = "";
-                    foreach (char c in word)
-                    {
-                        if (paint.MeasureText(tempWord + c) <= maxWidth) tempWord += c;
-                        else { lines.Add(tempWord); tempWord = c.ToString(); }
-                    }
-                    currentLine = tempWord;
-                    continue;
-                }
-
-                string testLine = string.IsNullOrEmpty(currentLine) ? word : currentLine + " " + word;
-                if (paint.MeasureText(testLine) <= maxWidth)
-                    currentLine = testLine;
-                else
-                {
-                    lines.Add(currentLine);
-                    currentLine = word;
+                    _textWrapperBuilder.Clear();
+                    lastSpaceIndex = -1;
                 }
             }
-            if (!string.IsNullOrEmpty(currentLine)) lines.Add(currentLine);
+
+            // Agregamos el pedacito de texto final que haya sobrado
+            if (_textWrapperBuilder.Length > 0)
+            {
+                lines.Add(_textWrapperBuilder.ToString());
+            }
 
             return lines;
         }

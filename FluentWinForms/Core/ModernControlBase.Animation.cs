@@ -199,19 +199,25 @@ namespace FluentWinForms.Core
 
         protected virtual bool CustomAnimationLoop(float dt, float step) => false;
 
-        // 🔥 HIT-TESTING
+        
+        // 🔥 FIX 1: BOUNDING BOX CULLING (Optimización extrema de CPU == Menos consumo RAM)
         private RenderNode? HitTest(RenderNode node, PointF pt)
         {
             if (!node.IsVisible || !node.Enabled) return null;
 
+            // 🛡️ ESCUDO: Si el ratón no está dentro del rectángulo de este nodo, 
+            // ignoramos automáticamente a este nodo y a todos sus cientos de hijos.
+            if (!node.Layout.Contains(pt)) return null;
+
+            // Si el mouse SÍ está adentro, revisamos a los hijos de arriba hacia abajo (Z-Index)
             for (int i = node.Children.Count - 1; i >= 0; i--)
             {
                 var hit = HitTest(node.Children[i], pt);
-                if (hit != null) return hit;
+                if (hit != null) return hit; // Si tocamos un hijo, devolvemos el hijo
             }
 
-            if (node.Layout.Contains(pt)) return node;
-            return null;
+            // Si ningún hijo fue tocado, significa que tocamos el fondo de este nodo padre
+            return node;
         }
 
         protected override void OnMouseMove(MouseEventArgs e)

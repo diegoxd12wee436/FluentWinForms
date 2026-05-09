@@ -47,6 +47,7 @@ namespace FluentWinForms
             modernThemeToggle2.BackColor = Color.Transparent;
             modernThemeToggle2.BackgroundColor = Color.Transparent;
             modernThemeToggle2.BackgroundColor2 = Color.Transparent;
+            modernThemeToggle2.BackgroundImageLayout = ImageLayout.Center;
             modernThemeToggle2.BackgroundImg = null;
             modernThemeToggle2.BackgroundImgLayout = ImageLayout.Zoom;
             modernThemeToggle2.BorderColor = Color.Transparent;
@@ -66,7 +67,6 @@ namespace FluentWinForms
             modernThemeToggle2.HoverColor = Color.Transparent;
             modernThemeToggle2.HoverColor2 = Color.Transparent;
             modernThemeToggle2.ImageOpacity = 1F;
-            modernThemeToggle2.IsChecked = false;
             modernThemeToggle2.Location = new Point(320, 94);
             modernThemeToggle2.MinimumSize = new Size(45, 22);
             modernThemeToggle2.Name = "modernThemeToggle2";
@@ -107,6 +107,7 @@ namespace FluentWinForms
             modernThemeToggle1.BackColor = Color.Transparent;
             modernThemeToggle1.BackgroundColor = Color.Transparent;
             modernThemeToggle1.BackgroundColor2 = Color.Transparent;
+            modernThemeToggle1.BackgroundImageLayout = ImageLayout.Center;
             modernThemeToggle1.BackgroundImg = null;
             modernThemeToggle1.BackgroundImgLayout = ImageLayout.Zoom;
             modernThemeToggle1.BorderColor = Color.Transparent;
@@ -126,7 +127,6 @@ namespace FluentWinForms
             modernThemeToggle1.HoverColor = Color.Transparent;
             modernThemeToggle1.HoverColor2 = Color.Transparent;
             modernThemeToggle1.ImageOpacity = 1F;
-            modernThemeToggle1.IsChecked = false;
             modernThemeToggle1.Location = new Point(591, 94);
             modernThemeToggle1.MinimumSize = new Size(45, 22);
             modernThemeToggle1.Name = "modernThemeToggle1";
@@ -167,6 +167,7 @@ namespace FluentWinForms
             modernThemeToggle3.BackColor = Color.Transparent;
             modernThemeToggle3.BackgroundColor = Color.Transparent;
             modernThemeToggle3.BackgroundColor2 = Color.Transparent;
+            modernThemeToggle3.BackgroundImageLayout = ImageLayout.Center;
             modernThemeToggle3.BackgroundImg = null;
             modernThemeToggle3.BackgroundImgLayout = ImageLayout.Zoom;
             modernThemeToggle3.BorderColor = Color.Transparent;
@@ -186,7 +187,6 @@ namespace FluentWinForms
             modernThemeToggle3.HoverColor = Color.Transparent;
             modernThemeToggle3.HoverColor2 = Color.Transparent;
             modernThemeToggle3.ImageOpacity = 1F;
-            modernThemeToggle3.IsChecked = false;
             modernThemeToggle3.Location = new Point(591, 199);
             modernThemeToggle3.MinimumSize = new Size(45, 22);
             modernThemeToggle3.Name = "modernThemeToggle3";
@@ -227,6 +227,7 @@ namespace FluentWinForms
             modernThemeToggle4.BackColor = Color.Transparent;
             modernThemeToggle4.BackgroundColor = Color.Transparent;
             modernThemeToggle4.BackgroundColor2 = Color.Transparent;
+            modernThemeToggle4.BackgroundImageLayout = ImageLayout.Center;
             modernThemeToggle4.BackgroundImg = null;
             modernThemeToggle4.BackgroundImgLayout = ImageLayout.Zoom;
             modernThemeToggle4.BorderColor = Color.Transparent;
@@ -246,7 +247,6 @@ namespace FluentWinForms
             modernThemeToggle4.HoverColor = Color.Transparent;
             modernThemeToggle4.HoverColor2 = Color.Transparent;
             modernThemeToggle4.ImageOpacity = 1F;
-            modernThemeToggle4.IsChecked = false;
             modernThemeToggle4.Location = new Point(80, 199);
             modernThemeToggle4.MinimumSize = new Size(45, 22);
             modernThemeToggle4.Name = "modernThemeToggle4";
@@ -287,6 +287,7 @@ namespace FluentWinForms
             modernThemeToggle5.BackColor = Color.Transparent;
             modernThemeToggle5.BackgroundColor = Color.Transparent;
             modernThemeToggle5.BackgroundColor2 = Color.Transparent;
+            modernThemeToggle5.BackgroundImageLayout = ImageLayout.Center;
             modernThemeToggle5.BackgroundImg = null;
             modernThemeToggle5.BackgroundImgLayout = ImageLayout.Zoom;
             modernThemeToggle5.BorderColor = Color.Transparent;
@@ -306,7 +307,6 @@ namespace FluentWinForms
             modernThemeToggle5.HoverColor = Color.Transparent;
             modernThemeToggle5.HoverColor2 = Color.Transparent;
             modernThemeToggle5.ImageOpacity = 1F;
-            modernThemeToggle5.IsChecked = false;
             modernThemeToggle5.Location = new Point(320, 199);
             modernThemeToggle5.MinimumSize = new Size(45, 22);
             modernThemeToggle5.Name = "modernThemeToggle5";
@@ -347,6 +347,7 @@ namespace FluentWinForms
             modernThemeToggle6.BackColor = Color.Transparent;
             modernThemeToggle6.BackgroundColor = Color.Transparent;
             modernThemeToggle6.BackgroundColor2 = Color.Transparent;
+            modernThemeToggle6.BackgroundImageLayout = ImageLayout.Center;
             modernThemeToggle6.BackgroundImg = null;
             modernThemeToggle6.BackgroundImgLayout = ImageLayout.Zoom;
             modernThemeToggle6.BorderColor = Color.Transparent;
@@ -366,7 +367,6 @@ namespace FluentWinForms
             modernThemeToggle6.HoverColor = Color.Transparent;
             modernThemeToggle6.HoverColor2 = Color.Transparent;
             modernThemeToggle6.ImageOpacity = 1F;
-            modernThemeToggle6.IsChecked = false;
             modernThemeToggle6.Location = new Point(80, 94);
             modernThemeToggle6.MinimumSize = new Size(45, 22);
             modernThemeToggle6.Name = "modernThemeToggle6";
@@ -407,6 +407,7 @@ namespace FluentWinForms
             modernThemeToggle7.BackColor = Color.Transparent;
             modernThemeToggle7.BackgroundColor = Color.Transparent;
             modernThemeToggle7.BackgroundColor2 = Color.Transparent;
+            modernThemeToggle7.BackgroundImageLayout = ImageLayout.Center;
             modernThemeToggle7.BackgroundImg = null;
             modernThemeToggle7.BackgroundImgLayout = ImageLayout.Zoom;
             modernThemeToggle7.BorderColor = Color.Transparent;
@@ -426,7 +427,6 @@ namespace FluentWinForms
             modernThemeToggle7.HoverColor = Color.Transparent;
             modernThemeToggle7.HoverColor2 = Color.Transparent;
             modernThemeToggle7.ImageOpacity = 1F;
-            modernThemeToggle7.IsChecked = false;
             modernThemeToggle7.Location = new Point(320, 329);
             modernThemeToggle7.MinimumSize = new Size(45, 22);
             modernThemeToggle7.Name = "modernThemeToggle7";
