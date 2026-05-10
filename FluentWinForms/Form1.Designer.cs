@@ -31,6 +31,7 @@ namespace FluentWinForms
         /// </summary>
         private void InitializeComponent()
         {
+            components = new System.ComponentModel.Container();
             modernThemeToggle2 = new FluentWinForms.Custom_Buttons.ModernThemeToggle();
             modernThemeToggle1 = new FluentWinForms.Custom_Buttons.ModernThemeToggle();
             modernThemeToggle3 = new FluentWinForms.Custom_Buttons.ModernThemeToggle();
@@ -38,6 +39,7 @@ namespace FluentWinForms
             modernThemeToggle5 = new FluentWinForms.Custom_Buttons.ModernThemeToggle();
             modernThemeToggle6 = new FluentWinForms.Custom_Buttons.ModernThemeToggle();
             modernThemeToggle7 = new FluentWinForms.Custom_Buttons.ModernThemeToggle();
+            modernFormManager1 = new FluentWinForms.Core.ModernFormManager(components);
             SuspendLayout();
             // 
             // modernThemeToggle2
@@ -427,7 +429,7 @@ namespace FluentWinForms
             modernThemeToggle7.HoverColor = Color.Transparent;
             modernThemeToggle7.HoverColor2 = Color.Transparent;
             modernThemeToggle7.ImageOpacity = 1F;
-            modernThemeToggle7.Location = new Point(320, 329);
+            modernThemeToggle7.Location = new Point(330, 337);
             modernThemeToggle7.MinimumSize = new Size(45, 22);
             modernThemeToggle7.Name = "modernThemeToggle7";
             modernThemeToggle7.Opacity = 1F;
@@ -460,10 +462,26 @@ namespace FluentWinForms
             modernThemeToggle7.VerticalAlignment = StringAlignment.Center;
             modernThemeToggle7.WordWrap = false;
             // 
+            // modernFormManager1
+            //             
+            modernFormManager1.BackdropType = Core.FormBackdropType.Acrylic;
+            modernFormManager1.BorderColor = Color.FromArgb(40, 255, 255, 255);
+            modernFormManager1.BorderRadius = 12;
+            modernFormManager1.BorderThickness = 0F;
+            modernFormManager1.DragControl = null;
+            modernFormManager1.DragOpacity = 0.8D;
+            modernFormManager1.EnableDrag = true;
+            modernFormManager1.ForceDarkModeTitleBar = false;
+            modernFormManager1.TargetForm = this;
+            modernFormManager1.TransparentStyle = false;
+            modernFormManager1.UseModernRoundedCorners = true;
+            modernFormManager1.UseSkia = true;
+            // 
             // Form1
             // 
             AutoScaleDimensions = new SizeF(8F, 20F);
             AutoScaleMode = AutoScaleMode.Font;
+            BackColor = Color.LightSeaGreen;
             ClientSize = new Size(800, 450);
             Controls.Add(modernThemeToggle7);
             Controls.Add(modernThemeToggle6);
@@ -472,6 +490,8 @@ namespace FluentWinForms
             Controls.Add(modernThemeToggle3);
             Controls.Add(modernThemeToggle1);
             Controls.Add(modernThemeToggle2);
+            DoubleBuffered = true;
+            FormBorderStyle = FormBorderStyle.None;
             Name = "Form1";
             Text = "Form1";
             ResumeLayout(false);
@@ -486,5 +506,6 @@ namespace FluentWinForms
         private Custom_Buttons.ModernThemeToggle modernThemeToggle5;
         private Custom_Buttons.ModernThemeToggle modernThemeToggle6;
         private Custom_Buttons.ModernThemeToggle modernThemeToggle7;
+        private Core.ModernFormManager modernFormManager1;
     }
 }

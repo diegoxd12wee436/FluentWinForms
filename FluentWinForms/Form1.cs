@@ -1,3 +1,4 @@
+using FluentWinForms.Core;
 using System;
 using System.Windows.Forms;
 namespace FluentWinForms
@@ -7,6 +8,8 @@ namespace FluentWinForms
         public Form1()
         {
             InitializeComponent();
+            
+
         }
     }
 }
