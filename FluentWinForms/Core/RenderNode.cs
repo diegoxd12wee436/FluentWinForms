@@ -10,8 +10,12 @@ using System.Collections.ObjectModel; // 🔥 INYECCIÓN: Para Reactividad del �
 namespace FluentWinForms.Core
 {
     // ==========================================
-    // ENUMS DE ESTILO (Nivel CSS)
+    // ENUMS DE ESTILO (Comos CSS)
     // ==========================================
+    public enum AnimationEasing
+    {
+        Linear, EaseInOut, EaseOutBack, Spring // 🔥 La nueva fisica (Animations)
+    }
     public enum BorderStyle { Solid, Dashed, Dotted }          // Sólido, Discontinuo, Punteado
     public enum ImageFit { Fill, Contain, Cover, None }        // Llenar, Contener, Cubrir, Ninguno
     public enum TextDecoration { None, Underline, Strikethrough } // Ninguno, Subrayado, Tachado
@@ -93,6 +97,10 @@ namespace FluentWinForms.Core
         [Description("Indica si el nodo está habilitado.\nWhether the node is enabled.")]
         [NotifyParentProperty(true)]
         public bool Enabled { get; set; } = true;
+        [Category("3. Apariencia")]
+        [Description("Curva matemática o física de la animación.\nMathematical or physical curve of the animation.")]
+        [NotifyParentProperty(true)]
+        public AnimationEasing Easing { get; set; } = AnimationEasing.EaseInOut;
 
         // --- Capas Visuales (Campos Struct = 0 Heap Allocations) --- // --- Visual Layers (Struct fields = 0 heap allocs) ---
         [Category("4. Capas Visuales")]

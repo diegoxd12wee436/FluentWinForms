@@ -12,6 +12,10 @@ namespace FluentWinForms.Core
     {
         // Configuraciones de Animación
         [Category("Modern -  Animations")]
+        [Description("Tipo de curva de animación que usará el control principal.\nAnimation curve type used by the main control.")]
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Visible)]
+        public AnimationEasing AnimationType { get; set; } = AnimationEasing.EaseInOut;
+        [Category("Modern -  Animations")]
         [Description("Velocidad de las animaciones (en milisegundos para completar la transición) \nSpeed of animations (in milliseconds to complete the transition)")]
         [DesignerSerializationVisibility(DesignerSerializationVisibility.Visible)]
         public float AnimationSpeed { get; set; } = 150f;
@@ -322,12 +326,36 @@ namespace FluentWinForms.Core
 
         public static class Easing
         {
+            // 🔥 El Selector Maestro
+            public static float Calculate(AnimationEasing type, float t)
+            {
+                switch (type)
+                {
+                    case AnimationEasing.Linear: return Linear(t);
+                    case AnimationEasing.EaseInOut: return EaseInOutQuad(t);
+                    case AnimationEasing.EaseOutBack: return EaseOutBack(t);
+                    case AnimationEasing.Spring: return Spring(t);
+                    default: return EaseInOutQuad(t);
+                }
+            }
+
             public static float Linear(float t) => t;
+
             public static float EaseInOutQuad(float t) => t < 0.5f ? 2f * t * t : -1f + (4f - 2f * t) * t;
+
             public static float EaseOutBack(float t)
             {
                 float c1 = 1.70158f; float c3 = c1 + 1f;
                 return 1f + c3 * (float)Math.Pow(t - 1, 3) + c1 * (float)Math.Pow(t - 1, 2);
+            }
+
+            // 🔥 LA FÍSICA SPRING (Masa, Tensión y Fricción convertidas a curva de tiempo)
+            public static float Spring(float t)
+            {
+                if (t == 0f || t == 1f) return t;
+                // Fórmula de amortiguación (Underdamped Spring) estilo Apple
+                float c4 = (2f * (float)Math.PI) / 3f;
+                return (float)(Math.Pow(2, -10 * t) * Math.Sin((t * 10f - 0.75f) * c4) + 1f);
             }
         }
     }

@@ -204,7 +204,9 @@ namespace FluentWinForms.Core
             // 2. INTERPOLACIÓN (LERP) PARA HOVER (Transición Suave)
             if (node.HoverProgress > 0)
             {
-                float e = Easing.EaseInOutQuad(node.HoverProgress);
+                // 🔥 Se usa la fisica que el desarrollador haya elegido para el Hover, haciendo que la transición sea más fluida y personalizada
+                float e = Easing.Calculate(node.Easing, node.HoverProgress);
+
                 if (node.HoverState.Background.HasValue)
                 {
                     bg.Color1 = LerpColor(bg.Color1, node.HoverState.Background.Value.Color1, e);
@@ -223,7 +225,9 @@ namespace FluentWinForms.Core
             // 3. INTERPOLACIÓN (LERP) PARA PRESS (Transición Suave sobre el Hover)
             if (node.PressProgress > 0)
             {
-                float e = Easing.EaseInOutQuad(node.PressProgress);
+                // 🔥 Se usa la física elegida
+                float e = Easing.Calculate(node.Easing, node.PressProgress);
+
                 if (node.PressState.Background.HasValue)
                 {
                     bg.Color1 = LerpColor(bg.Color1, node.PressState.Background.Value.Color1, e);
@@ -279,7 +283,7 @@ namespace FluentWinForms.Core
                 _sharedPaint.ImageFilter = null;
             }
 
-            // 🔥 7. CABLE CONECTADO: FONDO Y FILTROS CSS
+            // 🔥 7.  FONDO Y FILTROS CSS
             _sharedPaint.Reset();
             _sharedPaint.IsAntialias = true;
 
@@ -389,7 +393,7 @@ namespace FluentWinForms.Core
                 }
             }
 
-            // 🔥 9.5 CABLE CONECTADO: IMÁGENES DEL NODO
+            // 🔥 9.5  IMÁGENES DEL NODO
             if (node.Content.Image != null && node.Content.ImageOpacity > 0)
             {
                 _sharedPaint.Reset();
@@ -415,7 +419,7 @@ namespace FluentWinForms.Core
                 _sharedPaint.ColorFilter = null;
             }
 
-            // 🔥 10. CABLE CONECTADO: TEXTO ALINEADO, WORDWRAP Y DECORACIONES
+            // 🔥 10.  TEXTO ALINEADO, WORDWRAP Y DECORACIONES
             if (!string.IsNullOrEmpty(node.Content.Text))
             {
                 _sharedPaint.Reset();

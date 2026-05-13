@@ -34,9 +34,10 @@ namespace FluentWinForms
             }
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
+            
 #endif
-
             Application.Run(new Form1());
+
         }
     }
 }

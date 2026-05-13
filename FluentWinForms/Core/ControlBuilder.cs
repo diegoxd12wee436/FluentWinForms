@@ -246,6 +246,7 @@ namespace FluentWinForms.Core
             public StateBuilder Scale(double scale) => Scale((float)scale);
 
             public StateBuilder Opacity(float opacity) { _state.Opacity = opacity; return this; }
+
             public StateBuilder Opacity(double opacity) => Opacity((float)opacity);
 
             // 🔥 INYECCIÓN PRO: Permite recuperar el struct modificado
@@ -345,6 +346,12 @@ namespace FluentWinForms.Core
 
             public RippleBuilder Opacity(float o) { var rp = _node.Ripple; rp.Opacity = Math.Max(0f, Math.Min(1f, o)); _node.Ripple = rp; return this; }
             public RippleBuilder Opacity(double o) => Opacity((float)o);
+        }
+        // Pon esto junto a tus otros métodos rápidos como "Opacity" o "Visible"
+        public ControlBuilder Easing(AnimationEasing ease)
+        {
+            _node.Easing = ease;
+            return this;
         }
     }
 }
