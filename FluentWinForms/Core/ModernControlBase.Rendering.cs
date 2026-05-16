@@ -2,14 +2,8 @@
 #pragma warning disable CA1416 // Silencia advertencias de compatibilidad de System.Drawing en .NET 6+
 using SkiaSharp;
 using SkiaSharp.Views.Desktop;
-using System;
 using System.Diagnostics;
-using System.Drawing;
 using System.Drawing.Drawing2D;
-using System.Drawing.Imaging; // 🔥 INYECCIÓN: Para PixelFormat y ImageLockMode
-using System.IO;
-using System.Runtime.InteropServices; // 🔥 INYECCIÓN: Para Marshal.Copy
-using System.Windows.Forms;
 
 namespace FluentWinForms.Core
 {
@@ -281,6 +275,54 @@ namespace FluentWinForms.Core
 
                 _sharedPaint.ImageFilter?.Dispose();
                 _sharedPaint.ImageFilter = null;
+            }
+
+            // 🔥 INYECCIÓN 2 CORREGIDA: CRISTAL ÓPTICO (Skia 2.88.8 - Cero Lag)
+            // Solo preguntamos si está habilitado (los Structs nunca son null)
+            if (node.Acrylic.IsEnabled)
+            {
+                canvas.Save();
+
+                // 1. Recortamos el cristal respetando tus bordes curvos
+                if (node.Corners.TopLeft > 0)
+                {
+                    using var clipPath = new SKPath();
+                    clipPath.AddRoundRect(rect, node.Corners.TopLeft, node.Corners.TopLeft);
+                    canvas.ClipPath(clipPath, SKClipOperation.Intersect, true);
+                }
+                else
+                {
+                    canvas.ClipRect(rect, SKClipOperation.Intersect, true);
+                }
+
+                // 2. Tinte Cristalino (Glassmorphism por Transparencia Alpha)
+                var tint = node.Acrylic.TintColor;
+                using var tintPaint = new SKPaint
+                {
+                    Style = SKPaintStyle.Fill,
+                    Color = new SKColor(tint.R, tint.G, tint.B, tint.A),
+                    IsAntialias = true
+                };
+                canvas.DrawRect(rect, tintPaint);
+
+                // 3. Efecto "Bisel" (Glow Interno) para simular volumen de cristal 3D
+                using var glowPaint = new SKPaint
+                {
+                    Style = SKPaintStyle.Stroke,
+                    // Si el cristal es oscuro, brillo blanco sutil. Si es claro, brillo más fuerte.
+                    Color = new SKColor(255, 255, 255, (byte)(tint.A > 100 ? 25 : 60)),
+                    StrokeWidth = 1.5f,
+                    IsAntialias = true
+                };
+
+                // Dibujamos el reflejo 1 pixel hacia adentro
+                var glowRect = new SKRect(rect.Left + 1, rect.Top + 1, rect.Right - 1, rect.Bottom - 1);
+                if (node.Corners.TopLeft > 0)
+                    canvas.DrawRoundRect(glowRect, node.Corners.TopLeft, node.Corners.TopLeft, glowPaint);
+                else
+                    canvas.DrawRect(glowRect, glowPaint);
+
+                canvas.Restore();
             }
 
             // 🔥 7.  FONDO Y FILTROS CSS

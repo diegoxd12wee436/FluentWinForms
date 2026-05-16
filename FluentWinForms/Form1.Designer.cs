@@ -32,7 +32,6 @@ namespace FluentWinForms
         private void InitializeComponent()
         {
             components = new System.ComponentModel.Container();
-            modernFormManager1 = new FluentWinForms.Core.ModernFormManager(components);
             modernThemeToggle1 = new FluentWinForms.Custom_Buttons.ModernThemeToggle();
             modernThemeToggle2 = new FluentWinForms.Custom_Buttons.ModernThemeToggle();
             modernThemeToggle3 = new FluentWinForms.Custom_Buttons.ModernThemeToggle();
@@ -53,23 +52,10 @@ namespace FluentWinForms
             modernThemeToggle18 = new FluentWinForms.Custom_Buttons.ModernThemeToggle();
             modernThemeToggle19 = new FluentWinForms.Custom_Buttons.ModernThemeToggle();
             modernThemeToggle20 = new FluentWinForms.Custom_Buttons.ModernThemeToggle();
+            panel1 = new Panel();
+            modernFormManager1 = new FluentWinForms.Core.ModernFormManager(components);
+            panel1.SuspendLayout();
             SuspendLayout();
-            // 
-            // modernFormManager1
-            // 
-            modernFormManager1.AutoSetBlackBackground = true;
-            modernFormManager1.BackdropType = Core.FormBackdropType.Acrylic;
-            modernFormManager1.BorderColor = Color.FromArgb(40, 255, 255, 255);
-            modernFormManager1.BorderRadius = 14;
-            modernFormManager1.BorderThickness = 0F;
-            modernFormManager1.DragControl = null;
-            modernFormManager1.DragOpacity = 1D;
-            modernFormManager1.EnableDrag = true;
-            modernFormManager1.ForceDarkModeTitleBar = true;
-            modernFormManager1.TargetForm = this;
-            modernFormManager1.TransparentStyle = false;
-            modernFormManager1.UseModernRoundedCorners = true;
-            modernFormManager1.UseSkia = true;
             // 
             // modernThemeToggle1
             // 
@@ -98,7 +84,7 @@ namespace FluentWinForms
             modernThemeToggle1.HoverColor = Color.Transparent;
             modernThemeToggle1.HoverColor2 = Color.Transparent;
             modernThemeToggle1.ImageOpacity = 1F;
-            modernThemeToggle1.Location = new Point(349, 142);
+            modernThemeToggle1.Location = new Point(461, 66);
             modernThemeToggle1.MinimumSize = new Size(45, 22);
             modernThemeToggle1.Name = "modernThemeToggle1";
             modernThemeToggle1.Opacity = 1F;
@@ -122,8 +108,8 @@ namespace FluentWinForms
             modernThemeToggle1.ThumbColorOff = Color.White;
             modernThemeToggle1.ThumbColorOn = Color.White;
             modernThemeToggle1.ToggleColorOff = Color.FromArgb(220, 224, 232);
-            modernThemeToggle1.ToggleColorOn = Color.FromArgb(138, 43, 226);
-            modernThemeToggle1.UseAcrylic = false;
+            modernThemeToggle1.ToggleColorOn = Color.FromArgb(45, 140, 240);
+            modernThemeToggle1.UseAcrylic = true;
             modernThemeToggle1.UseGradient = false;
             modernThemeToggle1.UseRipple = false;
             modernThemeToggle1.UseShadow = false;
@@ -158,7 +144,7 @@ namespace FluentWinForms
             modernThemeToggle2.HoverColor = Color.Transparent;
             modernThemeToggle2.HoverColor2 = Color.Transparent;
             modernThemeToggle2.ImageOpacity = 1F;
-            modernThemeToggle2.Location = new Point(227, 190);
+            modernThemeToggle2.Location = new Point(541, 349);
             modernThemeToggle2.MinimumSize = new Size(45, 22);
             modernThemeToggle2.Name = "modernThemeToggle2";
             modernThemeToggle2.Opacity = 1F;
@@ -182,7 +168,7 @@ namespace FluentWinForms
             modernThemeToggle2.ThumbColorOff = Color.White;
             modernThemeToggle2.ThumbColorOn = Color.White;
             modernThemeToggle2.ToggleColorOff = Color.FromArgb(220, 224, 232);
-            modernThemeToggle2.ToggleColorOn = Color.FromArgb(138, 43, 226);
+            modernThemeToggle2.ToggleColorOn = Color.FromArgb(45, 140, 240);
             modernThemeToggle2.UseAcrylic = false;
             modernThemeToggle2.UseGradient = false;
             modernThemeToggle2.UseRipple = false;
@@ -218,7 +204,7 @@ namespace FluentWinForms
             modernThemeToggle3.HoverColor = Color.Transparent;
             modernThemeToggle3.HoverColor2 = Color.Transparent;
             modernThemeToggle3.ImageOpacity = 1F;
-            modernThemeToggle3.Location = new Point(227, 142);
+            modernThemeToggle3.Location = new Point(375, 66);
             modernThemeToggle3.MinimumSize = new Size(45, 22);
             modernThemeToggle3.Name = "modernThemeToggle3";
             modernThemeToggle3.Opacity = 1F;
@@ -242,8 +228,8 @@ namespace FluentWinForms
             modernThemeToggle3.ThumbColorOff = Color.White;
             modernThemeToggle3.ThumbColorOn = Color.White;
             modernThemeToggle3.ToggleColorOff = Color.FromArgb(220, 224, 232);
-            modernThemeToggle3.ToggleColorOn = Color.FromArgb(138, 43, 226);
-            modernThemeToggle3.UseAcrylic = false;
+            modernThemeToggle3.ToggleColorOn = Color.FromArgb(45, 140, 240);
+            modernThemeToggle3.UseAcrylic = true;
             modernThemeToggle3.UseGradient = false;
             modernThemeToggle3.UseRipple = false;
             modernThemeToggle3.UseShadow = false;
@@ -279,7 +265,7 @@ namespace FluentWinForms
             modernThemeToggle4.HoverColor = Color.Transparent;
             modernThemeToggle4.HoverColor2 = Color.Transparent;
             modernThemeToggle4.ImageOpacity = 1F;
-            modernThemeToggle4.Location = new Point(467, 142);
+            modernThemeToggle4.Location = new Point(215, 323);
             modernThemeToggle4.MinimumSize = new Size(45, 22);
             modernThemeToggle4.Name = "modernThemeToggle4";
             modernThemeToggle4.Opacity = 1F;
@@ -303,7 +289,7 @@ namespace FluentWinForms
             modernThemeToggle4.ThumbColorOff = Color.White;
             modernThemeToggle4.ThumbColorOn = Color.White;
             modernThemeToggle4.ToggleColorOff = Color.FromArgb(220, 224, 232);
-            modernThemeToggle4.ToggleColorOn = Color.FromArgb(138, 43, 226);
+            modernThemeToggle4.ToggleColorOn = Color.FromArgb(45, 140, 240);
             modernThemeToggle4.UseAcrylic = false;
             modernThemeToggle4.UseGradient = false;
             modernThemeToggle4.UseRipple = false;
@@ -339,7 +325,7 @@ namespace FluentWinForms
             modernThemeToggle5.HoverColor = Color.Transparent;
             modernThemeToggle5.HoverColor2 = Color.Transparent;
             modernThemeToggle5.ImageOpacity = 1F;
-            modernThemeToggle5.Location = new Point(467, 190);
+            modernThemeToggle5.Location = new Point(215, 371);
             modernThemeToggle5.MinimumSize = new Size(45, 22);
             modernThemeToggle5.Name = "modernThemeToggle5";
             modernThemeToggle5.Opacity = 1F;
@@ -363,7 +349,7 @@ namespace FluentWinForms
             modernThemeToggle5.ThumbColorOff = Color.White;
             modernThemeToggle5.ThumbColorOn = Color.White;
             modernThemeToggle5.ToggleColorOff = Color.FromArgb(220, 224, 232);
-            modernThemeToggle5.ToggleColorOn = Color.FromArgb(138, 43, 226);
+            modernThemeToggle5.ToggleColorOn = Color.FromArgb(45, 140, 240);
             modernThemeToggle5.UseAcrylic = false;
             modernThemeToggle5.UseGradient = false;
             modernThemeToggle5.UseRipple = false;
@@ -399,7 +385,7 @@ namespace FluentWinForms
             modernThemeToggle6.HoverColor = Color.Transparent;
             modernThemeToggle6.HoverColor2 = Color.Transparent;
             modernThemeToggle6.ImageOpacity = 1F;
-            modernThemeToggle6.Location = new Point(111, 145);
+            modernThemeToggle6.Location = new Point(211, 87);
             modernThemeToggle6.MinimumSize = new Size(45, 22);
             modernThemeToggle6.Name = "modernThemeToggle6";
             modernThemeToggle6.Opacity = 1F;
@@ -423,8 +409,8 @@ namespace FluentWinForms
             modernThemeToggle6.ThumbColorOff = Color.White;
             modernThemeToggle6.ThumbColorOn = Color.White;
             modernThemeToggle6.ToggleColorOff = Color.FromArgb(220, 224, 232);
-            modernThemeToggle6.ToggleColorOn = Color.FromArgb(138, 43, 226);
-            modernThemeToggle6.UseAcrylic = false;
+            modernThemeToggle6.ToggleColorOn = Color.FromArgb(45, 140, 240);
+            modernThemeToggle6.UseAcrylic = true;
             modernThemeToggle6.UseGradient = false;
             modernThemeToggle6.UseRipple = false;
             modernThemeToggle6.UseShadow = false;
@@ -459,7 +445,7 @@ namespace FluentWinForms
             modernThemeToggle7.HoverColor = Color.Transparent;
             modernThemeToggle7.HoverColor2 = Color.Transparent;
             modernThemeToggle7.ImageOpacity = 1F;
-            modernThemeToggle7.Location = new Point(111, 190);
+            modernThemeToggle7.Location = new Point(425, 349);
             modernThemeToggle7.MinimumSize = new Size(45, 22);
             modernThemeToggle7.Name = "modernThemeToggle7";
             modernThemeToggle7.Opacity = 1F;
@@ -483,7 +469,7 @@ namespace FluentWinForms
             modernThemeToggle7.ThumbColorOff = Color.White;
             modernThemeToggle7.ThumbColorOn = Color.White;
             modernThemeToggle7.ToggleColorOff = Color.FromArgb(220, 224, 232);
-            modernThemeToggle7.ToggleColorOn = Color.FromArgb(138, 43, 226);
+            modernThemeToggle7.ToggleColorOn = Color.FromArgb(45, 140, 240);
             modernThemeToggle7.UseAcrylic = false;
             modernThemeToggle7.UseGradient = false;
             modernThemeToggle7.UseRipple = false;
@@ -519,7 +505,7 @@ namespace FluentWinForms
             modernThemeToggle8.HoverColor = Color.Transparent;
             modernThemeToggle8.HoverColor2 = Color.Transparent;
             modernThemeToggle8.ImageOpacity = 1F;
-            modernThemeToggle8.Location = new Point(574, 145);
+            modernThemeToggle8.Location = new Point(322, 323);
             modernThemeToggle8.MinimumSize = new Size(45, 22);
             modernThemeToggle8.Name = "modernThemeToggle8";
             modernThemeToggle8.Opacity = 1F;
@@ -543,7 +529,7 @@ namespace FluentWinForms
             modernThemeToggle8.ThumbColorOff = Color.White;
             modernThemeToggle8.ThumbColorOn = Color.White;
             modernThemeToggle8.ToggleColorOff = Color.FromArgb(220, 224, 232);
-            modernThemeToggle8.ToggleColorOn = Color.FromArgb(138, 43, 226);
+            modernThemeToggle8.ToggleColorOn = Color.FromArgb(45, 140, 240);
             modernThemeToggle8.UseAcrylic = false;
             modernThemeToggle8.UseGradient = false;
             modernThemeToggle8.UseRipple = false;
@@ -579,7 +565,7 @@ namespace FluentWinForms
             modernThemeToggle9.HoverColor = Color.Transparent;
             modernThemeToggle9.HoverColor2 = Color.Transparent;
             modernThemeToggle9.ImageOpacity = 1F;
-            modernThemeToggle9.Location = new Point(574, 190);
+            modernThemeToggle9.Location = new Point(66, 58);
             modernThemeToggle9.MinimumSize = new Size(45, 22);
             modernThemeToggle9.Name = "modernThemeToggle9";
             modernThemeToggle9.Opacity = 1F;
@@ -603,7 +589,7 @@ namespace FluentWinForms
             modernThemeToggle9.ThumbColorOff = Color.White;
             modernThemeToggle9.ThumbColorOn = Color.White;
             modernThemeToggle9.ToggleColorOff = Color.FromArgb(220, 224, 232);
-            modernThemeToggle9.ToggleColorOn = Color.FromArgb(138, 43, 226);
+            modernThemeToggle9.ToggleColorOn = Color.FromArgb(45, 140, 240);
             modernThemeToggle9.UseAcrylic = false;
             modernThemeToggle9.UseGradient = false;
             modernThemeToggle9.UseRipple = false;
@@ -639,7 +625,7 @@ namespace FluentWinForms
             modernThemeToggle10.HoverColor = Color.Transparent;
             modernThemeToggle10.HoverColor2 = Color.Transparent;
             modernThemeToggle10.ImageOpacity = 1F;
-            modernThemeToggle10.Location = new Point(349, 190);
+            modernThemeToggle10.Location = new Point(97, 371);
             modernThemeToggle10.MinimumSize = new Size(45, 22);
             modernThemeToggle10.Name = "modernThemeToggle10";
             modernThemeToggle10.Opacity = 1F;
@@ -663,7 +649,7 @@ namespace FluentWinForms
             modernThemeToggle10.ThumbColorOff = Color.White;
             modernThemeToggle10.ThumbColorOn = Color.White;
             modernThemeToggle10.ToggleColorOff = Color.FromArgb(220, 224, 232);
-            modernThemeToggle10.ToggleColorOn = Color.FromArgb(138, 43, 226);
+            modernThemeToggle10.ToggleColorOn = Color.FromArgb(45, 140, 240);
             modernThemeToggle10.UseAcrylic = false;
             modernThemeToggle10.UseGradient = false;
             modernThemeToggle10.UseRipple = false;
@@ -699,7 +685,7 @@ namespace FluentWinForms
             modernThemeToggle11.HoverColor = Color.Transparent;
             modernThemeToggle11.HoverColor2 = Color.Transparent;
             modernThemeToggle11.ImageOpacity = 1F;
-            modernThemeToggle11.Location = new Point(349, 313);
+            modernThemeToggle11.Location = new Point(97, 494);
             modernThemeToggle11.MinimumSize = new Size(45, 22);
             modernThemeToggle11.Name = "modernThemeToggle11";
             modernThemeToggle11.Opacity = 1F;
@@ -723,7 +709,7 @@ namespace FluentWinForms
             modernThemeToggle11.ThumbColorOff = Color.White;
             modernThemeToggle11.ThumbColorOn = Color.White;
             modernThemeToggle11.ToggleColorOff = Color.FromArgb(220, 224, 232);
-            modernThemeToggle11.ToggleColorOn = Color.FromArgb(138, 43, 226);
+            modernThemeToggle11.ToggleColorOn = Color.FromArgb(45, 140, 240);
             modernThemeToggle11.UseAcrylic = false;
             modernThemeToggle11.UseGradient = false;
             modernThemeToggle11.UseRipple = false;
@@ -759,7 +745,7 @@ namespace FluentWinForms
             modernThemeToggle12.HoverColor = Color.Transparent;
             modernThemeToggle12.HoverColor2 = Color.Transparent;
             modernThemeToggle12.ImageOpacity = 1F;
-            modernThemeToggle12.Location = new Point(574, 268);
+            modernThemeToggle12.Location = new Point(322, 449);
             modernThemeToggle12.MinimumSize = new Size(45, 22);
             modernThemeToggle12.Name = "modernThemeToggle12";
             modernThemeToggle12.Opacity = 1F;
@@ -783,7 +769,7 @@ namespace FluentWinForms
             modernThemeToggle12.ThumbColorOff = Color.White;
             modernThemeToggle12.ThumbColorOn = Color.White;
             modernThemeToggle12.ToggleColorOff = Color.FromArgb(220, 224, 232);
-            modernThemeToggle12.ToggleColorOn = Color.FromArgb(138, 43, 226);
+            modernThemeToggle12.ToggleColorOn = Color.FromArgb(45, 140, 240);
             modernThemeToggle12.UseAcrylic = false;
             modernThemeToggle12.UseGradient = false;
             modernThemeToggle12.UseRipple = false;
@@ -819,7 +805,7 @@ namespace FluentWinForms
             modernThemeToggle13.HoverColor = Color.Transparent;
             modernThemeToggle13.HoverColor2 = Color.Transparent;
             modernThemeToggle13.ImageOpacity = 1F;
-            modernThemeToggle13.Location = new Point(574, 313);
+            modernThemeToggle13.Location = new Point(322, 494);
             modernThemeToggle13.MinimumSize = new Size(45, 22);
             modernThemeToggle13.Name = "modernThemeToggle13";
             modernThemeToggle13.Opacity = 1F;
@@ -843,7 +829,7 @@ namespace FluentWinForms
             modernThemeToggle13.ThumbColorOff = Color.White;
             modernThemeToggle13.ThumbColorOn = Color.White;
             modernThemeToggle13.ToggleColorOff = Color.FromArgb(220, 224, 232);
-            modernThemeToggle13.ToggleColorOn = Color.FromArgb(138, 43, 226);
+            modernThemeToggle13.ToggleColorOn = Color.FromArgb(45, 140, 240);
             modernThemeToggle13.UseAcrylic = false;
             modernThemeToggle13.UseGradient = false;
             modernThemeToggle13.UseRipple = false;
@@ -879,7 +865,7 @@ namespace FluentWinForms
             modernThemeToggle14.HoverColor = Color.Transparent;
             modernThemeToggle14.HoverColor2 = Color.Transparent;
             modernThemeToggle14.ImageOpacity = 1F;
-            modernThemeToggle14.Location = new Point(111, 268);
+            modernThemeToggle14.Location = new Point(425, 427);
             modernThemeToggle14.MinimumSize = new Size(45, 22);
             modernThemeToggle14.Name = "modernThemeToggle14";
             modernThemeToggle14.Opacity = 1F;
@@ -903,7 +889,7 @@ namespace FluentWinForms
             modernThemeToggle14.ThumbColorOff = Color.White;
             modernThemeToggle14.ThumbColorOn = Color.White;
             modernThemeToggle14.ToggleColorOff = Color.FromArgb(220, 224, 232);
-            modernThemeToggle14.ToggleColorOn = Color.FromArgb(138, 43, 226);
+            modernThemeToggle14.ToggleColorOn = Color.FromArgb(45, 140, 240);
             modernThemeToggle14.UseAcrylic = false;
             modernThemeToggle14.UseGradient = false;
             modernThemeToggle14.UseRipple = false;
@@ -939,7 +925,7 @@ namespace FluentWinForms
             modernThemeToggle15.HoverColor = Color.Transparent;
             modernThemeToggle15.HoverColor2 = Color.Transparent;
             modernThemeToggle15.ImageOpacity = 1F;
-            modernThemeToggle15.Location = new Point(111, 313);
+            modernThemeToggle15.Location = new Point(425, 472);
             modernThemeToggle15.MinimumSize = new Size(45, 22);
             modernThemeToggle15.Name = "modernThemeToggle15";
             modernThemeToggle15.Opacity = 1F;
@@ -963,7 +949,7 @@ namespace FluentWinForms
             modernThemeToggle15.ThumbColorOff = Color.White;
             modernThemeToggle15.ThumbColorOn = Color.White;
             modernThemeToggle15.ToggleColorOff = Color.FromArgb(220, 224, 232);
-            modernThemeToggle15.ToggleColorOn = Color.FromArgb(138, 43, 226);
+            modernThemeToggle15.ToggleColorOn = Color.FromArgb(45, 140, 240);
             modernThemeToggle15.UseAcrylic = false;
             modernThemeToggle15.UseGradient = false;
             modernThemeToggle15.UseRipple = false;
@@ -999,7 +985,7 @@ namespace FluentWinForms
             modernThemeToggle16.HoverColor = Color.Transparent;
             modernThemeToggle16.HoverColor2 = Color.Transparent;
             modernThemeToggle16.ImageOpacity = 1F;
-            modernThemeToggle16.Location = new Point(467, 265);
+            modernThemeToggle16.Location = new Point(215, 446);
             modernThemeToggle16.MinimumSize = new Size(45, 22);
             modernThemeToggle16.Name = "modernThemeToggle16";
             modernThemeToggle16.Opacity = 1F;
@@ -1023,7 +1009,7 @@ namespace FluentWinForms
             modernThemeToggle16.ThumbColorOff = Color.White;
             modernThemeToggle16.ThumbColorOn = Color.White;
             modernThemeToggle16.ToggleColorOff = Color.FromArgb(220, 224, 232);
-            modernThemeToggle16.ToggleColorOn = Color.FromArgb(138, 43, 226);
+            modernThemeToggle16.ToggleColorOn = Color.FromArgb(45, 140, 240);
             modernThemeToggle16.UseAcrylic = false;
             modernThemeToggle16.UseGradient = false;
             modernThemeToggle16.UseRipple = false;
@@ -1059,7 +1045,7 @@ namespace FluentWinForms
             modernThemeToggle17.HoverColor = Color.Transparent;
             modernThemeToggle17.HoverColor2 = Color.Transparent;
             modernThemeToggle17.ImageOpacity = 1F;
-            modernThemeToggle17.Location = new Point(467, 313);
+            modernThemeToggle17.Location = new Point(215, 494);
             modernThemeToggle17.MinimumSize = new Size(45, 22);
             modernThemeToggle17.Name = "modernThemeToggle17";
             modernThemeToggle17.Opacity = 1F;
@@ -1083,7 +1069,7 @@ namespace FluentWinForms
             modernThemeToggle17.ThumbColorOff = Color.White;
             modernThemeToggle17.ThumbColorOn = Color.White;
             modernThemeToggle17.ToggleColorOff = Color.FromArgb(220, 224, 232);
-            modernThemeToggle17.ToggleColorOn = Color.FromArgb(138, 43, 226);
+            modernThemeToggle17.ToggleColorOn = Color.FromArgb(45, 140, 240);
             modernThemeToggle17.UseAcrylic = false;
             modernThemeToggle17.UseGradient = false;
             modernThemeToggle17.UseRipple = false;
@@ -1119,7 +1105,7 @@ namespace FluentWinForms
             modernThemeToggle18.HoverColor = Color.Transparent;
             modernThemeToggle18.HoverColor2 = Color.Transparent;
             modernThemeToggle18.ImageOpacity = 1F;
-            modernThemeToggle18.Location = new Point(227, 265);
+            modernThemeToggle18.Location = new Point(541, 424);
             modernThemeToggle18.MinimumSize = new Size(45, 22);
             modernThemeToggle18.Name = "modernThemeToggle18";
             modernThemeToggle18.Opacity = 1F;
@@ -1143,7 +1129,7 @@ namespace FluentWinForms
             modernThemeToggle18.ThumbColorOff = Color.White;
             modernThemeToggle18.ThumbColorOn = Color.White;
             modernThemeToggle18.ToggleColorOff = Color.FromArgb(220, 224, 232);
-            modernThemeToggle18.ToggleColorOn = Color.FromArgb(138, 43, 226);
+            modernThemeToggle18.ToggleColorOn = Color.FromArgb(45, 140, 240);
             modernThemeToggle18.UseAcrylic = false;
             modernThemeToggle18.UseGradient = false;
             modernThemeToggle18.UseRipple = false;
@@ -1179,7 +1165,7 @@ namespace FluentWinForms
             modernThemeToggle19.HoverColor = Color.Transparent;
             modernThemeToggle19.HoverColor2 = Color.Transparent;
             modernThemeToggle19.ImageOpacity = 1F;
-            modernThemeToggle19.Location = new Point(227, 313);
+            modernThemeToggle19.Location = new Point(541, 472);
             modernThemeToggle19.MinimumSize = new Size(45, 22);
             modernThemeToggle19.Name = "modernThemeToggle19";
             modernThemeToggle19.Opacity = 1F;
@@ -1203,7 +1189,7 @@ namespace FluentWinForms
             modernThemeToggle19.ThumbColorOff = Color.White;
             modernThemeToggle19.ThumbColorOn = Color.White;
             modernThemeToggle19.ToggleColorOff = Color.FromArgb(220, 224, 232);
-            modernThemeToggle19.ToggleColorOn = Color.FromArgb(138, 43, 226);
+            modernThemeToggle19.ToggleColorOn = Color.FromArgb(45, 140, 240);
             modernThemeToggle19.UseAcrylic = false;
             modernThemeToggle19.UseGradient = false;
             modernThemeToggle19.UseRipple = false;
@@ -1239,7 +1225,7 @@ namespace FluentWinForms
             modernThemeToggle20.HoverColor = Color.Transparent;
             modernThemeToggle20.HoverColor2 = Color.Transparent;
             modernThemeToggle20.ImageOpacity = 1F;
-            modernThemeToggle20.Location = new Point(349, 265);
+            modernThemeToggle20.Location = new Point(97, 446);
             modernThemeToggle20.MinimumSize = new Size(45, 22);
             modernThemeToggle20.Name = "modernThemeToggle20";
             modernThemeToggle20.Opacity = 1F;
@@ -1263,7 +1249,7 @@ namespace FluentWinForms
             modernThemeToggle20.ThumbColorOff = Color.White;
             modernThemeToggle20.ThumbColorOn = Color.White;
             modernThemeToggle20.ToggleColorOff = Color.FromArgb(220, 224, 232);
-            modernThemeToggle20.ToggleColorOn = Color.FromArgb(138, 43, 226);
+            modernThemeToggle20.ToggleColorOn = Color.FromArgb(45, 140, 240);
             modernThemeToggle20.UseAcrylic = false;
             modernThemeToggle20.UseGradient = false;
             modernThemeToggle20.UseRipple = false;
@@ -1272,42 +1258,67 @@ namespace FluentWinForms
             modernThemeToggle20.VerticalAlignment = StringAlignment.Center;
             modernThemeToggle20.WordWrap = false;
             // 
+            // panel1
+            // 
+            panel1.BackColor = Color.Navy;
+            panel1.Controls.Add(modernThemeToggle9);
+            panel1.Location = new Point(749, 104);
+            panel1.Name = "panel1";
+            panel1.Size = new Size(285, 284);
+            panel1.TabIndex = 20;
+            // 
+            // modernFormManager1
+            // 
+            modernFormManager1.AutoSetBlackBackground = false;
+            modernFormManager1.BackdropType = Core.FormBackdropType.None;
+            modernFormManager1.BorderColor = Color.FromArgb(40, 255, 255, 255);
+            modernFormManager1.BorderRadius = 50;
+            modernFormManager1.BorderThickness = 0F;
+            modernFormManager1.DragControl = null;
+            modernFormManager1.DragOpacity = 1D;
+            modernFormManager1.EnableDrag = true;
+            modernFormManager1.ForceDarkModeTitleBar = false;
+            modernFormManager1.TargetForm = this;
+            modernFormManager1.TransparentStyle = false;
+            modernFormManager1.UseModernRoundedCorners = true;
+            modernFormManager1.UseSkia = true;
+            // 
             // Form1
             // 
             AutoScaleDimensions = new SizeF(8F, 20F);
             AutoScaleMode = AutoScaleMode.Font;
             BackColor = Color.LightSeaGreen;
-            ClientSize = new Size(800, 450);
-            Controls.Add(modernThemeToggle11);
-            Controls.Add(modernThemeToggle12);
-            Controls.Add(modernThemeToggle13);
+            ClientSize = new Size(1084, 618);
+            Controls.Add(modernThemeToggle5);
+            Controls.Add(panel1);
+            Controls.Add(modernThemeToggle4);
+            Controls.Add(modernThemeToggle6);
+            Controls.Add(modernThemeToggle1);
+            Controls.Add(modernThemeToggle8);
+            Controls.Add(modernThemeToggle3);
             Controls.Add(modernThemeToggle14);
-            Controls.Add(modernThemeToggle15);
+            Controls.Add(modernThemeToggle12);
+            Controls.Add(modernThemeToggle11);
             Controls.Add(modernThemeToggle16);
+            Controls.Add(modernThemeToggle15);
             Controls.Add(modernThemeToggle17);
+            Controls.Add(modernThemeToggle10);
+            Controls.Add(modernThemeToggle2);
             Controls.Add(modernThemeToggle18);
+            Controls.Add(modernThemeToggle13);
+            Controls.Add(modernThemeToggle7);
             Controls.Add(modernThemeToggle19);
             Controls.Add(modernThemeToggle20);
-            Controls.Add(modernThemeToggle10);
-            Controls.Add(modernThemeToggle8);
-            Controls.Add(modernThemeToggle9);
-            Controls.Add(modernThemeToggle6);
-            Controls.Add(modernThemeToggle7);
-            Controls.Add(modernThemeToggle4);
-            Controls.Add(modernThemeToggle5);
-            Controls.Add(modernThemeToggle3);
-            Controls.Add(modernThemeToggle2);
-            Controls.Add(modernThemeToggle1);
             DoubleBuffered = true;
             FormBorderStyle = FormBorderStyle.None;
             Name = "Form1";
             Text = "Form1";
+            Load += Form1_Load;
+            panel1.ResumeLayout(false);
             ResumeLayout(false);
         }
 
         #endregion
-
-        private Core.ModernFormManager modernFormManager1;
         private Custom_Buttons.ModernThemeToggle modernThemeToggle1;
         private Custom_Buttons.ModernThemeToggle modernThemeToggle2;
         private Custom_Buttons.ModernThemeToggle modernThemeToggle3;
@@ -1328,5 +1339,7 @@ namespace FluentWinForms
         private Custom_Buttons.ModernThemeToggle modernThemeToggle18;
         private Custom_Buttons.ModernThemeToggle modernThemeToggle19;
         private Custom_Buttons.ModernThemeToggle modernThemeToggle20;
+        private Panel panel1;
+        private Core.ModernFormManager modernFormManager1;
     }
 }

@@ -1,5 +1,6 @@
 ﻿#nullable enable
 using FluentWinForms.Core;
+using Microsoft.VisualBasic.Logging;
 using SkiaSharp;
 using SkiaSharp.Views.Desktop;
 using System;
@@ -41,7 +42,7 @@ namespace FluentWinForms.Custom_Buttons
         [Category("Modern Appearance")]
         [Description("Color de la pista cuando está activado.")]
         [DesignerSerializationVisibility(DesignerSerializationVisibility.Visible)]
-        public Color ToggleColorOn { get; set; } = Color.FromArgb(138, 43, 226);
+        public Color ToggleColorOn { get; set; } = Color.FromArgb(45, 140, 240); // 🔥 Color azul #2d8cf0
 
         [Category("Toggle Appearance")]
         [Description("Color de la pista cuando está desactivado.")]
@@ -58,6 +59,16 @@ namespace FluentWinForms.Custom_Buttons
         [DesignerSerializationVisibility(DesignerSerializationVisibility.Visible)]
         public Color ThumbColorOff { get; set; } = Color.White;
 
+        // 🔥 INYECCIÓN: Propiedad UseShadow para saltar cálculos si el diseñador no la quiere
+        private bool _useShadow = true;
+        [Category("Modern Appearance")]
+        [Description("Activa o desactiva la sombra del indicador (thumb) para máximo rendimiento.\nEnables or disables the thumb shadow for maximum performance.")]
+        public bool UseShadow
+        {
+            get => _useShadow;
+            set { _useShadow = value; Invalidate(); }
+        }
+
         private readonly SKColor _bgDaySK = SKColor.Parse("#3D7EAE");
         private readonly SKColor _bgNightSK = SKColor.Parse("#1D1F2C");
         private readonly SKColor _sunColorSK = SKColor.Parse("#ECCA2F");
@@ -72,18 +83,19 @@ namespace FluentWinForms.Custom_Buttons
         private readonly Color _spotColorGDI = Color.FromArgb(149, 157, 177);
 
         // 🔥 POOL DE MEMORIA (GAME DEV ZERO-ALLOCATION)
-        // Estos objetos se instancian una sola vez para evitar activar el Recolector de Basura.
         private Bitmap? _bgCache;
         private SKBitmap? _acrylicCache;
         private bool _cacheDirty = true;
 
         private readonly SKPaint _skPaint = new SKPaint { IsAntialias = true };
         private readonly SKPath _skPath = new SKPath();
+
         private SKPaint? _skThumbShadowPaint;
-        private SKImageFilter? _skThumbShadowFilter;
-        private SKPaint? _skAcrylicBlurPaint;
+        private SKMaskFilter? _skThumbMaskFilter;
+
         private SKPaint? _skAcrylicTintPaint;
         private SKPaint? _skAcrylicFallbackPaint;
+        private SKTypeface? _segoeTypeface;
 
         private readonly SolidBrush _gdiBrush = new SolidBrush(Color.Transparent);
         private readonly Pen _gdiPen = new Pen(Color.Transparent, 1f);
@@ -99,7 +111,11 @@ namespace FluentWinForms.Custom_Buttons
             HoverColor = Color.Transparent; HoverColor2 = Color.Transparent;
             PressColor = Color.Transparent; PressColor2 = Color.Transparent;
             BorderThickness = 0; FocusThickness = 0; UseRipple = false;
-            // Cursor eliminado por optimización y solicitud explícita.
+
+            // 🔥 INYECCIÓN ANTI-LAG LOCAL: Exclusivo para este Toggle(y futuros botones rápidos).
+            // Garantiza latencia cero al hacer spam de clics sin afectar al resto del framework.
+            SetStyle(ControlStyles.StandardDoubleClick, false);
+            SetStyle(ControlStyles.StandardClick, true);
         }
 
         protected override void OnResize(EventArgs e)
@@ -155,7 +171,6 @@ namespace FluentWinForms.Custom_Buttons
             IsChecked = !IsChecked;
             base.OnClick(e);
 
-            // 🔥 CERO LATENCIA: Despierta el motor de renderizado inmediatamente al hacer clic.
             if (Parent != null && !DesignMode)
             {
                 Invalidate();
@@ -182,7 +197,15 @@ namespace FluentWinForms.Custom_Buttons
                     using var ms = new System.IO.MemoryStream();
                     _bgCache.Save(ms, System.Drawing.Imaging.ImageFormat.Png);
                     ms.Position = 0;
-                    _acrylicCache = SKBitmap.Decode(ms);
+
+                    using var rawSkia = SKBitmap.Decode(ms);
+
+                    _acrylicCache = new SKBitmap(rawSkia.Width, rawSkia.Height, SKColorType.Bgra8888, SKAlphaType.Premul);
+                    using var skCanvas = new SKCanvas(_acrylicCache);
+                    skCanvas.Clear(SKColors.Transparent);
+
+                    using var blurPaint = new SKPaint { ImageFilter = SKImageFilter.CreateBlur(S(15f), S(15f)) };
+                    skCanvas.DrawBitmap(rawSkia, 0, 0, blurPaint);
                 }
                 _cacheDirty = false;
             }
@@ -227,8 +250,7 @@ namespace FluentWinForms.Custom_Buttons
                 _skPath.AddRoundRect(rect, rect.Height / 2f, rect.Height / 2f);
                 canvas.ClipPath(_skPath, SKClipOperation.Intersect, true);
 
-                _skAcrylicBlurPaint ??= new SKPaint { ImageFilter = SKImageFilter.CreateBlur(S(15f), S(15f)) };
-                canvas.DrawBitmap(_acrylicCache, new SKRect(0, 0, this.Width, this.Height), _skAcrylicBlurPaint);
+                canvas.DrawBitmap(_acrylicCache, new SKRect(0, 0, this.Width, this.Height));
 
                 _skAcrylicTintPaint ??= new SKPaint { Style = SKPaintStyle.Fill, Color = SKColors.White.WithAlpha(40), IsAntialias = true };
                 canvas.DrawRect(rect, _skAcrylicTintPaint);
@@ -329,10 +351,14 @@ namespace FluentWinForms.Custom_Buttons
             canvas.DrawCircle(moonRect.Left + S(10), moonRect.Top + S(22), S(2f), _skPaint);
             canvas.Restore();
 
-            _skPaint.Style = SKPaintStyle.Stroke;
-            _skPaint.StrokeWidth = S(1);
-            _skPaint.Color = SKColors.Black.WithAlpha(20);
-            canvas.DrawOval(thumbRect, _skPaint);
+            // 🔥 FIX: Salto condicional de sombra en GDI y Trazos
+            if (UseShadow)
+            {
+                _skPaint.Style = SKPaintStyle.Stroke;
+                _skPaint.StrokeWidth = S(1);
+                _skPaint.Color = SKColors.Black.WithAlpha(20);
+                canvas.DrawOval(thumbRect, _skPaint);
+            }
         }
 
         private void DrawModernStylesSkia(SKCanvas canvas, SKRect rect, float t)
@@ -355,7 +381,9 @@ namespace FluentWinForms.Custom_Buttons
                 case ToggleStyle.Style1_Standard:
                     if (UseAcrylic) DrawAcrylicPlugAndPlay(canvas, rect);
                     else canvas.DrawRoundRect(rect, h / 2f, h / 2f, _skPaint);
-                    DrawThumbShadowSkia(canvas, thumbX, rect.Top + padding, thumbSize, thumbSize, thumbSize / 2f);
+
+                    if (UseShadow) DrawThumbShadowSkia(canvas, thumbX, rect.Top + padding, thumbSize, thumbSize, thumbSize / 2f);
+
                     _skPaint.Color = currentThumbColor.ToSKColor();
                     canvas.DrawOval(thumbX + thumbSize / 2f, rect.MidY, thumbSize / 2f, thumbSize / 2f, _skPaint);
                     break;
@@ -368,7 +396,9 @@ namespace FluentWinForms.Custom_Buttons
                     float minX2 = rect.Left + thumbRadius2;
                     float maxX2 = rect.Right - thumbRadius2;
                     float thumbX2 = minX2 + (maxX2 - minX2) * t;
-                    DrawThumbShadowSkia(canvas, thumbX2 - thumbRadius2, rect.MidY - thumbRadius2, thumbRadius2 * 2, thumbRadius2 * 2, thumbRadius2);
+
+                    if (UseShadow) DrawThumbShadowSkia(canvas, thumbX2 - thumbRadius2, rect.MidY - thumbRadius2, thumbRadius2 * 2, thumbRadius2 * 2, thumbRadius2);
+
                     _skPaint.Color = currentThumbColor.ToSKColor();
                     canvas.DrawCircle(thumbX2, rect.MidY, thumbRadius2, _skPaint);
                     break;
@@ -383,7 +413,9 @@ namespace FluentWinForms.Custom_Buttons
                     float minX3 = rect.Left + thumbRadius3;
                     float maxX3 = rect.Right - thumbRadius3;
                     float thumbX3 = minX3 + (maxX3 - minX3) * t;
-                    DrawThumbShadowSkia(canvas, thumbX3 - thumbRadius3, rect.MidY - thumbRadius3, thumbRadius3 * 2, thumbRadius3 * 2, thumbRadius3);
+
+                    if (UseShadow) DrawThumbShadowSkia(canvas, thumbX3 - thumbRadius3, rect.MidY - thumbRadius3, thumbRadius3 * 2, thumbRadius3 * 2, thumbRadius3);
+
                     _skPaint.Color = currentThumbColor.ToSKColor();
                     canvas.DrawCircle(thumbX3, rect.MidY, thumbRadius3, _skPaint);
                     break;
@@ -391,7 +423,9 @@ namespace FluentWinForms.Custom_Buttons
                 case ToggleStyle.Style4_Square:
                     if (UseAcrylic) DrawAcrylicPlugAndPlay(canvas, rect);
                     else canvas.DrawRoundRect(rect, S(4f), S(4f), _skPaint);
-                    DrawThumbShadowSkia(canvas, thumbX, rect.Top + padding, thumbSize, thumbSize, S(2f));
+
+                    if (UseShadow) DrawThumbShadowSkia(canvas, thumbX, rect.Top + padding, thumbSize, thumbSize, S(2f));
+
                     _skPaint.Color = currentThumbColor.ToSKColor();
                     canvas.DrawRoundRect(new SKRect(thumbX, rect.Top + padding, thumbX + thumbSize, rect.Top + padding + thumbSize), S(4f), S(4f), _skPaint);
                     break;
@@ -401,10 +435,15 @@ namespace FluentWinForms.Custom_Buttons
                     _skPaint.Color = SKColors.White.WithAlpha(180);
                     _skPaint.TextSize = h * 0.4f;
                     _skPaint.TextAlign = SKTextAlign.Center;
-                    _skPaint.Typeface = GetOrCreateTypeface("Segoe UI", true);
+
+                    _segoeTypeface ??= SKTypeface.FromFamilyName("Segoe UI", SKFontStyleWeight.Bold, SKFontStyleWidth.Normal, SKFontStyleSlant.Upright);
+                    _skPaint.Typeface = _segoeTypeface;
+
                     if (t > 0.5f) canvas.DrawText("ON", rect.Left + (rect.Width / 4f), rect.MidY - (_skPaint.FontMetrics.Ascent / 2f), _skPaint);
                     else canvas.DrawText("OFF", rect.Right - (rect.Width / 4f), rect.MidY - (_skPaint.FontMetrics.Ascent / 2f), _skPaint);
-                    DrawThumbShadowSkia(canvas, thumbX, rect.Top + padding, thumbSize, thumbSize, S(4f));
+
+                    if (UseShadow) DrawThumbShadowSkia(canvas, thumbX, rect.Top + padding, thumbSize, thumbSize, S(4f));
+
                     _skPaint.Color = currentThumbColor.ToSKColor();
                     canvas.DrawRoundRect(new SKRect(thumbX, rect.Top + padding, thumbX + thumbSize, rect.Top + padding + thumbSize), S(4f), S(4f), _skPaint);
                     break;
@@ -416,7 +455,8 @@ namespace FluentWinForms.Custom_Buttons
                     float maxX6 = rect.Right - wideThumbWidth - padding;
                     float thumbX6 = minX + (maxX6 - minX) * t;
 
-                    DrawThumbShadowSkia(canvas, thumbX6, rect.Top + padding, wideThumbWidth, thumbSize, thumbSize / 2f);
+                    if (UseShadow) DrawThumbShadowSkia(canvas, thumbX6, rect.Top + padding, wideThumbWidth, thumbSize, thumbSize / 2f);
+
                     _skPaint.Color = currentThumbColor.ToSKColor();
                     canvas.DrawRoundRect(new SKRect(thumbX6, rect.Top + padding, thumbX6 + wideThumbWidth, rect.Top + padding + thumbSize), thumbSize / 2f, thumbSize / 2f, _skPaint);
                     break;
@@ -424,7 +464,9 @@ namespace FluentWinForms.Custom_Buttons
                 case ToggleStyle.Style7_Checkmark:
                     if (UseAcrylic) DrawAcrylicPlugAndPlay(canvas, rect);
                     else canvas.DrawRoundRect(rect, h / 2f, h / 2f, _skPaint);
-                    DrawThumbShadowSkia(canvas, thumbX, rect.Top + padding, thumbSize, thumbSize, thumbSize / 2f);
+
+                    if (UseShadow) DrawThumbShadowSkia(canvas, thumbX, rect.Top + padding, thumbSize, thumbSize, thumbSize / 2f);
+
                     _skPaint.Color = currentThumbColor.ToSKColor();
                     canvas.DrawOval(thumbX + thumbSize / 2f, rect.MidY, thumbSize / 2f, thumbSize / 2f, _skPaint);
                     _skPaint.Style = SKPaintStyle.Stroke;
@@ -466,7 +508,8 @@ namespace FluentWinForms.Custom_Buttons
                     float minX9 = rect.Left + padding9 + thumbR9;
                     float maxX9 = rect.Right - padding9 - thumbR9;
                     float thumbX9 = minX9 + (maxX9 - minX9) * t;
-                    DrawThumbShadowSkia(canvas, thumbX9 - thumbR9, rect.MidY - thumbR9, thumbR9 * 2, thumbR9 * 2, thumbR9);
+
+                    if (UseShadow) DrawThumbShadowSkia(canvas, thumbX9 - thumbR9, rect.MidY - thumbR9, thumbR9 * 2, thumbR9 * 2, thumbR9);
 
                     canvas.Save();
                     _skPath.Reset();
@@ -486,15 +529,13 @@ namespace FluentWinForms.Custom_Buttons
 
         private void DrawThumbShadowSkia(SKCanvas canvas, float x, float y, float w, float h, float r)
         {
-            _skThumbShadowPaint ??= new SKPaint { IsAntialias = true, Color = SKColors.Transparent };
-            _skThumbShadowFilter ??= SKImageFilter.CreateDropShadow(0, S(2f), S(3f), S(3f), SKColors.Black.WithAlpha(40));
+            _skThumbShadowPaint ??= new SKPaint { IsAntialias = true, Style = SKPaintStyle.Fill, Color = SKColors.Black.WithAlpha(40) };
+            _skThumbMaskFilter ??= SKMaskFilter.CreateBlur(SKBlurStyle.Normal, S(2f));
 
-            _skThumbShadowPaint.ImageFilter = _skThumbShadowFilter;
-            canvas.DrawRoundRect(new SKRect(x, y, x + w, y + h), r, r, _skThumbShadowPaint);
-            _skThumbShadowPaint.ImageFilter = null;
+            _skThumbShadowPaint.MaskFilter = _skThumbMaskFilter;
+            canvas.DrawRoundRect(new SKRect(x, y + S(2f), x + w, y + h + S(2f)), r, r, _skThumbShadowPaint);
         }
 
-        // 🔥 MÉTODO AUXILIAR GDI+ PARA ZERO-ALLOCATION
         private void AddRoundedRect(GraphicsPath path, RectangleF bounds, float radius)
         {
             float d = radius * 2f;
@@ -581,12 +622,16 @@ namespace FluentWinForms.Custom_Buttons
 
             g.Restore(oldState);
 
-            _gdiPen.Color = Color.FromArgb(20, Color.Black);
-            _gdiPen.Width = S(1);
-            g.DrawEllipse(_gdiPen, thumbRect);
+            if (UseShadow)
+            {
+                _gdiPen.Color = Color.FromArgb(20, Color.Black);
+                _gdiPen.Width = S(1);
+                g.DrawEllipse(_gdiPen, thumbRect);
+            }
 
             g.Restore(clipState);
-            GdiRenderer.DrawInnerShadow(g, contentRect, radius, Color.FromArgb(30, 0, 0, 0), S(2));
+
+            if (UseShadow) GdiRenderer.DrawInnerShadow(g, contentRect, radius, Color.FromArgb(30, 0, 0, 0), S(2));
         }
 
         private void DrawModernStylesGDI(Graphics g, RectangleF rect, float t)
@@ -786,10 +831,13 @@ namespace FluentWinForms.Custom_Buttons
                 _skPath.Dispose();
 
                 _skThumbShadowPaint?.Dispose();
-                _skThumbShadowFilter?.Dispose();
-                _skAcrylicBlurPaint?.Dispose();
+                _skThumbMaskFilter?.Dispose();
+
                 _skAcrylicTintPaint?.Dispose();
                 _skAcrylicFallbackPaint?.Dispose();
+
+                _segoeTypeface?.Dispose();
+                _segoeTypeface = null;
 
                 _gdiBrush.Dispose();
                 _gdiPen.Dispose();

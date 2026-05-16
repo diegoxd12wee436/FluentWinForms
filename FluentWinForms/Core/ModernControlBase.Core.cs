@@ -82,17 +82,22 @@ namespace FluentWinForms.Core
                 RefreshVisuals();
             }
         }
-
-        // 🔥 INYECCIÓN: La puerta de entrada mágica para los desarrolladores
-        public ControlBuilder Design()
+public ControlBuilder Design()
         {
-            var builder = ControlBuilder.Create();
+            _visualNode ??= new RenderNode(); 
+            
+            // 🔥 Pasamos 'this' (el control WinForms) al Builder
+            var builder = new ControlBuilder(_visualNode, this); 
+            
             builder.OnApplied = node =>
             {
-                this.VisualNode = node;
+                if (this.VisualNode != node) this.VisualNode = node;
+                RefreshVisuals();
             };
             return builder;
         }
+
+        
 
         #region 🔵 Escalado DPI (Nivel Producción)
         protected float _dpiScale = 1.0f;

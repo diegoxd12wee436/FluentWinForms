@@ -31,6 +31,7 @@ namespace FluentWinForms.Core
         public static void Blur(byte[] src, byte[] dst, int w, int h, int radius)
         {
             ValidateBuffers(src, dst, w, h);
+            radius = Math.Max(0, Math.Min(128, radius)); // 🔥 FIX PASO 2: Límite estricto de seguridad
 
             if (radius < 1)
             {

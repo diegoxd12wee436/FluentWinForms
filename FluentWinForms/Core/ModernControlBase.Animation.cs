@@ -234,12 +234,22 @@ namespace FluentWinForms.Core
                 var hit = HitTest(_visualNode, e.Location);
                 if (hit != _currentHoveredNode)
                 {
-                    if (_currentHoveredNode != null) _currentHoveredNode.IsHovered = false;
+                    if (_currentHoveredNode != null)
+                    {
+                        _currentHoveredNode.IsHovered = false;
+                        // 🔥 INYECCIÓN: Avisamos a la API Fluent que el mouse SALIÓ de este nodo
+                        _currentHoveredNode.OnHoverLeaveAction?.Invoke(_currentHoveredNode);
+                    }
+
                     _currentHoveredNode = hit;
+
                     if (_currentHoveredNode != null)
                     {
                         _currentHoveredNode.IsHovered = true;
+                        // Mantenemos el viejo por si acaso
                         _currentHoveredNode.OnHoverAction?.Invoke(_currentHoveredNode);
+                        // 🔥 INYECCIÓN: Avisamos a la API Fluent que el mouse ENTRÓ a este nodo
+                        _currentHoveredNode.OnHoverEnterAction?.Invoke(_currentHoveredNode);
                     }
                     StartAnimation(); // Activa el motor para que anime el progreso
                 }
@@ -252,12 +262,6 @@ namespace FluentWinForms.Core
             }
         }
 
-        protected override void OnMouseEnter(EventArgs e)
-        {
-            if (Enabled) { _isHoveringInternal = true; StartAnimation(); }
-            base.OnMouseEnter(e);
-        }
-
         protected override void OnMouseLeave(EventArgs e)
         {
             if (Enabled)
@@ -265,6 +269,8 @@ namespace FluentWinForms.Core
                 if (_currentHoveredNode != null)
                 {
                     _currentHoveredNode.IsHovered = false;
+                    // 🔥 INYECCIÓN: Si el mouse sale del control entero, forzamos el Leave del nodo
+                    _currentHoveredNode.OnHoverLeaveAction?.Invoke(_currentHoveredNode);
                     _currentHoveredNode = null;
                 }
                 _isHoveringInternal = false;
@@ -273,6 +279,13 @@ namespace FluentWinForms.Core
             }
             base.OnMouseLeave(e);
         }
+
+        protected override void OnMouseEnter(EventArgs e)
+        {
+            if (Enabled) { _isHoveringInternal = true; StartAnimation(); }
+            base.OnMouseEnter(e);
+        }
+        
 
         protected override void OnMouseDown(MouseEventArgs e)
         {
