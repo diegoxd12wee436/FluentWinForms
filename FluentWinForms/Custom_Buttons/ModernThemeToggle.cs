@@ -1,12 +1,12 @@
 ﻿#nullable enable
 using FluentWinForms.Core;
-using Microsoft.VisualBasic.Logging;
 using SkiaSharp;
 using SkiaSharp.Views.Desktop;
 using System;
 using System.ComponentModel;
 using System.Drawing;
 using System.Drawing.Drawing2D;
+using System.Drawing.Imaging;
 using System.Windows.Forms;
 
 namespace FluentWinForms.Custom_Buttons
@@ -59,7 +59,6 @@ namespace FluentWinForms.Custom_Buttons
         [DesignerSerializationVisibility(DesignerSerializationVisibility.Visible)]
         public Color ThumbColorOff { get; set; } = Color.White;
 
-        // 🔥 INYECCIÓN: Propiedad UseShadow para saltar cálculos si el diseñador no la quiere
         private bool _useShadow = true;
         [Category("Modern Appearance")]
         [Description("Activa o desactiva la sombra del indicador (thumb) para máximo rendimiento.\nEnables or disables the thumb shadow for maximum performance.")]
@@ -67,6 +66,26 @@ namespace FluentWinForms.Custom_Buttons
         {
             get => _useShadow;
             set { _useShadow = value; Invalidate(); }
+        }
+
+        private int _maxFps = 120;
+        [Category("Modern Appearance")]
+        [DefaultValue(120)]
+        [Description("Tope máximo visual de fotogramas, síncrono con AnimationManager vMax.")]
+        public int MaxFps
+        {
+            get => _maxFps;
+            set { _maxFps = Math.Max(30, Math.Min(240, value)); }
+        }
+
+        private float _animationDurationMs = 150f;
+        [Category("Modern Appearance")]
+        [DefaultValue(150f)]
+        [Description("Duración total de la animación en milisegundos para sincronización por Delta Time.")]
+        public float AnimationDurationMs
+        {
+            get => _animationDurationMs;
+            set { _animationDurationMs = Math.Max(10f, value); }
         }
 
         private readonly SKColor _bgDaySK = SKColor.Parse("#3D7EAE");
@@ -85,10 +104,14 @@ namespace FluentWinForms.Custom_Buttons
         // 🔥 POOL DE MEMORIA (GAME DEV ZERO-ALLOCATION)
         private Bitmap? _bgCache;
         private SKBitmap? _acrylicCache;
+        private SKBitmap? _rawWrapperBitmap;
         private bool _cacheDirty = true;
 
         private readonly SKPaint _skPaint = new SKPaint { IsAntialias = true };
         private readonly SKPath _skPath = new SKPath();
+
+        private SKPaint? _skBlurPaint;
+        private float _cachedBlurRadius = -1f; // PARCHE C: Control de radio dinámico
 
         private SKPaint? _skThumbShadowPaint;
         private SKMaskFilter? _skThumbMaskFilter;
@@ -102,6 +125,11 @@ namespace FluentWinForms.Custom_Buttons
         private readonly GraphicsPath _gdiPath = new GraphicsPath();
         private readonly GraphicsPath _gdiClipPath = new GraphicsPath();
 
+        private Font? _gdiFont;
+        private StringFormat? _gdiStringFormat;
+
+        private Control? _lastParent; // PARCHE A: Rastreo del padre anterior
+
         public ModernThemeToggle()
         {
             this.MinimumSize = new Size(45, 22);
@@ -112,16 +140,61 @@ namespace FluentWinForms.Custom_Buttons
             PressColor = Color.Transparent; PressColor2 = Color.Transparent;
             BorderThickness = 0; FocusThickness = 0; UseRipple = false;
 
-            // 🔥 INYECCIÓN ANTI-LAG LOCAL: Exclusivo para este Toggle(y futuros botones rápidos).
-            // Garantiza latencia cero al hacer spam de clics sin afectar al resto del framework.
+            // 🔥 INYECCIÓN ANTI-LAG LOCAL
             SetStyle(ControlStyles.StandardDoubleClick, false);
             SetStyle(ControlStyles.StandardClick, true);
+        }
+
+        // =====================================================================
+        // PARCHE A: MANEJO SEGURO DEL PADRE (Evita Zombie Handlers / Leaks)
+        // =====================================================================
+        protected override void OnParentChanged(EventArgs e)
+        {
+            base.OnParentChanged(e);
+
+            if (_lastParent != null)
+            {
+                try
+                {
+                    _lastParent.BackColorChanged -= SafeParentInvalidate;
+                    _lastParent.BackgroundImageChanged -= SafeParentInvalidate;
+                    _lastParent.Resize -= SafeParentInvalidate;
+                }
+                catch { }
+            }
+
+            _lastParent = this.Parent;
+
+            if (_lastParent != null)
+            {
+                _lastParent.BackColorChanged += SafeParentInvalidate;
+                _lastParent.BackgroundImageChanged += SafeParentInvalidate;
+                _lastParent.Resize += SafeParentInvalidate;
+            }
+
+            _cacheDirty = true;
+            Invalidate();
+        }
+
+        private void SafeParentInvalidate(object? sender, EventArgs e)
+        {
+            _cacheDirty = true;
+            if (!DesignMode && IsHandleCreated && !IsDisposed)
+            {
+                Invalidate();
+            }
         }
 
         protected override void OnResize(EventArgs e)
         {
             base.OnResize(e);
             BorderRadius = Height / 2f;
+
+            if (_bgCache != null && (_bgCache.Width != Width || _bgCache.Height != Height))
+            {
+                try { AcrylicHelper.BitmapPool.Return(_bgCache); } catch { _bgCache.Dispose(); }
+                _bgCache = null;
+            }
             InvalidateCaches();
         }
 
@@ -134,27 +207,34 @@ namespace FluentWinForms.Custom_Buttons
         private void InvalidateCaches()
         {
             _cacheDirty = true;
-            _bgCache?.Dispose();
-            _bgCache = null;
-            _acrylicCache?.Dispose();
-            _acrylicCache = null;
         }
 
+        // =====================================================================
+        // PARCHE B: ANIMACIÓN 120FPS PRO (Síncrono a dt real y limitador MaxFps)
+        // =====================================================================
         protected override bool CustomAnimationLoop(float dt, float step)
         {
-            bool isMoving = false;
-            float target = IsChecked ? 1f : 0f;
+            // dt: segundos desde el último frame. AnimationDurationMs: milisegundos.
+            float durationSec = Math.Max(1f, AnimationDurationMs) / 1000f;
+            float velocity = dt / durationSec; // fracción de la animación por frame
 
-            if (Math.Abs(_toggleProgress - target) > 0.005f)
+            // Clamp por MaxFps: normalizamos el dt si es demasiado rápido
+            float minDt = 1f / Math.Max(30, Math.Min(240, MaxFps));
+            if (dt < minDt) dt = minDt;
+
+            float target = IsChecked ? 1f : 0f;
+            bool isMoving = false;
+
+            if (Math.Abs(_toggleProgress - target) > 0.001f)
             {
                 if (_toggleProgress < target)
                 {
-                    _toggleProgress = Math.Min(target, _toggleProgress + step);
+                    _toggleProgress = Math.Min(target, _toggleProgress + velocity);
                     isMoving = true;
                 }
-                else if (_toggleProgress > target)
+                else
                 {
-                    _toggleProgress = Math.Max(target, _toggleProgress - step);
+                    _toggleProgress = Math.Max(target, _toggleProgress - velocity);
                     isMoving = true;
                 }
             }
@@ -177,41 +257,92 @@ namespace FluentWinForms.Custom_Buttons
             }
         }
 
+        // =====================================================================
+        // PARCHE C: GetOrCreateBlurPaint que respeta cambios de radio
+        // =====================================================================
+        private SKPaint GetOrCreateBlurPaint(float radius)
+        {
+            if (_skBlurPaint == null || Math.Abs(_cachedBlurRadius - radius) > 0.001f)
+            {
+                _skBlurPaint?.Dispose();
+                _skBlurPaint = new SKPaint { IsAntialias = true, ImageFilter = SKImageFilter.CreateBlur(radius, radius) };
+                _cachedBlurRadius = radius;
+            }
+            return _skBlurPaint;
+        }
+
         private void RefreshBackgroundCache()
         {
-            if (Parent == null || this.Width <= 0 || this.Height <= 0) return;
-            InvalidateCaches();
+            if (Parent == null || this.Width <= 0 || this.Height <= 0 || DesignMode)
+            {
+                _cacheDirty = true;
+                return;
+            }
 
+            if (_bgCache != null && (_bgCache.Width != this.Width || _bgCache.Height != this.Height))
+            {
+                AcrylicHelper.BitmapPool.Return(_bgCache);
+                _bgCache = null;
+            }
+
+            BitmapData? bmpData = null;
             try
             {
-                _bgCache = new Bitmap(this.Width, this.Height, System.Drawing.Imaging.PixelFormat.Format32bppPArgb);
+                _bgCache ??= AcrylicHelper.BitmapPool.Rent(this.Width, this.Height);
+
                 using (Graphics g = Graphics.FromImage(_bgCache))
                 {
+                    g.Clear(Color.Transparent);
                     g.TranslateTransform(-this.Left, -this.Top);
-                    using var pe = new PaintEventArgs(g, Parent.ClientRectangle);
-                    InvokePaintBackground(Parent, pe);
+                    using (var pe = new PaintEventArgs(g, Parent.ClientRectangle))
+                    {
+                        InvokePaintBackground(Parent, pe);
+                    }
                 }
 
                 if (UseAcrylic)
                 {
-                    using var ms = new System.IO.MemoryStream();
-                    _bgCache.Save(ms, System.Drawing.Imaging.ImageFormat.Png);
-                    ms.Position = 0;
+                    var rect = new Rectangle(0, 0, this.Width, this.Height);
+                    bmpData = _bgCache.LockBits(rect, System.Drawing.Imaging.ImageLockMode.ReadOnly, System.Drawing.Imaging.PixelFormat.Format32bppPArgb);
 
-                    using var rawSkia = SKBitmap.Decode(ms);
+                    var info = new SKImageInfo(this.Width, this.Height, SKColorType.Bgra8888, SKAlphaType.Premul);
 
-                    _acrylicCache = new SKBitmap(rawSkia.Width, rawSkia.Height, SKColorType.Bgra8888, SKAlphaType.Premul);
-                    using var skCanvas = new SKCanvas(_acrylicCache);
-                    skCanvas.Clear(SKColors.Transparent);
+                    _rawWrapperBitmap ??= new SKBitmap();
+                    _rawWrapperBitmap.InstallPixels(info, bmpData.Scan0, bmpData.Stride);
 
-                    using var blurPaint = new SKPaint { ImageFilter = SKImageFilter.CreateBlur(S(15f), S(15f)) };
-                    skCanvas.DrawBitmap(rawSkia, 0, 0, blurPaint);
+                    if (_acrylicCache == null || _acrylicCache.Width != this.Width || _acrylicCache.Height != this.Height)
+                    {
+                        _acrylicCache?.Dispose();
+                        _acrylicCache = new SKBitmap(info);
+                    }
+
+                    using (var skCanvas = new SKCanvas(_acrylicCache))
+                    {
+                        skCanvas.Clear(SKColors.Transparent);
+                        var blurPaint = GetOrCreateBlurPaint(S(15f));
+                        skCanvas.DrawBitmap(_rawWrapperBitmap, 0, 0, blurPaint);
+                        skCanvas.Flush();
+                    }
                 }
                 _cacheDirty = false;
             }
             catch
             {
                 _cacheDirty = true;
+            }
+            finally
+            {
+                // PARCHE E: Asegurar Return al pool en RefreshBackgroundCache si algo falla
+                if (bmpData != null && _bgCache != null)
+                {
+                    try { _bgCache.UnlockBits(bmpData); } catch { }
+                }
+
+                // Garantizar que el bitmap quede en el pool si no se logró estabilizar
+                if (_bgCache != null && _cacheDirty)
+                {
+                    try { AcrylicHelper.BitmapPool.Return(_bgCache); _bgCache = null; } catch { /* fallback */ }
+                }
             }
         }
 
@@ -351,7 +482,6 @@ namespace FluentWinForms.Custom_Buttons
             canvas.DrawCircle(moonRect.Left + S(10), moonRect.Top + S(22), S(2f), _skPaint);
             canvas.Restore();
 
-            // 🔥 FIX: Salto condicional de sombra en GDI y Trazos
             if (UseShadow)
             {
                 _skPaint.Style = SKPaintStyle.Stroke;
@@ -436,7 +566,10 @@ namespace FluentWinForms.Custom_Buttons
                     _skPaint.TextSize = h * 0.4f;
                     _skPaint.TextAlign = SKTextAlign.Center;
 
-                    _segoeTypeface ??= SKTypeface.FromFamilyName("Segoe UI", SKFontStyleWeight.Bold, SKFontStyleWidth.Normal, SKFontStyleSlant.Upright);
+                    if (_segoeTypeface == null)
+                    {
+                        _segoeTypeface = SKTypeface.FromFamilyName("Segoe UI", SKFontStyleWeight.Bold, SKFontStyleWidth.Normal, SKFontStyleSlant.Upright);
+                    }
                     _skPaint.Typeface = _segoeTypeface;
 
                     if (t > 0.5f) canvas.DrawText("ON", rect.Left + (rect.Width / 4f), rect.MidY - (_skPaint.FontMetrics.Ascent / 2f), _skPaint);
@@ -529,8 +662,14 @@ namespace FluentWinForms.Custom_Buttons
 
         private void DrawThumbShadowSkia(SKCanvas canvas, float x, float y, float w, float h, float r)
         {
-            _skThumbShadowPaint ??= new SKPaint { IsAntialias = true, Style = SKPaintStyle.Fill, Color = SKColors.Black.WithAlpha(40) };
-            _skThumbMaskFilter ??= SKMaskFilter.CreateBlur(SKBlurStyle.Normal, S(2f));
+            if (_skThumbShadowPaint == null)
+            {
+                _skThumbShadowPaint = new SKPaint { IsAntialias = true, Style = SKPaintStyle.Fill, Color = SKColors.Black.WithAlpha(40) };
+            }
+            if (_skThumbMaskFilter == null)
+            {
+                _skThumbMaskFilter = SKMaskFilter.CreateBlur(SKBlurStyle.Normal, S(2f));
+            }
 
             _skThumbShadowPaint.MaskFilter = _skThumbMaskFilter;
             canvas.DrawRoundRect(new SKRect(x, y + S(2f), x + w, y + h + S(2f)), r, r, _skThumbShadowPaint);
@@ -711,13 +850,19 @@ namespace FluentWinForms.Custom_Buttons
                     _gdiBrush.Color = currentTrackColor;
                     g.FillPath(_gdiBrush, _gdiPath);
 
-                    _gdiBrush.Color = Color.FromArgb(180, 255, 255, 255);
-                    using (var font = new Font("Segoe UI", h * 0.4f, FontStyle.Bold, GraphicsUnit.Pixel))
-                    using (var format = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center })
+                    if (_gdiFont == null || _gdiFont.Size != h * 0.4f)
                     {
-                        if (t > 0.5f) g.DrawString("ON", font, _gdiBrush, new RectangleF(rect.Left, rect.Top, rect.Width / 2f, rect.Height), format);
-                        else g.DrawString("OFF", font, _gdiBrush, new RectangleF(rect.Left + rect.Width / 2f, rect.Top, rect.Width / 2f, rect.Height), format);
+                        _gdiFont?.Dispose();
+                        _gdiFont = new Font("Segoe UI", h * 0.4f, FontStyle.Bold, GraphicsUnit.Pixel);
                     }
+                    if (_gdiStringFormat == null)
+                    {
+                        _gdiStringFormat = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center };
+                    }
+
+                    _gdiBrush.Color = Color.FromArgb(180, 255, 255, 255);
+                    if (t > 0.5f) g.DrawString("ON", _gdiFont, _gdiBrush, new RectangleF(rect.Left, rect.Top, rect.Width / 2f, rect.Height), _gdiStringFormat);
+                    else g.DrawString("OFF", _gdiFont, _gdiBrush, new RectangleF(rect.Left + rect.Width / 2f, rect.Top, rect.Width / 2f, rect.Height), _gdiStringFormat);
 
                     _gdiPath.Reset();
                     AddRoundedRect(_gdiPath, new RectangleF(thumbX, rect.Top + padding, thumbSize, thumbSize), S(4f));
@@ -817,32 +962,59 @@ namespace FluentWinForms.Custom_Buttons
             }
         }
 
+        // =====================================================================
+        // PARCHE D & E: LIMPIEZA ABSOLUTA DE CACHÉS Y DISPOSE SEGURO
+        // =====================================================================
+        private void ClearCaches()
+        {
+            try
+            {
+                if (_bgCache != null)
+                {
+                    try { AcrylicHelper.BitmapPool.Return(_bgCache); }
+                    catch { _bgCache.Dispose(); }
+                    _bgCache = null;
+                }
+            }
+            catch { }
+
+            try { _acrylicCache?.Dispose(); _acrylicCache = null; } catch { }
+            try { _rawWrapperBitmap?.Dispose(); _rawWrapperBitmap = null; } catch { }
+            try { _skBlurPaint?.Dispose(); _skBlurPaint = null; } catch { }
+            try { _skThumbShadowPaint?.Dispose(); _skThumbShadowPaint = null; } catch { }
+            try { _skThumbMaskFilter?.Dispose(); _skThumbMaskFilter = null; } catch { }
+            try { _skAcrylicTintPaint?.Dispose(); _skAcrylicTintPaint = null; } catch { }
+            try { _skAcrylicFallbackPaint?.Dispose(); _skAcrylicFallbackPaint = null; } catch { }
+            try { _segoeTypeface?.Dispose(); _segoeTypeface = null; } catch { }
+
+            // Objetos base readonly
+            try { _skPaint.Dispose(); } catch { }
+            try { _skPath.Dispose(); } catch { }
+            try { _gdiBrush?.Dispose(); } catch { }
+            try { _gdiPen?.Dispose(); } catch { }
+            try { _gdiPath?.Dispose(); } catch { }
+            try { _gdiClipPath?.Dispose(); } catch { }
+            try { _gdiFont?.Dispose(); _gdiFont = null; } catch { }
+            try { _gdiStringFormat?.Dispose(); _gdiStringFormat = null; } catch { }
+        }
+
         protected override void Dispose(bool disposing)
         {
             if (disposing)
             {
-                _bgCache?.Dispose();
-                _bgCache = null;
+                // Limpiar eventos del último padre antes de morir
+                if (_lastParent != null)
+                {
+                    try
+                    {
+                        _lastParent.BackColorChanged -= SafeParentInvalidate;
+                        _lastParent.BackgroundImageChanged -= SafeParentInvalidate;
+                        _lastParent.Resize -= SafeParentInvalidate;
+                    }
+                    catch { }
+                }
 
-                _acrylicCache?.Dispose();
-                _acrylicCache = null;
-
-                _skPaint.Dispose();
-                _skPath.Dispose();
-
-                _skThumbShadowPaint?.Dispose();
-                _skThumbMaskFilter?.Dispose();
-
-                _skAcrylicTintPaint?.Dispose();
-                _skAcrylicFallbackPaint?.Dispose();
-
-                _segoeTypeface?.Dispose();
-                _segoeTypeface = null;
-
-                _gdiBrush.Dispose();
-                _gdiPen.Dispose();
-                _gdiPath.Dispose();
-                _gdiClipPath.Dispose();
+                try { ClearCaches(); } catch { }
             }
             base.Dispose(disposing);
         }

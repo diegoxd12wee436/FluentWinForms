@@ -1,8 +1,6 @@
 ﻿using System;
 using System.Buffers;
 using System.Collections.Concurrent;
-using System.Drawing;
-using System.Windows.Forms;
 
 namespace FluentWinForms.Core
 {
@@ -23,7 +21,7 @@ namespace FluentWinForms.Core
 
         private static void TrimCacheIfNeeded()
         {
-            if (_divTableCache.Count <= MaxCachedTables) return;                       
+            if (_divTableCache.Count <= MaxCachedTables) return;
             // Reconstruir una pequeña tabla es más rápido que generar basura en la RAM en .NET 4.8.
             _divTableCache.Clear();
         }

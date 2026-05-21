@@ -1,7 +1,4 @@
 ﻿using System.ComponentModel;
-using System;
-using System.Drawing;
-using System.Windows.Forms;
 
 // Esto le enseña al .NET 4.8 cómo usar el 'init' moderno
 namespace System.Runtime.CompilerServices

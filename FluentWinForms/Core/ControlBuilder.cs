@@ -20,7 +20,7 @@ namespace FluentWinForms.Core
 
         public ControlBuilder(string id = "") { _node = new RenderNode { Id = string.IsNullOrWhiteSpace(id) ? Guid.NewGuid().ToString("N") : id }; }
 
-        
+
 
         public ControlBuilder Layout(float x, float y, float width, float height) { _node.Layout = new RectangleF(x, y, Math.Max(0, width), Math.Max(0, height)); _node.StretchX = false; _node.StretchY = false; return this; }
         public ControlBuilder Layout(int x, int y, int width, int height) => Layout((float)x, (float)y, (float)width, (float)height);

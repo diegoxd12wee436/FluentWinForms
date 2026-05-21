@@ -34,6 +34,7 @@
 		<Reference Include="System.Design" />
 		<Reference Include="System.Drawing" />
 		<Reference Include="System.Windows.Forms" />
+		<PackageReference Include="System.Memory" Version="4.5.5" />
 	</ItemGroup>
 
 	<ItemGroup>

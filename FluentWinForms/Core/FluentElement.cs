@@ -13,7 +13,7 @@ namespace FluentWinForms.Custom_Controls
             SetStyle(ControlStyles.StandardDoubleClick, false);
             SetStyle(ControlStyles.StandardClick, true);
         }
-        
-        
+
+
     }
 }

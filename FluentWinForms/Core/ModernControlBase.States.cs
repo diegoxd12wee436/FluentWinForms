@@ -2,7 +2,6 @@
 using System;
 using System.ComponentModel;
 using System.Drawing;
-using System.Windows.Forms;
 
 namespace FluentWinForms.Core
 {
@@ -18,7 +17,7 @@ namespace FluentWinForms.Core
         [Description("Habilita o deshabilita el efecto de hover para este control.\nEnable or disable the hover effect for this control.")]
         [DesignerSerializationVisibility(DesignerSerializationVisibility.Visible)]
         public Color DisabledColor { get; set; } = Color.FromArgb(200, 200, 200);
-        
+
         [Category("Modern - States")]
         [Description("El color del texto cuando el control está deshabilitado.\nThe color of the text when the control is disabled.")]
         [DesignerSerializationVisibility(DesignerSerializationVisibility.Visible)]

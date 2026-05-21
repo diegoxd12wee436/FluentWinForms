@@ -1,10 +1,10 @@
 ﻿#nullable enable
-using SkiaSharp;
 using System;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Drawing;
 using System.Windows.Forms;
+
 
 namespace FluentWinForms.Core
 {
@@ -19,7 +19,7 @@ namespace FluentWinForms.Core
         [Description("Velocidad de las animaciones (en milisegundos para completar la transición) \nSpeed of animations (in milliseconds to complete the transition)")]
         [DesignerSerializationVisibility(DesignerSerializationVisibility.Visible)]
         public float AnimationSpeed { get; set; } = 150f;
-        
+
         [Category("Modern -  Animations")]
         [Description("Habilita o deshabilita el efecto de hover \nEnable or disable the hover effect")]
         [DesignerSerializationVisibility(DesignerSerializationVisibility.Visible)]
@@ -203,7 +203,7 @@ namespace FluentWinForms.Core
 
         protected virtual bool CustomAnimationLoop(float dt, float step) => false;
 
-        
+
         // 🔥 FIX 1: BOUNDING BOX CULLING (Optimización extrema de CPU == Menos consumo RAM)
         private RenderNode? HitTest(RenderNode node, PointF pt)
         {
@@ -285,7 +285,7 @@ namespace FluentWinForms.Core
             if (Enabled) { _isHoveringInternal = true; StartAnimation(); }
             base.OnMouseEnter(e);
         }
-        
+
 
         protected override void OnMouseDown(MouseEventArgs e)
         {

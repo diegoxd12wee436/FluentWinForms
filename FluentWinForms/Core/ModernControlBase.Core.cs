@@ -3,19 +3,16 @@
 #pragma warning disable IDE0090 // Silencia sugerencias de simplificar 'new'
 #pragma warning disable IDE0028 // Silencia sugerencias de inicialización de colecciones
 
+using SkiaSharp;
 using System;
+using System.Collections.Concurrent; // 🔥 INYECCIÓN: Para Caché Concurrente
+using System.Collections.Specialized; // 🔥 INYECCIÓN: Para Reactividad del Árbol
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Imaging;
-using System.IO;
-using System.Threading.Tasks;
-using System.Windows.Forms;
-using System.ComponentModel;
-using System.Collections.Specialized; // 🔥 INYECCIÓN: Para Reactividad del Árbol
-using SkiaSharp;
-using SkiaSharp.Views.Desktop;
 using System.Runtime.InteropServices; // 🔥 INYECCIÓN: Para CopyMemory
-using System.Collections.Concurrent; // 🔥 INYECCIÓN: Para Caché Concurrente
+using System.Windows.Forms;
 
 namespace FluentWinForms.Core
 {
@@ -82,13 +79,13 @@ namespace FluentWinForms.Core
                 RefreshVisuals();
             }
         }
-public ControlBuilder Design()
+        public ControlBuilder Design()
         {
-            _visualNode ??= new RenderNode(); 
-            
+            _visualNode ??= new RenderNode();
+
             // 🔥 Pasamos 'this' (el control WinForms) al Builder
-            var builder = new ControlBuilder(_visualNode, this); 
-            
+            var builder = new ControlBuilder(_visualNode, this);
+
             builder.OnApplied = node =>
             {
                 if (this.VisualNode != node) this.VisualNode = node;
@@ -97,7 +94,7 @@ public ControlBuilder Design()
             return builder;
         }
 
-        
+
 
         #region 🔵 Escalado DPI (Nivel Producción)
         protected float _dpiScale = 1.0f;
@@ -190,8 +187,8 @@ public ControlBuilder Design()
 
         public float Rotation { get => _animatedRotation; set { _animatedRotation = value; RefreshVisuals(); } }
 
-        private float _scaleX = 1.0f; [DesignerSerializationVisibility(DesignerSerializationVisibility.Visible)] [Category("Modern -  Transform")] [Description("Escala del control en el eje X. \nScale of the control on the X axis.")] public float ScaleX { get => _scaleX; set { _scaleX = value; RefreshVisuals(); } }
-        private float _scaleY = 1.0f; [DesignerSerializationVisibility(DesignerSerializationVisibility.Visible)] [Category("Modern -  Transform")] [Description("Escala del control en el eje Y. \nScale of the control on the Y axis.")] public float ScaleY { get => _scaleY; set { _scaleY = value; RefreshVisuals(); } }
+        private float _scaleX = 1.0f; [DesignerSerializationVisibility(DesignerSerializationVisibility.Visible)][Category("Modern -  Transform")][Description("Escala del control en el eje X. \nScale of the control on the X axis.")] public float ScaleX { get => _scaleX; set { _scaleX = value; RefreshVisuals(); } }
+        private float _scaleY = 1.0f; [DesignerSerializationVisibility(DesignerSerializationVisibility.Visible)][Category("Modern -  Transform")][Description("Escala del control en el eje Y. \nScale of the control on the Y axis.")] public float ScaleY { get => _scaleY; set { _scaleY = value; RefreshVisuals(); } }
 
         private bool _useSkiaGraphics = true;
         [Category("Modern - Engine")]

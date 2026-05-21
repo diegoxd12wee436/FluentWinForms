@@ -3,14 +3,12 @@
 #pragma warning disable IDE0090 // Silencia sugerencias de simplificar 'new'
 #pragma warning disable IDE0028 // Silencia sugerencias de inicialización
 using SkiaSharp;
-using SkiaSharp.Views.Desktop;
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Drawing;
 using System.IO;
-using System.Threading.Tasks;
 using System.Windows.Forms;
 
 namespace FluentWinForms.Core
