@@ -27,13 +27,14 @@
 * 🪟 **Glassmorphism Real:** Nada de colores transparentes; captura el fondo real y le aplica blur dinámico con SkiaSharp.
 * 🏎️ **Motor de Animación (120 FPS):** Corre en un hilo aparte (`RenderThread`) con precisión de 1ms. Tu app nunca se va a trabar.
 * 🧠 **Rendimiento Inteligente (Zero-Alloc):** Reusa memoria a lo bestia para mantener el consumo de RAM por el suelo y evitar que el Garbage Collector te congele la app.
+* 🎨 **100% Personalizable:** ¡Cualquiera puede crear sus propios diseños, controles y estilos desde cero fácilmente!
 * 🖱️ **¡Soporte Drag & Drop!** ¿Te cuadra más el diseñador visual? No hay falla. El motor está preparado para que arrastrés los controles directamente desde la caja de herramientas de Visual Studio.
 * 📦 **Layout Moderno:** Adiós al `FlowLayoutPanel`. Usá `AutoFitGrid`, `VerticalStack` y `HorizontalStack` bien responsivos.
 * 🔄 **Para Todos:** Corre al cien desde **.NET Framework 4.8** hasta **.NET 10** *(en desarrollo aún, ya que no todas las librerías de Skia son estables en las versiones más nuevas)*.
 
 ---
 
-## 🛠️ El Concepto: Fluent API
+## 🛠️ El Concepto: Fluent API (aun en progreso pero ya casi finalizado)
 
 La idea es cambiar por completo cómo hacemos UI en WinForms. En vez de pelear con propiedades sueltas, encadenás métodos y armás controles complejos rapidísimo. 
 
@@ -99,7 +100,7 @@ Si te cuadra C#, sos apasionado de la programación y te llega esta visión de r
 
 <div align="center">
 
-# 🇬🇧 English Version
+#  English Version
 
 </div>
 
@@ -118,13 +119,14 @@ Hi! I'm a 19-year-old student. From my perspective, most of my classmates alread
 * 🪟 **Real Glassmorphism:** True background capturing coupled with real-time dynamic blur powered by SkiaSharp.
 * 🏎️ **Animation Engine (120 FPS):** High-precision (1ms via `winmm.dll`) isolated rendering loop (`RenderThread`) that keeps your app stutter-free.
 * 🧠 **Smart Performance (Zero-Alloc):** Relies heavily on memory pooling to maintain an ultra-low RAM footprint and completely bypass Garbage Collector spikes.
+* 🎨 **Fully Customizable:** Anyone can easily create their own custom designs, controls, and styles from scratch!
 * 🖱️ **Drag & Drop Ready:** Prefer the visual designer? No problem! The engine is built so you can seamlessly drag and drop controls straight from the Visual Studio Toolbox.
 * 📦 **Modern Layouts:** Native responsive layout primitives including `AutoFitGrid`, `VerticalStack`, and `HorizontalStack`.
 * 🔄 **Wide Compatibility:** Runs perfectly from **.NET Framework 4.8** all the way up to **.NET 10** *(currently in development, as not all Skia libraries are stable on the newest versions yet)*.
 
 ---
 
-## 🛠️ The Concept: Fluent API
+## 🛠️ The Concept: Fluent API (still working on it but almost done)
 
 We are building a revolutionary way to write UI in WinForms. The idea is that you can chain methods together to build complex controls without dealing with boring property configurations.
 
