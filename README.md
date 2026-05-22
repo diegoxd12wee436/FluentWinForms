@@ -1,9 +1,12 @@
 <div align="center">
   
 # 🚀 FluentWinForms 
-**Diseñá como Windows 11. Consumí como Windows 98.**
+**Diseñá como Windows 11. Ligero en RAM como Windows 7.**   
 
-*Blur real · Glassmorphism · Animaciones fluidas · C# puro · Sin XAML · Sin MVVM*
+**Design like Windows 11. Light on RAM like Windows 7.**
+
+
+*Real Blur · Glassmorphism · Smooth Animations · Pure C# · No XAML · No MVVM*
 
 ![.NET Version](https://img.shields.io/badge/.NET-4.8%20%7C%206.0%20%7C%208.0%20%7C%209.0%20%7C%2010.0-blue)
 ![Status](https://img.shields.io/badge/Status-En%20Desarrollo%20(WIP)-orange)
