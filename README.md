@@ -1,5 +1,6 @@
 <div align="center">
   
+
 # 🚀 FluentWinForms 
 **Diseñá como Windows 11. Ligero en RAM como Windows 7.**   
 
@@ -13,6 +14,8 @@
 ![License](https://img.shields.io/badge/License-MIT-green)
 
 *[Read the English version below](#-english-version)*
+
+*[The engine running (Demo)](#-Demo-test)*
 </div>
 
 ## 📖 La historia detrás de este motor
@@ -32,6 +35,7 @@
 * 🧠 **Rendimiento Inteligente (Zero-Alloc):** Reusa memoria a lo bestia para mantener el consumo de RAM por el suelo y evitar que el Garbage Collector te congele la app.
 * 🎨 **100% Personalizable:** ¡Cualquiera puede crear sus propios diseños, controles y estilos desde cero fácilmente!
 * 🖱️ **¡Soporte Drag & Drop!** ¿Te cuadra más el diseñador visual? No hay falla. El motor está preparado para que arrastrés los controles directamente desde la caja de herramientas de Visual Studio.
+* 🎯 **DPI-Aware: Nitidez perfecta en cualquier escala de pantalla (monitores 4K o escalado Windows).
 * 📦 **Layout Moderno:** Adiós al `FlowLayoutPanel`. Usá `AutoFitGrid`, `VerticalStack` y `HorizontalStack` bien responsivos.
 * 🔄 **Para Todos:** Corre al cien desde **.NET Framework 4.8** hasta **.NET 10** *(en desarrollo aún, ya que no todas las librerías de Skia son estables en las versiones más nuevas)*.
 
@@ -84,6 +88,61 @@ Inspirado en páginas brutales como *uiverse.io*, este proyecto va a tener **Flu
 - [ ] `ModernDialog` — Diálogos modales como los de Windows 11.
 - [ ] Lanzamiento de **FluentWinUiVerse** (La galería de la comunidad).
 - [ ] Tirar el paquete a NuGet público.
+      
+## Cosas hechas aun faltan pullir
+
+### **🪟 ModernFormManager — Bordes redondeados + Acrílico**
+
+✅ Bordes suaves (sin dientes) con ModernFormOverlay + UpdateLayeredWindow.
+
+✅ Acrílico nativo en Windows 11 (DWMWA_SYSTEMBACKDROP_TYPE).
+
+✅ Fallback de desenfoque manual en Windows 10, 8 y 7 (AcrylicHelper + StackBlurUltra).
+
+✅ Radio de borde configurable (0–50px).
+
+✅ Arrastre del formulario sin bordes (EnableDrag).
+> Los 10 toggles puesto con sus animacioon en modo easi-in-out, ModernFormManager haciendo el acrylic
+
+>**Nota:** en acrylic mode los controles winforms nativos no renderizan bien porque es el limite del GDI+
+
+### **🌫️ Glassmorphism — Cristal ahumado real**
+
+✅ ModernGlassPanel funcional con blur dinámico sobre el fondo real.
+
+✅ Tinte y gradiente semitransparente (GlassEffect).
+
+✅ Bordes con brillo de cristal (Border("#40FFFFFF", 1f)).
+
+### **🎛️ ModernThemeToggle — 10 estilos de Toggle**
+
+✅ Animaciones suaves con Spring y Easing.
+
+✅ Modo Weather_Legacy con sol, luna, nubes y estrellas.
+
+✅ Sombras dinámicas con SKImageFilter.CreateDropShadow.
+
+✅ Integración completa con la Fluent API.
+
+>⚠️ Todo esto es funcional, pero aún estoy puliendo el código y optimizando. Si encontrás algún bug o tenés ideas para mejorar, ¡abrime un Issue o mandame un PR!
+
+# Demo test
+## 🎥 DEMO el motor corriendo en WinForms 
+> **20 controles Skia + formulario Acrílico ejecutándose al mismo tiempo: 17–20 MB de RAM estables.**
+
+>  **20 Skia controls + Acrylic Form running simultaneously: 17–20 MB stable RAM.**
+
+
+
+https://github.com/user-attachments/assets/0e66c22d-1ced-4cdd-9716-a40d83583374
+
+
+
+
+
+
+
+
 
 ---
 
@@ -124,6 +183,7 @@ Hi! I'm a 19-year-old student. From my perspective, most of my classmates alread
 * 🧠 **Smart Performance (Zero-Alloc):** Relies heavily on memory pooling to maintain an ultra-low RAM footprint and completely bypass Garbage Collector spikes.
 * 🎨 **Fully Customizable:** Anyone can easily create their own custom designs, controls, and styles from scratch!
 * 🖱️ **Drag & Drop Ready:** Prefer the visual designer? No problem! The engine is built so you can seamlessly drag and drop controls straight from the Visual Studio Toolbox.
+* 🎯 DPI-Aware: Automatically scales for any Windows display setting (125%, 150%, 200%). Result: Pixel-perfect clarity on high-DPI and 4K monitors.
 * 📦 **Modern Layouts:** Native responsive layout primitives including `AutoFitGrid`, `VerticalStack`, and `HorizontalStack`.
 * 🔄 **Wide Compatibility:** Runs perfectly from **.NET Framework 4.8** all the way up to **.NET 10** *(currently in development, as not all Skia libraries are stable on the newest versions yet)*.
 
@@ -176,6 +236,42 @@ Inspired by amazing community hubs like *uiverse.io*, this repository will soon 
 - [ ] `ModernDialog` — Windows 11 style modal dialogs.
 - [ ] **FluentWinUiVerse** Launch (Community showcase via GitHub Pages).
 - [ ] Public NuGet package deployment.
+
+## Things done (still need polishing)
+
+### 🪟 ModernFormManager — Rounded corners + Acrylic
+
+✅ Smooth borders (no jagged edges) with ModernFormOverlay + UpdateLayeredWindow.
+
+✅ Native Acrylic on Windows 11 (DWMWA_SYSTEMBACKDROP_TYPE).
+
+✅ Manual blur fallback on Windows 10, 8 and 7 (AcrylicHelper + StackBlurUltra).
+
+✅ Configurable border radius (0–50px).
+
+✅ Borderless form dragging (EnableDrag).
+
+> The 10 toggles placed with their ease-in-out animations, ModernFormManager doing the acrylic.
+
+> **Note:** in acrylic mode, native WinForms controls don't render well because that's the GDI+ limit.
+
+### 🌫️ Glassmorphism — Real frosted glass
+
+✅ Functional ModernGlassPanel with dynamic blur over the real background.
+
+✅ Semi-transparent tint and gradient (GlassEffect).
+
+✅ Crystal shine borders (Border("#40FFFFFF", 1f)).
+
+### 🎛️ ModernThemeToggle — 10 Toggle styles
+
+✅ Smooth animations with Spring and Easing.
+
+✅ Weather_Legacy mode with sun, moon, clouds and stars.
+
+✅ Dynamic shadows with SKImageFilter.CreateDropShadow.
+
+✅ Full Fluent API integration.
 
 ---
 
