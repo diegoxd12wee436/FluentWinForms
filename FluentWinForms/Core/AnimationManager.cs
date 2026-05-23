@@ -139,8 +139,8 @@ namespace FluentWinForms.Core
         {
             long nowTicks = Stopwatch.GetTimestamp();
 
-            // Si pasaron menos de 8ms desde el último ForceFrame, lo ignoramos.
-            if (nowTicks - Interlocked.Read(ref _lastForceFrameTicks) < (Stopwatch.Frequency / 125))
+            // Si pasaron menos de 4ms desde el último ForceFrame, lo ignoramos.
+            if (nowTicks - Interlocked.Read(ref _lastForceFrameTicks) < (Stopwatch.Frequency / 250)) // 4ms — más fluido con 1000 controles
                 return;
 
             Interlocked.Exchange(ref _lastForceFrameTicks, nowTicks);

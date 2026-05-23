@@ -7,6 +7,9 @@ using System.ComponentModel;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
+using System.Runtime.InteropServices; // 🔥 INYECCIÓN 1: Necesario para CopyMemory P/Invoke
+using System.Threading;
+using System.Threading.Tasks;
 using System.Windows.Forms;
 
 namespace FluentWinForms.Custom_Buttons
@@ -32,30 +35,71 @@ namespace FluentWinForms.Custom_Buttons
     [DefaultProperty("IsChecked")]
     public class ModernThemeToggle : ModernControlBase
     {
+        // 🔥 INYECCIÓN 2: CopyMemory P/Invoke — misma velocidad que unsafe, cero flags de antivirus
+        [DllImport("kernel32.dll", SetLastError = false)]
+        private static extern void CopyMemory(IntPtr destination, IntPtr source, UIntPtr length);
+
         private float _toggleProgress = 0f;
 
+        #region Ocultar propiedades base no utilizadas en el Designer
+
+        [Browsable(false), EditorBrowsable(EditorBrowsableState.Never), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+        public new Color BackgroundColor { get => base.BackgroundColor; set => base.BackgroundColor = value; }
+
+        [Browsable(false), EditorBrowsable(EditorBrowsableState.Never), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+        public new Color BackgroundColor2 { get => base.BackgroundColor2; set => base.BackgroundColor2 = value; }
+
+        [Browsable(false), EditorBrowsable(EditorBrowsableState.Never), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+        public new Color CheckedColor { get => base.CheckedColor; set => base.CheckedColor = value; }
+
+        [Browsable(false), EditorBrowsable(EditorBrowsableState.Never), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+        public new Color CheckedColor2 { get => base.CheckedColor2; set => base.CheckedColor2 = value; }
+
+        [Browsable(false), EditorBrowsable(EditorBrowsableState.Never), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+        public new Color HoverColor { get => base.HoverColor; set => base.HoverColor = value; }
+
+        [Browsable(false), EditorBrowsable(EditorBrowsableState.Never), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+        public new Color HoverColor2 { get => base.HoverColor2; set => base.HoverColor2 = value; }
+
+        [Browsable(false), EditorBrowsable(EditorBrowsableState.Never), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+        public new Color PressColor { get => base.PressColor; set => base.PressColor = value; }
+
+        [Browsable(false), EditorBrowsable(EditorBrowsableState.Never), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+        public new Color PressColor2 { get => base.PressColor2; set => base.PressColor2 = value; }
+
+        [Browsable(false), EditorBrowsable(EditorBrowsableState.Never), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+        public new float BorderThickness { get => base.BorderThickness; set => base.BorderThickness = value; }
+
+        [Browsable(false), EditorBrowsable(EditorBrowsableState.Never), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+        public new float FocusThickness { get => base.FocusThickness; set => base.FocusThickness = value; }
+
+        [Browsable(false), EditorBrowsable(EditorBrowsableState.Never), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+        public new bool UseRipple { get => base.UseRipple; set => base.UseRipple = value; }
+
+        #endregion
+
         [Category("Toggle Appearance")]
-        [Description("Define el estilo visual del Toggle basado en 9 diseños preestablecidos.")]
+        [Description("Define el estilo visual del Toggle basado en 9 diseños preestablecidos.\nDefines the visual style of the Toggle based on 9 presets.")]
         [DesignerSerializationVisibility(DesignerSerializationVisibility.Visible)]
         public ToggleStyle Style { get; set; } = ToggleStyle.Weather_Legacy;
 
-        [Category("Modern Appearance")]
-        [Description("Color de la pista cuando está activado.")]
+        [Category("Toggle Appearance")]
+        [Description("Color de la pista cuando está activado.\nTrack color when the toggle is ON.")]
         [DesignerSerializationVisibility(DesignerSerializationVisibility.Visible)]
-        public Color ToggleColorOn { get; set; } = Color.FromArgb(45, 140, 240); // 🔥 Color azul #2d8cf0
+        public Color ToggleColorOn { get; set; } = Color.FromArgb(45, 140, 240);
 
         [Category("Toggle Appearance")]
-        [Description("Color de la pista cuando está desactivado.")]
+        [Description("Color de la pista cuando está desactivado.\nTrack color when the toggle is OFF.")]
         [DesignerSerializationVisibility(DesignerSerializationVisibility.Visible)]
         public Color ToggleColorOff { get; set; } = Color.FromArgb(220, 224, 232);
 
         [Category("Toggle Appearance")]
-        [Description("Color del indicador (thumb) cuando está activado.")]
+        [Description("Color del indicador (thumb) cuando está activado.\nThumb indicator color when toggled ON.")]
         [DesignerSerializationVisibility(DesignerSerializationVisibility.Visible)]
         public Color ThumbColorOn { get; set; } = Color.White;
 
         [Category("Toggle Appearance")]
-        [Description("Color del indicador (thumb) cuando está desactivado.")]
+        [Description("Color del indicador (thumb) cuando está desactivado.\nThumb indicator color when toggled OFF.")]
         [DesignerSerializationVisibility(DesignerSerializationVisibility.Visible)]
         public Color ThumbColorOff { get; set; } = Color.White;
 
@@ -71,7 +115,7 @@ namespace FluentWinForms.Custom_Buttons
         private int _maxFps = 120;
         [Category("Modern Appearance")]
         [DefaultValue(120)]
-        [Description("Tope máximo visual de fotogramas, síncrono con AnimationManager vMax.")]
+        [Description("Tope máximo visual de fotogramas, síncrono con AnimationManager vMax.\nMax visual framerate cap, synced with AnimationManager vMax.")]
         public int MaxFps
         {
             get => _maxFps;
@@ -81,7 +125,7 @@ namespace FluentWinForms.Custom_Buttons
         private float _animationDurationMs = 150f;
         [Category("Modern Appearance")]
         [DefaultValue(150f)]
-        [Description("Duración total de la animación en milisegundos para sincronización por Delta Time.")]
+        [Description("Duración total de la animación en milisegundos para sincronización por Delta Time.\nTotal animation duration in milliseconds for Delta Time sync.")]
         public float AnimationDurationMs
         {
             get => _animationDurationMs;
@@ -101,17 +145,16 @@ namespace FluentWinForms.Custom_Buttons
         private readonly Color _moonColorGDI = Color.FromArgb(196, 201, 209);
         private readonly Color _spotColorGDI = Color.FromArgb(149, 157, 177);
 
-        // 🔥 POOL DE MEMORIA (GAME DEV ZERO-ALLOCATION)
+        // 🔥 POOL DE MEMORIA ZERO-ALLOCATION
         private Bitmap? _bgCache;
         private SKBitmap? _acrylicCache;
-        private SKBitmap? _rawWrapperBitmap;
+        private SKBitmap? _acrylicStagingBitmap; // 🔥 INYECCIÓN 3: Buffer Ping-Pong (elimina SKBitmap.Copy())
         private bool _cacheDirty = true;
+        private bool _isCapturingBackdrop = false; // Control de asincronía para Acrylic
+        private int _isInvalidating = 0;           // 🔥 INYECCIÓN 4: Candado debounce BeginInvoke
 
         private readonly SKPaint _skPaint = new SKPaint { IsAntialias = true };
         private readonly SKPath _skPath = new SKPath();
-
-        private SKPaint? _skBlurPaint;
-        private float _cachedBlurRadius = -1f; // PARCHE C: Control de radio dinámico
 
         private SKPaint? _skThumbShadowPaint;
         private SKMaskFilter? _skThumbMaskFilter;
@@ -128,26 +171,24 @@ namespace FluentWinForms.Custom_Buttons
         private Font? _gdiFont;
         private StringFormat? _gdiStringFormat;
 
-        private Control? _lastParent; // PARCHE A: Rastreo del padre anterior
+        private Control? _lastParent;
 
         public ModernThemeToggle()
         {
             this.MinimumSize = new Size(45, 22);
             Width = 45; Height = 22;
-            BackgroundColor = Color.Transparent; BackgroundColor2 = Color.Transparent;
-            CheckedColor = Color.Transparent; CheckedColor2 = Color.Transparent;
-            HoverColor = Color.Transparent; HoverColor2 = Color.Transparent;
-            PressColor = Color.Transparent; PressColor2 = Color.Transparent;
-            BorderThickness = 0; FocusThickness = 0; UseRipple = false;
 
-            // 🔥 INYECCIÓN ANTI-LAG LOCAL
+            // Reestablecer base para seguridad visual
+            base.BackgroundColor = Color.Transparent; base.BackgroundColor2 = Color.Transparent;
+            base.CheckedColor = Color.Transparent; base.CheckedColor2 = Color.Transparent;
+            base.HoverColor = Color.Transparent; base.HoverColor2 = Color.Transparent;
+            base.PressColor = Color.Transparent; base.PressColor2 = Color.Transparent;
+            base.BorderThickness = 0; base.FocusThickness = 0; base.UseRipple = false;
+
             SetStyle(ControlStyles.StandardDoubleClick, false);
             SetStyle(ControlStyles.StandardClick, true);
         }
 
-        // =====================================================================
-        // PARCHE A: MANEJO SEGURO DEL PADRE (Evita Zombie Handlers / Leaks)
-        // =====================================================================
         protected override void OnParentChanged(EventArgs e)
         {
             base.OnParentChanged(e);
@@ -195,32 +236,26 @@ namespace FluentWinForms.Custom_Buttons
                 try { AcrylicHelper.BitmapPool.Return(_bgCache); } catch { _bgCache.Dispose(); }
                 _bgCache = null;
             }
-            InvalidateCaches();
+            _cacheDirty = true;
         }
 
         protected override void OnMove(EventArgs e)
         {
             base.OnMove(e);
-            InvalidateCaches();
-        }
-
-        private void InvalidateCaches()
-        {
             _cacheDirty = true;
         }
 
         // =====================================================================
-        // PARCHE B: ANIMACIÓN 120FPS PRO (Síncrono a dt real y limitador MaxFps)
+        // 🔥 FIX PRO DE ANIMACIÓN: UNIDADES CORREGIDAS PARA dt Y FLUIDEZ MAXIMA
         // =====================================================================
         protected override bool CustomAnimationLoop(float dt, float step)
         {
-            // dt: segundos desde el último frame. AnimationDurationMs: milisegundos.
-            float durationSec = Math.Max(1f, AnimationDurationMs) / 1000f;
-            float velocity = dt / durationSec; // fracción de la animación por frame
+            // dt VIENE EN MILISEGUNDOS DEL ANIMATION MANAGER.
+            // Si hay un pico extremo de lag (ej: SO congelado), evitamos un salto masivo topándolo en 100ms.
+            if (dt > 100f) dt = 100f;
 
-            // Clamp por MaxFps: normalizamos el dt si es demasiado rápido
-            float minDt = 1f / Math.Max(30, Math.Min(240, MaxFps));
-            if (dt < minDt) dt = minDt;
+            // Calculamos qué fracción del viaje total debemos recorrer en este frame
+            float velocity = dt / Math.Max(10f, AnimationDurationMs);
 
             float target = IsChecked ? 1f : 0f;
             bool isMoving = false;
@@ -258,91 +293,137 @@ namespace FluentWinForms.Custom_Buttons
         }
 
         // =====================================================================
-        // PARCHE C: GetOrCreateBlurPaint que respeta cambios de radio
+        // 🔥 BACKGROUND WORKER CACHE: Cero bloqueos de Hilo UI
         // =====================================================================
-        private SKPaint GetOrCreateBlurPaint(float radius)
-        {
-            if (_skBlurPaint == null || Math.Abs(_cachedBlurRadius - radius) > 0.001f)
-            {
-                _skBlurPaint?.Dispose();
-                _skBlurPaint = new SKPaint { IsAntialias = true, ImageFilter = SKImageFilter.CreateBlur(radius, radius) };
-                _cachedBlurRadius = radius;
-            }
-            return _skBlurPaint;
-        }
-
-        private void RefreshBackgroundCache()
+        private async void RefreshBackgroundCacheAsync()
         {
             if (Parent == null || this.Width <= 0 || this.Height <= 0 || DesignMode)
             {
-                _cacheDirty = true;
+                _cacheDirty = false;
                 return;
             }
 
-            if (_bgCache != null && (_bgCache.Width != this.Width || _bgCache.Height != this.Height))
+            // PASO 1: SINCRÓNICO - Reconstruir _bgCache (GDI puro) ultra rápido
+            if (_bgCache == null || _bgCache.Width != this.Width || _bgCache.Height != this.Height)
             {
-                AcrylicHelper.BitmapPool.Return(_bgCache);
-                _bgCache = null;
+                if (_bgCache != null) AcrylicHelper.BitmapPool.Return(_bgCache);
+                _bgCache = AcrylicHelper.BitmapPool.Rent(this.Width, this.Height);
             }
 
-            BitmapData? bmpData = null;
+            if (_cacheDirty || _bgCache == null)
+            {
+                try
+                {
+                    using (Graphics g = Graphics.FromImage(_bgCache!))
+                    {
+                        g.Clear(Color.Transparent);
+
+                        // 🔥 FIX FlowLayoutPanel: coordenadas absolutas de pantalla
+                        Form? parentForm = this.FindForm();
+                        if (parentForm != null && this.IsHandleCreated)
+                        {
+                            Point screenPos = this.PointToScreen(Point.Empty);
+                            Point formPos = parentForm.PointToClient(screenPos);
+                            g.TranslateTransform(-formPos.X, -formPos.Y);
+                            using (var pe = new PaintEventArgs(g, parentForm.ClientRectangle))
+                            {
+                                this.InvokePaintBackground(parentForm, pe);
+                            }
+                        }
+                        else if (Parent != null)
+                        {
+                            g.TranslateTransform(-this.Left, -this.Top);
+                            using (var pe = new PaintEventArgs(g, Parent.ClientRectangle))
+                            {
+                                InvokePaintBackground(Parent, pe);
+                            }
+                        }
+                    }
+                }
+                catch { }
+            }
+
+            if (!UseAcrylic)
+            {
+                _cacheDirty = false;
+                return;
+            }
+
+            // Control para no encadenar capturas si una está en progreso
+            if (_isCapturingBackdrop) return;
+            _isCapturingBackdrop = true;
+
+            // PASO 2: ASÍNCRONO - Descargar Acrylic pesados al hilo del sistema
             try
             {
-                _bgCache ??= AcrylicHelper.BitmapPool.Rent(this.Width, this.Height);
+                Rectangle bounds = new Rectangle(this.Left, this.Top, this.Width, this.Height);
+                IntPtr hwnd = Parent.IsHandleCreated ? Parent.Handle : IntPtr.Zero;
 
-                using (Graphics g = Graphics.FromImage(_bgCache))
+                if (hwnd != IntPtr.Zero)
                 {
-                    g.Clear(Color.Transparent);
-                    g.TranslateTransform(-this.Left, -this.Top);
-                    using (var pe = new PaintEventArgs(g, Parent.ClientRectangle))
+                    var newAcrylic = await AcrylicHelper.CaptureBackdropAsync(hwnd, bounds, Color.Transparent, 15);
+
+                    if (newAcrylic != null)
                     {
-                        InvokePaintBackground(Parent, pe);
+                        await Task.Run(() =>
+                        {
+                            BitmapData? bmpData = null;
+                            try
+                            {
+                                var info = new SKImageInfo(newAcrylic.Width, newAcrylic.Height, SKColorType.Bgra8888, SKAlphaType.Premul);
+
+                                // 🔥 INYECCIÓN 3: Reusar staging buffer — cero allocations por frame
+                                if (_acrylicStagingBitmap == null ||
+                                    _acrylicStagingBitmap.Width != newAcrylic.Width ||
+                                    _acrylicStagingBitmap.Height != newAcrylic.Height)
+                                {
+                                    _acrylicStagingBitmap?.Dispose();
+                                    _acrylicStagingBitmap = new SKBitmap(info);
+                                }
+
+                                bmpData = newAcrylic.LockBits(
+                                    new Rectangle(0, 0, newAcrylic.Width, newAcrylic.Height),
+                                    ImageLockMode.ReadOnly,
+                                    PixelFormat.Format32bppPArgb);
+
+                                // 🔥 INYECCIÓN 2: CopyMemory — misma velocidad que unsafe, sin flags antivirus
+                                CopyMemory(
+                                    _acrylicStagingBitmap.GetPixels(),
+                                    bmpData.Scan0,
+                                    new UIntPtr((uint)_acrylicStagingBitmap.ByteCount)
+                                );
+
+                                // 🔥 INYECCIÓN 3: Swap Ping-Pong atómico — cero bloqueos
+                                _acrylicStagingBitmap = Interlocked.Exchange(ref _acrylicCache, _acrylicStagingBitmap);
+                            }
+                            finally
+                            {
+                                if (bmpData != null) newAcrylic.UnlockBits(bmpData);
+                                AcrylicHelper.BitmapPool.Return(newAcrylic);
+                            }
+                        });
+
+                        _cacheDirty = false;
+
+                        // 🔥 INYECCIÓN 4: Debounce del BeginInvoke — evita 1000 invalidaciones simultáneas
+                        if (IsHandleCreated && !IsDisposed)
+                        {
+                            if (Interlocked.CompareExchange(ref _isInvalidating, 1, 0) == 0)
+                            {
+                                this.BeginInvoke(new Action(() =>
+                                {
+                                    try { if (!IsDisposed && IsHandleCreated) this.Invalidate(); } catch { }
+                                    Interlocked.Exchange(ref _isInvalidating, 0);
+                                }));
+                            }
+                        }
                     }
                 }
-
-                if (UseAcrylic)
-                {
-                    var rect = new Rectangle(0, 0, this.Width, this.Height);
-                    bmpData = _bgCache.LockBits(rect, System.Drawing.Imaging.ImageLockMode.ReadOnly, System.Drawing.Imaging.PixelFormat.Format32bppPArgb);
-
-                    var info = new SKImageInfo(this.Width, this.Height, SKColorType.Bgra8888, SKAlphaType.Premul);
-
-                    _rawWrapperBitmap ??= new SKBitmap();
-                    _rawWrapperBitmap.InstallPixels(info, bmpData.Scan0, bmpData.Stride);
-
-                    if (_acrylicCache == null || _acrylicCache.Width != this.Width || _acrylicCache.Height != this.Height)
-                    {
-                        _acrylicCache?.Dispose();
-                        _acrylicCache = new SKBitmap(info);
-                    }
-
-                    using (var skCanvas = new SKCanvas(_acrylicCache))
-                    {
-                        skCanvas.Clear(SKColors.Transparent);
-                        var blurPaint = GetOrCreateBlurPaint(S(15f));
-                        skCanvas.DrawBitmap(_rawWrapperBitmap, 0, 0, blurPaint);
-                        skCanvas.Flush();
-                    }
-                }
-                _cacheDirty = false;
             }
-            catch
-            {
-                _cacheDirty = true;
-            }
+            catch { }
             finally
             {
-                // PARCHE E: Asegurar Return al pool en RefreshBackgroundCache si algo falla
-                if (bmpData != null && _bgCache != null)
-                {
-                    try { _bgCache.UnlockBits(bmpData); } catch { }
-                }
-
-                // Garantizar que el bitmap quede en el pool si no se logró estabilizar
-                if (_bgCache != null && _cacheDirty)
-                {
-                    try { AcrylicHelper.BitmapPool.Return(_bgCache); _bgCache = null; } catch { /* fallback */ }
-                }
+                _isCapturingBackdrop = false;
             }
         }
 
@@ -354,7 +435,7 @@ namespace FluentWinForms.Custom_Buttons
                 _isPumpingBackground = true;
                 try
                 {
-                    if (_cacheDirty || _bgCache == null) RefreshBackgroundCache();
+                    if (_cacheDirty || _bgCache == null) RefreshBackgroundCacheAsync();
                     if (_bgCache != null) e.Graphics.DrawImageUnscaled(_bgCache, 0, 0);
                 }
                 finally
@@ -371,7 +452,7 @@ namespace FluentWinForms.Custom_Buttons
         private void DrawAcrylicPlugAndPlay(SKCanvas canvas, SKRect rect)
         {
             if (!UseAcrylic || Parent == null || this.Width <= 0 || this.Height <= 0) return;
-            if (_cacheDirty || _acrylicCache == null) RefreshBackgroundCache();
+            if (_cacheDirty || _acrylicCache == null) RefreshBackgroundCacheAsync();
 
             if (_acrylicCache != null)
             {
@@ -381,6 +462,7 @@ namespace FluentWinForms.Custom_Buttons
                 _skPath.AddRoundRect(rect, rect.Height / 2f, rect.Height / 2f);
                 canvas.ClipPath(_skPath, SKClipOperation.Intersect, true);
 
+                // Ya no necesitamos aplicar Skia ImageFilter Blur. CaptureBackdropAsync lo hizo gratis
                 canvas.DrawBitmap(_acrylicCache, new SKRect(0, 0, this.Width, this.Height));
 
                 _skAcrylicTintPaint ??= new SKPaint { Style = SKPaintStyle.Fill, Color = SKColors.White.WithAlpha(40), IsAntialias = true };
@@ -413,6 +495,9 @@ namespace FluentWinForms.Custom_Buttons
             else DrawModernStylesGDI(g, contentRect, t);
         }
 
+        // =====================================================================
+        // Dibujados Lógicos (Intactos y Seguros)
+        // =====================================================================
         private void DrawWeatherLegacySkia(SKCanvas canvas, SKRect contentRect, float t)
         {
             Color cDay = Color.FromArgb(_bgDaySK.Alpha, _bgDaySK.Red, _bgDaySK.Green, _bgDaySK.Blue);
@@ -511,9 +596,7 @@ namespace FluentWinForms.Custom_Buttons
                 case ToggleStyle.Style1_Standard:
                     if (UseAcrylic) DrawAcrylicPlugAndPlay(canvas, rect);
                     else canvas.DrawRoundRect(rect, h / 2f, h / 2f, _skPaint);
-
                     if (UseShadow) DrawThumbShadowSkia(canvas, thumbX, rect.Top + padding, thumbSize, thumbSize, thumbSize / 2f);
-
                     _skPaint.Color = currentThumbColor.ToSKColor();
                     canvas.DrawOval(thumbX + thumbSize / 2f, rect.MidY, thumbSize / 2f, thumbSize / 2f, _skPaint);
                     break;
@@ -526,13 +609,10 @@ namespace FluentWinForms.Custom_Buttons
                     float minX2 = rect.Left + thumbRadius2;
                     float maxX2 = rect.Right - thumbRadius2;
                     float thumbX2 = minX2 + (maxX2 - minX2) * t;
-
                     if (UseShadow) DrawThumbShadowSkia(canvas, thumbX2 - thumbRadius2, rect.MidY - thumbRadius2, thumbRadius2 * 2, thumbRadius2 * 2, thumbRadius2);
-
                     _skPaint.Color = currentThumbColor.ToSKColor();
                     canvas.DrawCircle(thumbX2, rect.MidY, thumbRadius2, _skPaint);
                     break;
-
                 case ToggleStyle.Style3_LineTrack:
                     _skPaint.Style = SKPaintStyle.Stroke;
                     _skPaint.StrokeWidth = S(4f);
@@ -543,19 +623,14 @@ namespace FluentWinForms.Custom_Buttons
                     float minX3 = rect.Left + thumbRadius3;
                     float maxX3 = rect.Right - thumbRadius3;
                     float thumbX3 = minX3 + (maxX3 - minX3) * t;
-
                     if (UseShadow) DrawThumbShadowSkia(canvas, thumbX3 - thumbRadius3, rect.MidY - thumbRadius3, thumbRadius3 * 2, thumbRadius3 * 2, thumbRadius3);
-
                     _skPaint.Color = currentThumbColor.ToSKColor();
                     canvas.DrawCircle(thumbX3, rect.MidY, thumbRadius3, _skPaint);
                     break;
-
                 case ToggleStyle.Style4_Square:
                     if (UseAcrylic) DrawAcrylicPlugAndPlay(canvas, rect);
                     else canvas.DrawRoundRect(rect, S(4f), S(4f), _skPaint);
-
                     if (UseShadow) DrawThumbShadowSkia(canvas, thumbX, rect.Top + padding, thumbSize, thumbSize, S(2f));
-
                     _skPaint.Color = currentThumbColor.ToSKColor();
                     canvas.DrawRoundRect(new SKRect(thumbX, rect.Top + padding, thumbX + thumbSize, rect.Top + padding + thumbSize), S(4f), S(4f), _skPaint);
                     break;
@@ -565,18 +640,11 @@ namespace FluentWinForms.Custom_Buttons
                     _skPaint.Color = SKColors.White.WithAlpha(180);
                     _skPaint.TextSize = h * 0.4f;
                     _skPaint.TextAlign = SKTextAlign.Center;
-
-                    if (_segoeTypeface == null)
-                    {
-                        _segoeTypeface = SKTypeface.FromFamilyName("Segoe UI", SKFontStyleWeight.Bold, SKFontStyleWidth.Normal, SKFontStyleSlant.Upright);
-                    }
+                    if (_segoeTypeface == null) _segoeTypeface = SKTypeface.FromFamilyName("Segoe UI", SKFontStyleWeight.Bold, SKFontStyleWidth.Normal, SKFontStyleSlant.Upright);
                     _skPaint.Typeface = _segoeTypeface;
-
                     if (t > 0.5f) canvas.DrawText("ON", rect.Left + (rect.Width / 4f), rect.MidY - (_skPaint.FontMetrics.Ascent / 2f), _skPaint);
                     else canvas.DrawText("OFF", rect.Right - (rect.Width / 4f), rect.MidY - (_skPaint.FontMetrics.Ascent / 2f), _skPaint);
-
                     if (UseShadow) DrawThumbShadowSkia(canvas, thumbX, rect.Top + padding, thumbSize, thumbSize, S(4f));
-
                     _skPaint.Color = currentThumbColor.ToSKColor();
                     canvas.DrawRoundRect(new SKRect(thumbX, rect.Top + padding, thumbX + thumbSize, rect.Top + padding + thumbSize), S(4f), S(4f), _skPaint);
                     break;
@@ -587,35 +655,22 @@ namespace FluentWinForms.Custom_Buttons
                     float wideThumbWidth = Math.Min(thumbSize * 1.5f, maxAllowedWidth * 0.8f);
                     float maxX6 = rect.Right - wideThumbWidth - padding;
                     float thumbX6 = minX + (maxX6 - minX) * t;
-
                     if (UseShadow) DrawThumbShadowSkia(canvas, thumbX6, rect.Top + padding, wideThumbWidth, thumbSize, thumbSize / 2f);
-
                     _skPaint.Color = currentThumbColor.ToSKColor();
                     canvas.DrawRoundRect(new SKRect(thumbX6, rect.Top + padding, thumbX6 + wideThumbWidth, rect.Top + padding + thumbSize), thumbSize / 2f, thumbSize / 2f, _skPaint);
                     break;
-
                 case ToggleStyle.Style7_Checkmark:
                     if (UseAcrylic) DrawAcrylicPlugAndPlay(canvas, rect);
                     else canvas.DrawRoundRect(rect, h / 2f, h / 2f, _skPaint);
-
                     if (UseShadow) DrawThumbShadowSkia(canvas, thumbX, rect.Top + padding, thumbSize, thumbSize, thumbSize / 2f);
-
                     _skPaint.Color = currentThumbColor.ToSKColor();
                     canvas.DrawOval(thumbX + thumbSize / 2f, rect.MidY, thumbSize / 2f, thumbSize / 2f, _skPaint);
                     _skPaint.Style = SKPaintStyle.Stroke;
                     _skPaint.StrokeWidth = S(2f);
                     _skPaint.StrokeCap = SKStrokeCap.Round;
                     _skPaint.Color = currentTrackColor.ToSKColor();
-                    if (t > 0.5f)
-                    {
-                        canvas.DrawLine(thumbX + thumbSize * 0.3f, rect.MidY, thumbX + thumbSize * 0.45f, rect.MidY + thumbSize * 0.15f, _skPaint);
-                        canvas.DrawLine(thumbX + thumbSize * 0.45f, rect.MidY + thumbSize * 0.15f, thumbX + thumbSize * 0.7f, rect.MidY - thumbSize * 0.15f, _skPaint);
-                    }
-                    else
-                    {
-                        canvas.DrawLine(thumbX + thumbSize * 0.35f, rect.MidY - thumbSize * 0.15f, thumbX + thumbSize * 0.65f, rect.MidY + thumbSize * 0.15f, _skPaint);
-                        canvas.DrawLine(thumbX + thumbSize * 0.65f, rect.MidY - thumbSize * 0.15f, thumbX + thumbSize * 0.35f, rect.MidY + thumbSize * 0.15f, _skPaint);
-                    }
+                    if (t > 0.5f) { canvas.DrawLine(thumbX + thumbSize * 0.3f, rect.MidY, thumbX + thumbSize * 0.45f, rect.MidY + thumbSize * 0.15f, _skPaint); canvas.DrawLine(thumbX + thumbSize * 0.45f, rect.MidY + thumbSize * 0.15f, thumbX + thumbSize * 0.7f, rect.MidY - thumbSize * 0.15f, _skPaint); }
+                    else { canvas.DrawLine(thumbX + thumbSize * 0.35f, rect.MidY - thumbSize * 0.15f, thumbX + thumbSize * 0.65f, rect.MidY + thumbSize * 0.15f, _skPaint); canvas.DrawLine(thumbX + thumbSize * 0.65f, rect.MidY - thumbSize * 0.15f, thumbX + thumbSize * 0.35f, rect.MidY + thumbSize * 0.15f, _skPaint); }
                     break;
                 case ToggleStyle.Style8_Ring:
                     _skPaint.Color = LerpColor(Color.FromArgb(80, 80, 80), ToggleColorOn, t).ToSKColor();
@@ -631,30 +686,24 @@ namespace FluentWinForms.Custom_Buttons
                     Color darkBg = Color.FromArgb(40, 41, 44);
                     Color lightBg = Color.FromArgb(216, 219, 224);
                     Color trackC = LerpColor(darkBg, lightBg, t);
-
                     _skPaint.Color = trackC.ToSKColor();
                     if (UseAcrylic) DrawAcrylicPlugAndPlay(canvas, rect);
                     else canvas.DrawRoundRect(rect, h / 2f, h / 2f, _skPaint);
-
                     float thumbR9 = h * 0.35f;
                     float padding9 = (h - (thumbR9 * 2)) / 2f;
                     float minX9 = rect.Left + padding9 + thumbR9;
                     float maxX9 = rect.Right - padding9 - thumbR9;
                     float thumbX9 = minX9 + (maxX9 - minX9) * t;
-
                     if (UseShadow) DrawThumbShadowSkia(canvas, thumbX9 - thumbR9, rect.MidY - thumbR9, thumbR9 * 2, thumbR9 * 2, thumbR9);
-
                     canvas.Save();
                     _skPath.Reset();
                     _skPath.AddCircle(thumbX9, rect.MidY, thumbR9);
                     canvas.ClipPath(_skPath, SKClipOperation.Intersect, true);
-
                     _skPaint.Color = lightBg.ToSKColor();
                     canvas.DrawRect(new SKRect(thumbX9 - thumbR9, rect.MidY - thumbR9, thumbX9 + thumbR9, rect.MidY + thumbR9), _skPaint);
                     float offset9 = thumbR9 * 0.9f * (1f - t);
                     _skPaint.Color = darkBg.ToSKColor();
                     canvas.DrawCircle(thumbX9 - offset9, rect.MidY - (offset9 * 0.2f), thumbR9, _skPaint);
-
                     canvas.Restore();
                     break;
             }
@@ -790,204 +839,73 @@ namespace FluentWinForms.Custom_Buttons
             switch (Style)
             {
                 case ToggleStyle.Style1_Standard:
-                    _gdiPath.Reset();
-                    AddRoundedRect(_gdiPath, rect, h / 2f);
-                    _gdiBrush.Color = currentTrackColor;
-                    g.FillPath(_gdiBrush, _gdiPath);
-
-                    _gdiBrush.Color = currentThumbColor;
-                    g.FillEllipse(_gdiBrush, thumbX, rect.Top + padding, thumbSize, thumbSize);
+                    _gdiPath.Reset(); AddRoundedRect(_gdiPath, rect, h / 2f); _gdiBrush.Color = currentTrackColor; g.FillPath(_gdiBrush, _gdiPath);
+                    _gdiBrush.Color = currentThumbColor; g.FillEllipse(_gdiBrush, thumbX, rect.Top + padding, thumbSize, thumbSize);
                     break;
-
                 case ToggleStyle.Style2_ThinTrack:
-                    float trackH2 = h * 0.5f;
-                    var trackRect2 = new RectangleF(rect.Left, rect.Top + (h - trackH2) / 2f, rect.Width, trackH2);
-                    _gdiPath.Reset();
-                    AddRoundedRect(_gdiPath, trackRect2, trackH2 / 2f);
-                    _gdiBrush.Color = currentTrackColor;
-                    g.FillPath(_gdiBrush, _gdiPath);
-
-                    float thumbRadius2 = h * 0.8f;
-                    float minX2 = rect.Left;
-                    float maxX2 = rect.Right - thumbRadius2;
-                    float thumbX2 = minX2 + (maxX2 - minX2) * t;
-
-                    _gdiBrush.Color = currentThumbColor;
-                    g.FillEllipse(_gdiBrush, thumbX2, rect.Top + (h - thumbRadius2) / 2f, thumbRadius2, thumbRadius2);
+                    float trackH2 = h * 0.5f; var trackRect2 = new RectangleF(rect.Left, rect.Top + (h - trackH2) / 2f, rect.Width, trackH2);
+                    _gdiPath.Reset(); AddRoundedRect(_gdiPath, trackRect2, trackH2 / 2f); _gdiBrush.Color = currentTrackColor; g.FillPath(_gdiBrush, _gdiPath);
+                    float thumbRadius2 = h * 0.8f; float minX2 = rect.Left; float maxX2 = rect.Right - thumbRadius2; float thumbX2 = minX2 + (maxX2 - minX2) * t;
+                    _gdiBrush.Color = currentThumbColor; g.FillEllipse(_gdiBrush, thumbX2, rect.Top + (h - thumbRadius2) / 2f, thumbRadius2, thumbRadius2);
                     break;
-
                 case ToggleStyle.Style3_LineTrack:
-                    _gdiPen.Color = currentTrackColor;
-                    _gdiPen.Width = S(4f);
-                    _gdiPen.StartCap = LineCap.Round;
-                    _gdiPen.EndCap = LineCap.Round;
-                    g.DrawLine(_gdiPen, rect.Left + padding, midY, rect.Right - padding, midY);
-
-                    float thumbRadius3 = h * 0.7f;
-                    float minX3 = rect.Left;
-                    float maxX3 = rect.Right - thumbRadius3;
-                    float thumbX3 = minX3 + (maxX3 - minX3) * t;
-
-                    _gdiBrush.Color = currentThumbColor;
-                    g.FillEllipse(_gdiBrush, thumbX3, rect.Top + (h - thumbRadius3) / 2f, thumbRadius3, thumbRadius3);
+                    _gdiPen.Color = currentTrackColor; _gdiPen.Width = S(4f); _gdiPen.StartCap = LineCap.Round; _gdiPen.EndCap = LineCap.Round; g.DrawLine(_gdiPen, rect.Left + padding, midY, rect.Right - padding, midY);
+                    float thumbRadius3 = h * 0.7f; float minX3 = rect.Left; float maxX3 = rect.Right - thumbRadius3; float thumbX3 = minX3 + (maxX3 - minX3) * t;
+                    _gdiBrush.Color = currentThumbColor; g.FillEllipse(_gdiBrush, thumbX3, rect.Top + (h - thumbRadius3) / 2f, thumbRadius3, thumbRadius3);
                     break;
-
                 case ToggleStyle.Style4_Square:
-                    _gdiPath.Reset();
-                    AddRoundedRect(_gdiPath, rect, S(4f));
-                    _gdiBrush.Color = currentTrackColor;
-                    g.FillPath(_gdiBrush, _gdiPath);
-
-                    _gdiPath.Reset();
-                    AddRoundedRect(_gdiPath, new RectangleF(thumbX, rect.Top + padding, thumbSize, thumbSize), S(4f));
-                    _gdiBrush.Color = currentThumbColor;
-                    g.FillPath(_gdiBrush, _gdiPath);
+                    _gdiPath.Reset(); AddRoundedRect(_gdiPath, rect, S(4f)); _gdiBrush.Color = currentTrackColor; g.FillPath(_gdiBrush, _gdiPath);
+                    _gdiPath.Reset(); AddRoundedRect(_gdiPath, new RectangleF(thumbX, rect.Top + padding, thumbSize, thumbSize), S(4f)); _gdiBrush.Color = currentThumbColor; g.FillPath(_gdiBrush, _gdiPath);
                     break;
-
                 case ToggleStyle.Style5_Text:
-                    _gdiPath.Reset();
-                    AddRoundedRect(_gdiPath, rect, S(6f));
-                    _gdiBrush.Color = currentTrackColor;
-                    g.FillPath(_gdiBrush, _gdiPath);
-
-                    if (_gdiFont == null || _gdiFont.Size != h * 0.4f)
-                    {
-                        _gdiFont?.Dispose();
-                        _gdiFont = new Font("Segoe UI", h * 0.4f, FontStyle.Bold, GraphicsUnit.Pixel);
-                    }
-                    if (_gdiStringFormat == null)
-                    {
-                        _gdiStringFormat = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center };
-                    }
-
+                    _gdiPath.Reset(); AddRoundedRect(_gdiPath, rect, S(6f)); _gdiBrush.Color = currentTrackColor; g.FillPath(_gdiBrush, _gdiPath);
+                    if (_gdiFont == null || _gdiFont.Size != h * 0.4f) { _gdiFont?.Dispose(); _gdiFont = new Font("Segoe UI", h * 0.4f, FontStyle.Bold, GraphicsUnit.Pixel); }
+                    if (_gdiStringFormat == null) { _gdiStringFormat = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center }; }
                     _gdiBrush.Color = Color.FromArgb(180, 255, 255, 255);
                     if (t > 0.5f) g.DrawString("ON", _gdiFont, _gdiBrush, new RectangleF(rect.Left, rect.Top, rect.Width / 2f, rect.Height), _gdiStringFormat);
                     else g.DrawString("OFF", _gdiFont, _gdiBrush, new RectangleF(rect.Left + rect.Width / 2f, rect.Top, rect.Width / 2f, rect.Height), _gdiStringFormat);
-
-                    _gdiPath.Reset();
-                    AddRoundedRect(_gdiPath, new RectangleF(thumbX, rect.Top + padding, thumbSize, thumbSize), S(4f));
-                    _gdiBrush.Color = currentThumbColor;
-                    g.FillPath(_gdiBrush, _gdiPath);
+                    _gdiPath.Reset(); AddRoundedRect(_gdiPath, new RectangleF(thumbX, rect.Top + padding, thumbSize, thumbSize), S(4f)); _gdiBrush.Color = currentThumbColor; g.FillPath(_gdiBrush, _gdiPath);
                     break;
-
                 case ToggleStyle.Style6_WideThumb:
-                    _gdiPath.Reset();
-                    AddRoundedRect(_gdiPath, rect, h / 2f);
-                    _gdiBrush.Color = currentTrackColor;
-                    g.FillPath(_gdiBrush, _gdiPath);
-
-                    float maxAllowedWidth = rect.Width - (padding * 2);
-                    float wideThumbWidth = Math.Min(thumbSize * 1.5f, maxAllowedWidth * 0.8f);
-                    float maxX6 = rect.Right - wideThumbWidth - padding;
-                    float thumbX6 = minX + (maxX6 - minX) * t;
-
-                    _gdiPath.Reset();
-                    AddRoundedRect(_gdiPath, new RectangleF(thumbX6, rect.Top + padding, wideThumbWidth, thumbSize), thumbSize / 2f);
-                    _gdiBrush.Color = currentThumbColor;
-                    g.FillPath(_gdiBrush, _gdiPath);
+                    _gdiPath.Reset(); AddRoundedRect(_gdiPath, rect, h / 2f); _gdiBrush.Color = currentTrackColor; g.FillPath(_gdiBrush, _gdiPath);
+                    float maxAllowedWidth = rect.Width - (padding * 2); float wideThumbWidth = Math.Min(thumbSize * 1.5f, maxAllowedWidth * 0.8f); float maxX6 = rect.Right - wideThumbWidth - padding; float thumbX6 = minX + (maxX6 - minX) * t;
+                    _gdiPath.Reset(); AddRoundedRect(_gdiPath, new RectangleF(thumbX6, rect.Top + padding, wideThumbWidth, thumbSize), thumbSize / 2f); _gdiBrush.Color = currentThumbColor; g.FillPath(_gdiBrush, _gdiPath);
                     break;
-
                 case ToggleStyle.Style7_Checkmark:
-                    _gdiPath.Reset();
-                    AddRoundedRect(_gdiPath, rect, h / 2f);
-                    _gdiBrush.Color = currentTrackColor;
-                    g.FillPath(_gdiBrush, _gdiPath);
-
-                    _gdiBrush.Color = currentThumbColor;
-                    g.FillEllipse(_gdiBrush, thumbX, rect.Top + padding, thumbSize, thumbSize);
-
-                    _gdiPen.Color = currentTrackColor;
-                    _gdiPen.Width = S(2f);
-                    _gdiPen.StartCap = LineCap.Round;
-                    _gdiPen.EndCap = LineCap.Round;
-                    if (t > 0.5f)
-                    {
-                        g.DrawLine(_gdiPen, thumbX + thumbSize * 0.3f, midY, thumbX + thumbSize * 0.45f, midY + thumbSize * 0.15f);
-                        g.DrawLine(_gdiPen, thumbX + thumbSize * 0.45f, midY + thumbSize * 0.15f, thumbX + thumbSize * 0.7f, midY - thumbSize * 0.15f);
-                    }
-                    else
-                    {
-                        g.DrawLine(_gdiPen, thumbX + thumbSize * 0.35f, midY - thumbSize * 0.15f, thumbX + thumbSize * 0.65f, midY + thumbSize * 0.15f);
-                        g.DrawLine(_gdiPen, thumbX + thumbSize * 0.65f, midY - thumbSize * 0.15f, thumbX + thumbSize * 0.35f, midY + thumbSize * 0.15f);
-                    }
+                    _gdiPath.Reset(); AddRoundedRect(_gdiPath, rect, h / 2f); _gdiBrush.Color = currentTrackColor; g.FillPath(_gdiBrush, _gdiPath);
+                    _gdiBrush.Color = currentThumbColor; g.FillEllipse(_gdiBrush, thumbX, rect.Top + padding, thumbSize, thumbSize);
+                    _gdiPen.Color = currentTrackColor; _gdiPen.Width = S(2f); _gdiPen.StartCap = LineCap.Round; _gdiPen.EndCap = LineCap.Round;
+                    if (t > 0.5f) { g.DrawLine(_gdiPen, thumbX + thumbSize * 0.3f, midY, thumbX + thumbSize * 0.45f, midY + thumbSize * 0.15f); g.DrawLine(_gdiPen, thumbX + thumbSize * 0.45f, midY + thumbSize * 0.15f, thumbX + thumbSize * 0.7f, midY - thumbSize * 0.15f); }
+                    else { g.DrawLine(_gdiPen, thumbX + thumbSize * 0.35f, midY - thumbSize * 0.15f, thumbX + thumbSize * 0.65f, midY + thumbSize * 0.15f); g.DrawLine(_gdiPen, thumbX + thumbSize * 0.65f, midY - thumbSize * 0.15f, thumbX + thumbSize * 0.35f, midY + thumbSize * 0.15f); }
                     break;
-
                 case ToggleStyle.Style8_Ring:
                     Color ringColor = LerpColor(Color.FromArgb(80, 80, 80), ToggleColorOn, t);
-                    _gdiPath.Reset();
-                    AddRoundedRect(_gdiPath, rect, h / 2f);
-                    _gdiBrush.Color = ringColor;
-                    g.FillPath(_gdiBrush, _gdiPath);
-
-                    _gdiBrush.Color = currentThumbColor;
-                    g.FillEllipse(_gdiBrush, thumbX, rect.Top + padding, thumbSize, thumbSize);
-
-                    float innerRad = thumbSize * 0.5f;
-                    float innerOffset = (thumbSize - innerRad) / 2f;
-                    _gdiBrush.Color = ringColor;
-                    g.FillEllipse(_gdiBrush, thumbX + innerOffset, rect.Top + padding + innerOffset, innerRad, innerRad);
+                    _gdiPath.Reset(); AddRoundedRect(_gdiPath, rect, h / 2f); _gdiBrush.Color = ringColor; g.FillPath(_gdiBrush, _gdiPath);
+                    _gdiBrush.Color = currentThumbColor; g.FillEllipse(_gdiBrush, thumbX, rect.Top + padding, thumbSize, thumbSize);
+                    float innerRad = thumbSize * 0.5f; float innerOffset = (thumbSize - innerRad) / 2f; _gdiBrush.Color = ringColor; g.FillEllipse(_gdiBrush, thumbX + innerOffset, rect.Top + padding + innerOffset, innerRad, innerRad);
                     break;
-
                 case ToggleStyle.Style9_MinimalDayNight:
-                    Color darkBgGDI = Color.FromArgb(40, 41, 44);
-                    Color lightBgGDI = Color.FromArgb(216, 219, 224);
-                    Color trackCGDI = LerpColor(darkBgGDI, lightBgGDI, t);
-
-                    _gdiPath.Reset();
-                    AddRoundedRect(_gdiPath, rect, h / 2f);
-                    _gdiBrush.Color = trackCGDI;
-                    g.FillPath(_gdiBrush, _gdiPath);
-
-                    float thumbR9 = h * 0.35f;
-                    float padding9 = (h - (thumbR9 * 2)) / 2f;
-                    float minX9 = rect.Left + padding9 + thumbR9;
-                    float maxX9 = rect.Right - padding9 - thumbR9;
-                    float thumbX9 = minX9 + (maxX9 - minX9) * t;
-
-                    var oldState9 = g.Save();
-
-                    _gdiClipPath.Reset();
-                    _gdiClipPath.AddEllipse(thumbX9 - thumbR9, midY - thumbR9, thumbR9 * 2, thumbR9 * 2);
-                    g.SetClip(_gdiClipPath, CombineMode.Intersect);
-
-                    _gdiBrush.Color = lightBgGDI;
-                    g.FillRectangle(_gdiBrush, thumbX9 - thumbR9, midY - thumbR9, thumbR9 * 2, thumbR9 * 2);
-
-                    float offset9 = thumbR9 * 0.9f * (1f - t);
-                    _gdiBrush.Color = darkBgGDI;
-                    g.FillEllipse(_gdiBrush, thumbX9 - offset9 - thumbR9, midY - (offset9 * 0.2f) - thumbR9, thumbR9 * 2, thumbR9 * 2);
-
+                    Color darkBgGDI = Color.FromArgb(40, 41, 44); Color lightBgGDI = Color.FromArgb(216, 219, 224); Color trackCGDI = LerpColor(darkBgGDI, lightBgGDI, t);
+                    _gdiPath.Reset(); AddRoundedRect(_gdiPath, rect, h / 2f); _gdiBrush.Color = trackCGDI; g.FillPath(_gdiBrush, _gdiPath);
+                    float thumbR9 = h * 0.35f; float padding9 = (h - (thumbR9 * 2)) / 2f; float minX9 = rect.Left + padding9 + thumbR9; float maxX9 = rect.Right - padding9 - thumbR9; float thumbX9 = minX9 + (maxX9 - minX9) * t;
+                    var oldState9 = g.Save(); _gdiClipPath.Reset(); _gdiClipPath.AddEllipse(thumbX9 - thumbR9, midY - thumbR9, thumbR9 * 2, thumbR9 * 2); g.SetClip(_gdiClipPath, CombineMode.Intersect);
+                    _gdiBrush.Color = lightBgGDI; g.FillRectangle(_gdiBrush, thumbX9 - thumbR9, midY - thumbR9, thumbR9 * 2, thumbR9 * 2);
+                    float offset9 = thumbR9 * 0.9f * (1f - t); _gdiBrush.Color = darkBgGDI; g.FillEllipse(_gdiBrush, thumbX9 - offset9 - thumbR9, midY - (offset9 * 0.2f) - thumbR9, thumbR9 * 2, thumbR9 * 2);
                     g.Restore(oldState9);
                     break;
             }
         }
 
-        // =====================================================================
-        // PARCHE D & E: LIMPIEZA ABSOLUTA DE CACHÉS Y DISPOSE SEGURO
-        // =====================================================================
         private void ClearCaches()
         {
-            try
-            {
-                if (_bgCache != null)
-                {
-                    try { AcrylicHelper.BitmapPool.Return(_bgCache); }
-                    catch { _bgCache.Dispose(); }
-                    _bgCache = null;
-                }
-            }
-            catch { }
-
+            try { if (_bgCache != null) { try { AcrylicHelper.BitmapPool.Return(_bgCache); } catch { _bgCache.Dispose(); } _bgCache = null; } } catch { }
             try { _acrylicCache?.Dispose(); _acrylicCache = null; } catch { }
-            try { _rawWrapperBitmap?.Dispose(); _rawWrapperBitmap = null; } catch { }
-            try { _skBlurPaint?.Dispose(); _skBlurPaint = null; } catch { }
+            try { _acrylicStagingBitmap?.Dispose(); _acrylicStagingBitmap = null; } catch { } // 🔥 INYECCIÓN 3: Limpiar staging buffer
             try { _skThumbShadowPaint?.Dispose(); _skThumbShadowPaint = null; } catch { }
             try { _skThumbMaskFilter?.Dispose(); _skThumbMaskFilter = null; } catch { }
             try { _skAcrylicTintPaint?.Dispose(); _skAcrylicTintPaint = null; } catch { }
             try { _skAcrylicFallbackPaint?.Dispose(); _skAcrylicFallbackPaint = null; } catch { }
             try { _segoeTypeface?.Dispose(); _segoeTypeface = null; } catch { }
-
-            // Objetos base readonly
             try { _skPaint.Dispose(); } catch { }
             try { _skPath.Dispose(); } catch { }
             try { _gdiBrush?.Dispose(); } catch { }
@@ -1002,7 +920,6 @@ namespace FluentWinForms.Custom_Buttons
         {
             if (disposing)
             {
-                // Limpiar eventos del último padre antes de morir
                 if (_lastParent != null)
                 {
                     try
@@ -1013,7 +930,6 @@ namespace FluentWinForms.Custom_Buttons
                     }
                     catch { }
                 }
-
                 try { ClearCaches(); } catch { }
             }
             base.Dispose(disposing);
