@@ -49,22 +49,16 @@ La idea es cambiar por completo cómo hacemos UI en WinForms. En vez de pelear c
 
 ```csharp
 // 🎨 Ejemplo de la Fluent API: Un botón de Login bien clean y animado
-var btnLogin = new FluentElement("LoginButton")
-    .Layout(x: 50, y: 50, width: 200, height: 45)
-    .CornerRadius(10)
-    .Background("#0078D7")
-    .Content("Iniciar Sesión", hexColor: "#FFFFFF", fontSize: 14)
-    .Shadow(elevation: 3)
-    .StateHover(h => h
-        .Background("#005A9E")
-        .Scale(1.05f) // Crece un 5% suavecito al pasar el mouse
-    )
-    .StatePress(p => p
-        .Background("#004275")
-        .Scale(0.95f) // Se encoge un toque al darle clic
-    )
-    .OnClick(node => MessageBox.Show("¡Sesión iniciada al cien!"))
-    .Apply(this); // Lo zampa directo en tu Formulario de un solo
+var btn = new FluentElement { Name = "btnGuardar" };
+btn.Design()
+   .Layout(20, 20, 160, 44)
+   .Content("Guardar", "#FFF", 14)
+   .Glass("#40FFFFFF")              
+   .BorderRadius(12)
+   .Hover(scale: 1.1f)
+   
+   //demo it works but i want to make it super devfriendly
+   .Apply(this);  
 ```
 
 ---
@@ -197,22 +191,17 @@ We are building a revolutionary way to write UI in WinForms. The idea is that yo
 
 ```csharp
 // 🎨 Fluent API usage example: A clean and animated Login Button
-var btnLogin = new FluentElement("LoginButton")
-    .Layout(x: 50, y: 50, width: 200, height: 45)
-    .CornerRadius(10)
-    .Background("#0078D7")
-    .Content("Sign In", hexColor: "#FFFFFF", fontSize: 14)
-    .Shadow(elevation: 3)
-    .StateHover(h => h
-        .Background("#005A9E")
-        .Scale(1.05f) // Grows smoothly by 5% on hover
-    )
-    .StatePress(p => p
-        .Background("#004275")
-        .Scale(0.95f) // Shrinks subtly on click
-    )
-    .OnClick(node => MessageBox.Show("Logged in successfully!"))
-    .Apply(this); // Injects it directly into your Form
+// Create a FluentElement button using ControlBuilder
+var btn = new FluentElement { Name = "btnSave" };
+
+btn.Design()
+   .Layout(20, 20, 160, 44)       // Position (x,y) and size (width,height)
+   .Content("Save", "#FFF", 14)   // Text, color, and font size
+   .Glass("#40FFFFFF")            // Translucent glass effect
+   .BorderRadius(12)              // Rounded corners
+   .Hover(scale: 1.1f)            // Hover animation (slight zoom)
+   .Apply(this);                  // Apply to the current form
+
 ```
 
 ---
