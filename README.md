@@ -49,22 +49,16 @@ La idea es cambiar por completo cómo hacemos UI en WinForms. En vez de pelear c
 
 ```csharp
 // 🎨 Ejemplo de la Fluent API: Un botón de Login bien clean y animado
-var btnLogin = new FluentElement("LoginButton")
-    .Layout(x: 50, y: 50, width: 200, height: 45)
-    .CornerRadius(10)
-    .Background("#0078D7")
-    .Content("Iniciar Sesión", hexColor: "#FFFFFF", fontSize: 14)
-    .Shadow(elevation: 3)
-    .StateHover(h => h
-        .Background("#005A9E")
-        .Scale(1.05f) // Crece un 5% suavecito al pasar el mouse
-    )
-    .StatePress(p => p
-        .Background("#004275")
-        .Scale(0.95f) // Se encoge un toque al darle clic
-    )
-    .OnClick(node => MessageBox.Show("¡Sesión iniciada al cien!"))
-    .Apply(this); // Lo zampa directo en tu Formulario de un solo
+var btn = new FluentElement { Name = "btnGuardar" };
+btn.Design()
+   .Layout(20, 20, 160, 44)
+   .Content("Guardar", "#FFF", 14)
+   .Glass("#40FFFFFF")              
+   .BorderRadius(12)
+   .Hover(scale: 1.1f)
+   
+   //demo it works but i want to make it super devfriendly
+   .Apply(this);  
 ```
 
 ---
@@ -147,13 +141,13 @@ https://github.com/user-attachments/assets/0e66c22d-1ced-4cdd-9716-a40d83583374
 ---
 
 ## 🤝 ¡Sumate al proyecto! (Ocupo ayuda)
-Como te dije, soy estudiante y no me las sé todas. Este proyecto pinta para algo grande, pero el núcleo de la **Fluent API todavía está en pañales** y ocupamos pulirlo. 
+Como te dije, soy estudiante y no me las sé todas. Este proyecto pinta para algo grande, pero el núcleo de la **Fluent API todavía está en pañales** y ocupamos pulirlo . 
 
-Si te cuadra C#, sos apasionado de la programación y te llega esta visión de revivir WinForms con código limpio... **¡me hacés el paro!** Se aceptan Forks, Pull Requests y cualquier consejo. El proyecto es licencia MIT. ¡Hagamos que esto sea grande!
+Si te gusta C#, sos apasionado de la programación y te llega esta visión de que WinForms tenga una capa visual moderna solo con C#, sin XAML ni MVVM, con una API declarativa que cualquiera pueda usar.... Se aceptan Forks, Pull Requests y cualquier consejo. El proyecto es licencia MIT. ¡Hagamos que esto sea grande!
 
 <div align="center">
   <br>
-  <b>¿Te llega la idea? ¡Dejale caer una ⭐ en GitHub!</b>
+  <b>¿Te gusta la idea? ¡Dejale caer una ⭐ en GitHub!</b>
 </div>
 
 <br><br>
@@ -196,23 +190,17 @@ We are building a revolutionary way to write UI in WinForms. The idea is that yo
 **Look how clean and structured the code is to create a beautifully animated Login Button:**
 
 ```csharp
-// 🎨 Fluent API usage example: A clean and animated Login Button
-var btnLogin = new FluentElement("LoginButton")
-    .Layout(x: 50, y: 50, width: 200, height: 45)
-    .CornerRadius(10)
-    .Background("#0078D7")
-    .Content("Sign In", hexColor: "#FFFFFF", fontSize: 14)
-    .Shadow(elevation: 3)
-    .StateHover(h => h
-        .Background("#005A9E")
-        .Scale(1.05f) // Grows smoothly by 5% on hover
-    )
-    .StatePress(p => p
-        .Background("#004275")
-        .Scale(0.95f) // Shrinks subtly on click
-    )
-    .OnClick(node => MessageBox.Show("Logged in successfully!"))
-    .Apply(this); // Injects it directly into your Form
+// 🎨 Fluent API usage example: A clean and animated Button
+var btn = new FluentElement { Name = "btnSave" };
+
+btn.Design()
+   .Layout(20, 20, 160, 44)       // Position (x,y) and size (width,height)
+   .Content("Save", "#FFF", 14)   // Text, color, and font size
+   .Glass("#40FFFFFF")            // Translucent glass effect
+   .BorderRadius(12)              // Rounded corners
+   .Hover(scale: 1.1f)            // Hover animation (slight zoom)
+   .Apply(this);                  // Apply to the current form
+
 ```
 
 ---
@@ -276,9 +264,9 @@ Inspired by amazing community hubs like *uiverse.io*, this repository will soon 
 ---
 
 ## 🤝 Join me and help improve it!
-As I mentioned, I am a student and I don't know everything. This project has a massive vision, but the core of the **Fluent API is still in development** and needs optimization. 
+As I told you, I'm a student and I don't know everything. This project has huge potential, but the core of the Fluent API is still in its early stages and we need to polish it.
 
-If you are a passionate developer, you know C#, and you love this vision of reviving WinForms with clean code... **I need you!** Forks, Pull Requests, and advice are completely welcome. The project is MIT licensed. Let's make this grow together!
+If you love C#, you're passionate about programming, and you share this vision of giving WinForms a modern visual layer using only C# — no XAML, no MVVM, with a declarative API that anyone can use... then I need you! Forks, Pull Requests, and any advice are completely welcome. The project is MIT licensed. Let's make this grow!
 
 <div align="center">
   <br>
