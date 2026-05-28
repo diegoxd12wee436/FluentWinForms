@@ -190,8 +190,7 @@ We are building a revolutionary way to write UI in WinForms. The idea is that yo
 **Look how clean and structured the code is to create a beautifully animated Login Button:**
 
 ```csharp
-// 🎨 Fluent API usage example: A clean and animated Login Button
-// Create a FluentElement button using ControlBuilder
+// 🎨 Fluent API usage example: A clean and animated Button
 var btn = new FluentElement { Name = "btnSave" };
 
 btn.Design()
