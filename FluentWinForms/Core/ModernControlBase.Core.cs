@@ -23,8 +23,8 @@ namespace FluentWinForms.Core
     public abstract partial class ModernControlBase : Control
     {
         // 🔥 INYECCIÓN PRO: Retorno al DllImport infalible (evita el error de Partial Method en el diseñador)
-        [DllImport("kernel32.dll", EntryPoint = "CopyMemory", SetLastError = false)]
-        private static extern void CopyMemory(IntPtr dest, IntPtr src, uint count);
+        [DllImport("kernel32.dll", EntryPoint = "RtlMoveMemory", SetLastError = false)]
+        private static extern void RtlMoveMemory(IntPtr dest, IntPtr src, uint count);
 
 #if NETFRAMEWORK
         // 🔥 VARIABLES PARA EL "AIR-GAP" ZERO-ALLOCATION EN .NET 4.8
@@ -88,7 +88,9 @@ namespace FluentWinForms.Core
 
             builder.OnApplied = node =>
             {
-                if (this.VisualNode != node) this.VisualNode = node;
+                // 🔥 FIX 2: Siempre forzar ComputeLayout — sin condición
+                _visualNode = node;
+                FluentWinForms.Core.LayoutEngine.ComputeLayout(_visualNode, new RectangleF(0, 0, Width, Height));
                 RefreshVisuals();
             };
             return builder;

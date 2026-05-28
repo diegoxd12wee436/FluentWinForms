@@ -9,7 +9,7 @@ using System.Threading.Tasks;
 namespace FluentWinForms.Core
 {
     // -------------------------------------------------------------------------
-    // AnimationManager vMax (Enterprise / WinUI 3 Level)
+    // AnimationManager vMax 
     // - Dedicated Render Thread (Cero sobrecarga de Async/Await).
     // - Copy-On-Write Subscriber Array (Cero Locks en el Render Loop para 1000+ items).
     // - ManualResetEventSlim (Cero Allocations en ForceFrame).
@@ -134,7 +134,7 @@ namespace FluentWinForms.Core
         public static bool IsRunning => _isRunning;
 
         // FORCE FRAME (Cero Asignaciones de Memoria)
-        // 🔥 FIX: Debounce de 8ms (Evita saturación de invalidaciones en ráfagas de clics)
+        // 🔥 FIX: Debounce de 4ms (Evita saturación de invalidaciones en ráfagas de clics)
         public static void ForceFrame()
         {
             long nowTicks = Stopwatch.GetTimestamp();

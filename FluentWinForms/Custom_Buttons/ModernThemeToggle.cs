@@ -37,12 +37,32 @@ namespace FluentWinForms.Custom_Buttons
     {
         // 🔥 INYECCIÓN 2: CopyMemory P/Invoke — misma velocidad que unsafe, cero flags de antivirus
         [DllImport("kernel32.dll", SetLastError = false)]
-        private static extern void CopyMemory(IntPtr destination, IntPtr source, UIntPtr length);
+        private static extern void RtlMoveMemory(IntPtr destination, IntPtr source, UIntPtr length);
 
         private float _toggleProgress = 0f;
 
-        #region Ocultar propiedades base no utilizadas en el Designer
+        #region Ocultar propiedades del base innecesarias para el Toggle
+        // ── Acrylic — Solo funciona en ModernForm, oculto en controles ──────
+        [Browsable(false), EditorBrowsable(EditorBrowsableState.Never), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+        public new bool UseAcrylic { get => base.UseAcrylic; set => base.UseAcrylic = value; }
 
+        [Browsable(false), EditorBrowsable(EditorBrowsableState.Never), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+        public new Color AcrylicTintColor { get => base.AcrylicTintColor; set => base.AcrylicTintColor = value; }
+
+        // ── Modern - Animations ──────────────────────────────────────────
+        // AnimationSpeed del base es reemplazado por AnimationDurationMs del Toggle
+        [Browsable(false), EditorBrowsable(EditorBrowsableState.Never), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+        public new float AnimationSpeed { get => base.AnimationSpeed; set => base.AnimationSpeed = value; }
+
+        // UseRipple no aplica al Toggle — bugea
+        [Browsable(false), EditorBrowsable(EditorBrowsableState.Never), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+        public new bool UseRipple { get => base.UseRipple; set => base.UseRipple = value; }
+
+        [Browsable(false), EditorBrowsable(EditorBrowsableState.Never), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+        public new Color RippleColor { get => base.RippleColor; set => base.RippleColor = value; }
+
+        // ── Modern - Appearance ──────────────────────────────────────────
+        // El Toggle maneja sus propios colores — los del base no aplican
         [Browsable(false), EditorBrowsable(EditorBrowsableState.Never), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
         public new Color BackgroundColor { get => base.BackgroundColor; set => base.BackgroundColor = value; }
 
@@ -50,11 +70,47 @@ namespace FluentWinForms.Custom_Buttons
         public new Color BackgroundColor2 { get => base.BackgroundColor2; set => base.BackgroundColor2 = value; }
 
         [Browsable(false), EditorBrowsable(EditorBrowsableState.Never), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
-        public new Color CheckedColor { get => base.CheckedColor; set => base.CheckedColor = value; }
+        public new bool UseGradient { get => base.UseGradient; set => base.UseGradient = value; }
 
         [Browsable(false), EditorBrowsable(EditorBrowsableState.Never), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
-        public new Color CheckedColor2 { get => base.CheckedColor2; set => base.CheckedColor2 = value; }
+        public new Color BorderColor { get => base.BorderColor; set => base.BorderColor = value; }
 
+        [Browsable(false), EditorBrowsable(EditorBrowsableState.Never), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+        public new float BorderThickness { get => base.BorderThickness; set => base.BorderThickness = value; }
+
+        [Browsable(false), EditorBrowsable(EditorBrowsableState.Never), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+        public new virtual float Opacity { get => base.Opacity; set => base.Opacity = value; }
+
+        // ── Modern - Transform ───────────────────────────────────────────
+        // Rotation y Scale rompen el blur del Toggle — deben estar ocultos
+        [Browsable(false), EditorBrowsable(EditorBrowsableState.Never), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+        public new float Rotation { get => base.Rotation; set => base.Rotation = value; }
+
+        [Browsable(false), EditorBrowsable(EditorBrowsableState.Never), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+        public new float ScaleX { get => base.ScaleX; set => base.ScaleX = value; }
+
+        [Browsable(false), EditorBrowsable(EditorBrowsableState.Never), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+        public new float ScaleY { get => base.ScaleY; set => base.ScaleY = value; }
+
+        // ── Modern - Effects (Sombra) ─────────────────────────────────────
+        // El Toggle tiene su propio UseShadow — ocultar los del base
+        [Browsable(false), EditorBrowsable(EditorBrowsableState.Never), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+        public new Color ShadowColor { get => base.ShadowColor; set => base.ShadowColor = value; }
+
+        [Browsable(false), EditorBrowsable(EditorBrowsableState.Never), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+        public new float ShadowOpacity { get => base.ShadowOpacity; set => base.ShadowOpacity = value; }
+
+        [Browsable(false), EditorBrowsable(EditorBrowsableState.Never), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+        public new float ShadowOffsetX { get => base.ShadowOffsetX; set => base.ShadowOffsetX = value; }
+
+        [Browsable(false), EditorBrowsable(EditorBrowsableState.Never), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+        public new float ShadowOffsetY { get => base.ShadowOffsetY; set => base.ShadowOffsetY = value; }
+
+        [Browsable(false), EditorBrowsable(EditorBrowsableState.Never), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+        public new float ShadowBlur { get => base.ShadowBlur; set => base.ShadowBlur = value; }
+
+        // ── Modern - States ───────────────────────────────────────────────
+        // Hover/Press colors no aplican al Toggle — tiene animación propia
         [Browsable(false), EditorBrowsable(EditorBrowsableState.Never), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
         public new Color HoverColor { get => base.HoverColor; set => base.HoverColor = value; }
 
@@ -68,13 +124,54 @@ namespace FluentWinForms.Custom_Buttons
         public new Color PressColor2 { get => base.PressColor2; set => base.PressColor2 = value; }
 
         [Browsable(false), EditorBrowsable(EditorBrowsableState.Never), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
-        public new float BorderThickness { get => base.BorderThickness; set => base.BorderThickness = value; }
+        public new Color CheckedColor { get => base.CheckedColor; set => base.CheckedColor = value; }
+
+        [Browsable(false), EditorBrowsable(EditorBrowsableState.Never), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+        public new Color CheckedColor2 { get => base.CheckedColor2; set => base.CheckedColor2 = value; }
+
+        [Browsable(false), EditorBrowsable(EditorBrowsableState.Never), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+        public new Color FocusColor { get => base.FocusColor; set => base.FocusColor = value; }
 
         [Browsable(false), EditorBrowsable(EditorBrowsableState.Never), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
         public new float FocusThickness { get => base.FocusThickness; set => base.FocusThickness = value; }
 
+        // ── ModernForms - Text ────────────────────────────────────────────
+        // El Toggle no usa texto del base
         [Browsable(false), EditorBrowsable(EditorBrowsableState.Never), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
-        public new bool UseRipple { get => base.UseRipple; set => base.UseRipple = value; }
+        public new Color TextColor { get => base.TextColor; set => base.TextColor = value; }
+
+        [Browsable(false), EditorBrowsable(EditorBrowsableState.Never), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+        public new float FontSize { get => base.FontSize; set => base.FontSize = value; }
+
+        [Browsable(false), EditorBrowsable(EditorBrowsableState.Never), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+        public new string FontFamily { get => base.FontFamily; set => base.FontFamily = value; }
+
+        [Browsable(false), EditorBrowsable(EditorBrowsableState.Never), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+        public new bool FontWeightBold { get => base.FontWeightBold; set => base.FontWeightBold = value; }
+
+        [Browsable(false), EditorBrowsable(EditorBrowsableState.Never), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+        public new StringAlignment TextAlignment { get => base.TextAlignment; set => base.TextAlignment = value; }
+
+        [Browsable(false), EditorBrowsable(EditorBrowsableState.Never), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+        public new StringAlignment VerticalAlignment { get => base.VerticalAlignment; set => base.VerticalAlignment = value; }
+
+        [Browsable(false), EditorBrowsable(EditorBrowsableState.Never), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+        public new bool WordWrap { get => base.WordWrap; set => base.WordWrap = value; }
+
+        // ── ModernForms - Media ───────────────────────────────────────────
+        // Imagen de fondo no aplica al Toggle
+        [Browsable(false), EditorBrowsable(EditorBrowsableState.Never), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+        public new ImageLayout BackgroundImgLayout { get => base.BackgroundImgLayout; set => base.BackgroundImgLayout = value; }
+
+        [Browsable(false), EditorBrowsable(EditorBrowsableState.Never), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+        public new float ImageOpacity { get => base.ImageOpacity; set => base.ImageOpacity = value; }
+
+        // ── Animations extras ─────────────────────────────────────────────
+        [Browsable(false), EditorBrowsable(EditorBrowsableState.Never), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+        public new bool EnableHover { get => base.EnableHover; set => base.EnableHover = value; }
+
+        [Browsable(false), EditorBrowsable(EditorBrowsableState.Never), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+        public new bool EnablePressEffect { get => base.EnablePressEffect; set => base.EnablePressEffect = value; }
 
         #endregion
 
@@ -387,7 +484,7 @@ namespace FluentWinForms.Custom_Buttons
                                     PixelFormat.Format32bppPArgb);
 
                                 // 🔥 INYECCIÓN 2: CopyMemory — misma velocidad que unsafe, sin flags antivirus
-                                CopyMemory(
+                                RtlMoveMemory(
                                     _acrylicStagingBitmap.GetPixels(),
                                     bmpData.Scan0,
                                     new UIntPtr((uint)_acrylicStagingBitmap.ByteCount)

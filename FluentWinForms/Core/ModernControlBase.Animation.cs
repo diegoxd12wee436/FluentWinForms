@@ -220,7 +220,7 @@ namespace FluentWinForms.Core
                 if (hit != null) return hit; // Si tocamos un hijo, devolvemos el hijo
             }
 
-            // Si ningún hijo fue tocado, significa que tocamos el fondo de este nodo padre
+            // Si ningún hijo fue tocado, significa que tocamos el fondo de este nodo padre y adios papu XD
             return node;
         }
 
@@ -366,9 +366,9 @@ namespace FluentWinForms.Core
             public static float Spring(float t)
             {
                 if (t == 0f || t == 1f) return t;
-                // Fórmula de amortiguación (Underdamped Spring) estilo Apple
+                // Fórmula de amortiguación 
                 float c4 = (2f * (float)Math.PI) / 3f;
-                return (float)(Math.Pow(2, -10 * t) * Math.Sin((t * 10f - 0.75f) * c4) + 1f);
+                return (float)(Math.Pow(2, -3 * t) * Math.Sin((t * 3f - 0.75f) * c4) + 1f);
             }
         }
     }
