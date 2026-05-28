@@ -36,7 +36,7 @@
 * 🎨 **100% Personalizable:** ¡Cualquiera puede crear sus propios diseños, controles y estilos desde cero fácilmente!
 * 🖱️ **¡Soporte Drag & Drop!** ¿Te cuadra más el diseñador visual? No hay falla. El motor está preparado para que arrastrés los controles directamente desde la caja de herramientas de Visual Studio.
 * 🎯 **DPI-Aware: Nitidez perfecta en cualquier escala de pantalla (monitores 4K o escalado Windows).
-* 📦 **Layout Moderno:** Adiós al `FlowLayoutPanel`. Usá `AutoFitGrid`, `VerticalStack` y `HorizontalStack` bien responsivos.
+* 📦 **Layout Moderno:** Usá `AutoFitGrid`, `VerticalStack` y `HorizontalStack` bien responsivos.
 * 🔄 **Para Todos:** Corre al cien desde **.NET Framework 4.8** hasta **.NET 10** *(en desarrollo aún, ya que no todas las librerías de Skia son estables en las versiones más nuevas)*.
 
 ---
