@@ -148,6 +148,8 @@ Si te gusta C#, sos apasionado de la programación y te llega esta visión de qu
 <div align="center">
   <br>
   <b>¿Te gusta la idea? ¡Dejale caer una ⭐ en GitHub!</b>
+  <br>
+  <b>Le doy gracias a Dios 💫 por permitirme hacer este proyecto.Se que sera de su agrado y ayudara a muchos de la comunidad WinForms  :') </b>
 </div>
 
 <br><br>
@@ -271,4 +273,5 @@ If you love C#, you're passionate about programming, and you share this vision o
 <div align="center">
   <br>
   <b>Love the idea? Support us with a ⭐ on GitHub!</b>
+  <b>I thank God 💫 for allowing me to do this project. I hope it pleases Him and helps the comunity of WinForms :') </b>
 </div>
