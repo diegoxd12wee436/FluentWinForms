@@ -2,11 +2,6 @@
   
 
 # 🚀 FluentWinForms 
-**Diseñá como Windows 11. Ligero en RAM como Windows 7.**   
-
-**Design like Windows 11. Light on RAM like Windows 7.**
-
-
 *Real Blur · Glassmorphism · Smooth Animations · Pure C# · No XAML · No MVVM*
 
 ![.NET Version](https://img.shields.io/badge/.NET-4.8%20%7C%206.0%20%7C%208.0%20%7C%209.0%20%7C%2010.0-blue)
@@ -277,5 +272,6 @@ If you love C#, you're passionate about programming, and you share this vision o
 <div align="center">
   <br>
   <b>Love the idea? Support us with a ⭐ on GitHub!</b>
+  
   <b>I thank God 💫 for allowing me to do this project. I hope it pleases Him and helps the comunity of WinForms :') </b>
 </div>
