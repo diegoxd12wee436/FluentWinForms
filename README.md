@@ -2,11 +2,6 @@
   
 
 # 🚀 FluentWinForms 
-**Diseñá como Windows 11. Ligero en RAM como Windows 7.**   
-
-**Design like Windows 11. Light on RAM like Windows 7.**
-
-
 *Real Blur · Glassmorphism · Smooth Animations · Pure C# · No XAML · No MVVM*
 
 ![.NET Version](https://img.shields.io/badge/.NET-4.8%20%7C%206.0%20%7C%208.0%20%7C%209.0%20%7C%2010.0-blue)
@@ -20,11 +15,13 @@
 
 ## 📖 La historia detrás de este motor
 
-¡Hola! Soy un estudiante de 19 años. Desde donde yo lo veo, casi todos mis compañeros de clase ya miran WinForms como algo "viejo". Creen que para hacer interfaces bonitas y modernas (como las de WinUI) si o si tienen que aprender XAML y enredarse con MVVM. Al final, se frustran tanto que tiran la toalla y dejan C# botado.
+¡Hola! Soy un estudiante de 19 años. Desde donde yo lo veo, casi todos mis compañeros de clase ya miran WinForms como algo "viejo". Creen que para hacer interfaces bonitas y modernas (como las de WinUI) si o si tienen que aprender XAML y enredarse con MVVM. Al final, se frustran tanto que tiran la toalla y dejan C# botado, No todos lo ven con buena percepción; lo consideran algo viejo, no moderno
 
 **Por eso me hice este motor:** para que podamos seguir codificando en C# puro, usando una API súper directa, fácil de leer (como si fuera CSS), y al mismo tiempo tener efectos bestiales (glass, blur de verdad, sombras dinámicas) controlando el renderizado al máximo con **SkiaSharp** y **GDI+**.
 
-> **Nota:** Necesito ayuda de la comunidad para avanzar, yo solo no puedo y no tengo tanta experiencia. ¡Se agradece cualquier ayuda de corazón! :')
+> **Nota:** Este proyecto no está en contra de WinUI ni WPF. Son frameworks poderosos, pero mi objetivo es ofrecer un camino alternativo para estudiantes y desarrolladores que quieran diseño moderno sin dejar WinForms.
+
+> Necesito ayuda de la comunidad para avanzar. No puedo hacerlo solo y aún no tengo tanta experiencia. ¡Cualquier apoyo es profundamente apreciado! :')
 
 ---
 
@@ -36,7 +33,7 @@
 * 🎨 **100% Personalizable:** ¡Cualquiera puede crear sus propios diseños, controles y estilos desde cero fácilmente!
 * 🖱️ **¡Soporte Drag & Drop!** ¿Te cuadra más el diseñador visual? No hay falla. El motor está preparado para que arrastrés los controles directamente desde la caja de herramientas de Visual Studio.
 * 🎯 **DPI-Aware: Nitidez perfecta en cualquier escala de pantalla (monitores 4K o escalado Windows).
-* 📦 **Layout Moderno:** Adiós al `FlowLayoutPanel`. Usá `AutoFitGrid`, `VerticalStack` y `HorizontalStack` bien responsivos.
+* 📦 **Layout Moderno:** Usá `AutoFitGrid`, `VerticalStack` y `HorizontalStack` bien responsivos.
 * 🔄 **Para Todos:** Corre al cien desde **.NET Framework 4.8** hasta **.NET 10** *(en desarrollo aún, ya que no todas las librerías de Skia son estables en las versiones más nuevas)*.
 
 ---
@@ -148,6 +145,8 @@ Si te gusta C#, sos apasionado de la programación y te llega esta visión de qu
 <div align="center">
   <br>
   <b>¿Te gusta la idea? ¡Dejale caer una ⭐ en GitHub!</b>
+  <br>
+  <b>Le doy gracias a Dios 💫 por permitirme hacer este proyecto.Se que sera de su agrado y ayudara a muchos de la comunidad WinForms  :') </b>
 </div>
 
 <br><br>
@@ -162,9 +161,11 @@ Si te gusta C#, sos apasionado de la programación y te llega esta visión de qu
 
 ## 📖 The story behind this engine
 
-Hi! I'm a 19-year-old student. From my perspective, most of my classmates already see WinForms as something "old" and outdated. They think that to move to WinUI or create modern interfaces they have to learn XAML and the whole complex world of MVVM. That frustrates them so much that many end up dropping C# entirely.
+Hi! I'm a 19-year-old student. From my perspective, most of my classmates already see WinForms as something "old" and outdated. They think that to move to WinUI or create modern interfaces they have to learn XAML and the whole complex world of MVVM. That frustrates them so much that many end up dropping C# entirely. Not everyone has a positive perception of it; many consider it old rather than modern.
 
 **That's why I built this engine:** so we can stick to pure C#, using a super concise, easy-to-read CSS-like API, while still getting modern effects (glassmorphism, real blur, dynamic shadows) and full rendering control thanks to **SkiaSharp** and **GDI+**.
+
+> **Disclaimer:** This project is not against WinUI or WPF. They are powerful frameworks, but my goal here is to provide an alternative path for students and developers who want modern design while staying in WinForms.
 
 > **Note:** I need help from the community to move forward. I can't do it alone and I don't have that much experience yet. Any help is deeply appreciated! :')
 
@@ -271,4 +272,6 @@ If you love C#, you're passionate about programming, and you share this vision o
 <div align="center">
   <br>
   <b>Love the idea? Support us with a ⭐ on GitHub!</b>
+  
+  <b>I thank God 💫 for allowing me to do this project. I hope it pleases Him and helps the comunity of WinForms :') </b>
 </div>
