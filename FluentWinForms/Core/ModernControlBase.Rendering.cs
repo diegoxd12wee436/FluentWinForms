@@ -277,8 +277,12 @@ namespace FluentWinForms.Core
                 _sharedPaint.Style = SKPaintStyle.Fill;
                 _sharedPaint.Color = bg.Color1.A > 0 ? bg.Color1.ToSKColor() : SKColors.White;
 
-                _sharedPaint.ImageFilter = SKImageFilter.CreateDropShadow(
-                    S(sh.OffsetX), S(sh.OffsetY), S(sh.Radius) / 2f, S(sh.Radius) / 2f, sh.Color.ToSKColor());
+                if (node._cachedShadowFilter == null)
+                {
+                    node._cachedShadowFilter = SKImageFilter.CreateDropShadow(
+                        S(sh.OffsetX), S(sh.OffsetY), S(sh.Radius) / 2f, S(sh.Radius) / 2f, sh.Color.ToSKColor());
+                }
+                _sharedPaint.ImageFilter = node._cachedShadowFilter;
 
                 if (node.Corners.TopLeft > 0) canvas.DrawRoundRect(rect, node.Corners.TopLeft, node.Corners.TopLeft, _sharedPaint);
                 else canvas.DrawRect(rect, _sharedPaint);
@@ -472,6 +476,7 @@ namespace FluentWinForms.Core
             }
 
             // 🔥 10.  TEXTO ALINEADO, WORDWRAP Y DECORACIONES
+            // 🔥 10.  TEXTO ALINEADO, WORDWRAP Y DECORACIONES
             if (!string.IsNullOrEmpty(node.Content.Text))
             {
                 _sharedPaint.Reset();
@@ -481,7 +486,9 @@ namespace FluentWinForms.Core
                 _sharedPaint.HintingLevel = SKPaintHinting.Full;
                 _sharedPaint.Color = node.Content.TextColor.ToSKColor();
                 _sharedPaint.TextSize = S(node.Content.FontSize);
-                _sharedPaint.Typeface = GetOrCreateTypeface(node.Content.FontFamily, node.Content.IsBold);
+
+                // 🔥 EL FIX APLICADO: Ahora recibe IsItalic para dibujar la cursiva correctamente
+                _sharedPaint.Typeface = GetOrCreateTypeface(node.Content.FontFamily, node.Content.IsBold, node.Content.IsItalic);
 
                 float tx = rect.Left;
                 if (node.Content.HorizontalAlignment == StringAlignment.Center) { _sharedPaint.TextAlign = SKTextAlign.Center; tx = rect.MidX; }

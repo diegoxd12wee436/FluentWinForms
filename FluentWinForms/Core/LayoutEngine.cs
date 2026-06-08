@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Buffers;
 using System.Drawing;
 
 namespace FluentWinForms.Core
@@ -10,126 +11,248 @@ namespace FluentWinForms.Core
         /// </summary>
         public static void ComputeLayout(RenderNode node, RectangleF availableSpace)
         {
-            // 🔥 CORRECCIÓN RESPONSIVE: Comprobamos si el nodo requiere estirarse (1fr/Stretch) permanentemente.
-            // Ya no usamos IsNaN, porque eso se perdía en la primera pasada. Ahora el nodo NUNCA olvida que debe estirarse.
+            // Respetar StretchX/StretchY del nodo actual
             float myWidth = node.StretchX ? availableSpace.Width : node.Layout.Width;
             float myHeight = node.StretchY ? availableSpace.Height : node.Layout.Height;
 
-            // 2. Restricciones Min y Max (El nodo actual respeta sus propios límites)
+            // Restricciones Min/Max
             myWidth = Math.Max(node.MinSize.Width, node.MaxSize.Width > 0 ? Math.Min(myWidth, node.MaxSize.Width) : myWidth);
             myHeight = Math.Max(node.MinSize.Height, node.MaxSize.Height > 0 ? Math.Min(myHeight, node.MaxSize.Height) : myHeight);
 
             node.Layout = new RectangleF(availableSpace.X, availableSpace.Y, myWidth, myHeight);
 
-            // Si no tiene hijos, no hay nada más que calcular
             if (node.Children.Count == 0) return;
 
-            // 3. Calcular el espacio interno real (restando el Padding del padre)
+            // Espacio interno (padding)
             float innerX = node.Layout.X + node.Padding.Left;
             float innerY = node.Layout.Y + node.Padding.Top;
             float innerW = node.Layout.Width - (node.Padding.Left + node.Padding.Right);
             float innerH = node.Layout.Height - (node.Padding.Top + node.Padding.Bottom);
 
-            // ==========================================
-            // DISTRIBUCIÓN DE HIJOS (Según LayoutMode)
-            // ==========================================
-
-            if (node.LayoutMode == LayoutStyle.Absolute)
+            switch (node.LayoutMode)
             {
-                // En modo absoluto, los hijos ignoran el layout automático. 
-                // Solo les pasamos el contenedor por si quieren anclarse, pero mantienen su X,Y.
-                foreach (var child in node.Children)
+                case LayoutStyle.Absolute:
+                    ComputeAbsolute(node, innerX, innerY);
+                    break;
+
+                case LayoutStyle.VerticalStack:
+                    ComputeVerticalStack(node, innerX, innerY, innerW, innerH);
+                    break;
+
+                case LayoutStyle.HorizontalStack:
+                    ComputeHorizontalStack(node, innerX, innerY, innerW, innerH);
+                    break;
+
+                case LayoutStyle.AutoFitGrid:
+                    ComputeAutoFitGrid(node, innerX, innerY, innerW);
+                    break;
+            }
+        }
+
+        // ─────────────────────────────────────────────────────────────────
+        // ABSOLUTE
+        // ─────────────────────────────────────────────────────────────────
+
+        private static void ComputeAbsolute(RenderNode node, float innerX, float innerY)
+        {
+            foreach (var child in node.Children)
+            {
+                ComputeLayout(child, new RectangleF(
+                    innerX + child.Layout.X,
+                    innerY + child.Layout.Y,
+                    child.Layout.Width,
+                    child.Layout.Height));
+            }
+        }
+
+        // ─────────────────────────────────────────────────────────────────
+        // VERTICAL STACK — FIX: dos pasadas para "fill remaining" real
+        // ─────────────────────────────────────────────────────────────────
+
+        private static void ComputeVerticalStack(
+            RenderNode node,
+            float innerX, float innerY,
+            float innerW, float innerH)
+        {
+            // ── Pasada 1: contar hijos visibles, medir alturas fijas, contar StretchY ──
+            int stretchCount = 0;
+            float fixedH = 0f;
+            int visibleCount = 0;
+
+            foreach (var child in node.Children)
+            {
+                if (!child.IsVisible) continue;
+                visibleCount++;
+
+                if (child.StretchY)
                 {
-                    ComputeLayout(child, new RectangleF(innerX + child.Layout.X, innerY + child.Layout.Y, child.Layout.Width, child.Layout.Height));
+                    stretchCount++;
+                }
+                else
+                {
+                    float h = child.Layout.Height;
+                    if (child.MinSize.Height > 0) h = Math.Max(h, child.MinSize.Height);
+                    fixedH += h;
                 }
             }
-            else if (node.LayoutMode == LayoutStyle.VerticalStack)
+
+            // Espacio sobrante tras restar hijos fijos y separadores
+            float totalSpacing = visibleCount > 1 ? (visibleCount - 1) * node.Spacing : 0f;
+            float stretchH = stretchCount > 0
+                ? Math.Max(0f, (innerH - fixedH - totalSpacing) / stretchCount)
+                : 0f;
+
+            // ── Pasada 2: posicionar ──
+            float currentY = innerY;
+            foreach (var child in node.Children)
             {
-                float currentY = innerY;
+                if (!child.IsVisible) continue;
+
+                float childW = child.StretchX ? innerW : child.Layout.Width;
+                float childH = child.StretchY ? stretchH : child.Layout.Height;
+
+                // Respetar Min/Max del hijo
+                if (child.MinSize.Height > 0) childH = Math.Max(childH, child.MinSize.Height);
+                if (child.MaxSize.Height > 0) childH = Math.Min(childH, child.MaxSize.Height);
+
+                ComputeLayout(child, new RectangleF(innerX, currentY, childW, childH));
+                currentY += child.Layout.Height + node.Spacing;
+            }
+        }
+
+        // ─────────────────────────────────────────────────────────────────
+        // HORIZONTAL STACK — FIX: dos pasadas para "fill remaining" real
+        // ─────────────────────────────────────────────────────────────────
+
+        private static void ComputeHorizontalStack(
+            RenderNode node,
+            float innerX, float innerY,
+            float innerW, float innerH)
+        {
+            // ── Pasada 1: medir anchos fijos, contar StretchX ──
+            int stretchCount = 0;
+            float fixedW = 0f;
+            int visibleCount = 0;
+
+            foreach (var child in node.Children)
+            {
+                if (!child.IsVisible) continue;
+                visibleCount++;
+
+                if (child.StretchX)
+                {
+                    stretchCount++;
+                }
+                else
+                {
+                    float w = child.Layout.Width;
+                    if (child.MinSize.Width > 0) w = Math.Max(w, child.MinSize.Width);
+                    fixedW += w;
+                }
+            }
+
+            float totalSpacing = visibleCount > 1 ? (visibleCount - 1) * node.Spacing : 0f;
+            float stretchW = stretchCount > 0
+                ? Math.Max(0f, (innerW - fixedW - totalSpacing) / stretchCount)
+                : 0f;
+
+            // ── Pasada 2: posicionar ──
+            float currentX = innerX;
+            foreach (var child in node.Children)
+            {
+                if (!child.IsVisible) continue;
+
+                float childW = child.StretchX ? stretchW : child.Layout.Width;
+                float childH = child.StretchY ? innerH : child.Layout.Height;
+
+                // Respetar Min/Max del hijo
+                if (child.MinSize.Width > 0) childW = Math.Max(childW, child.MinSize.Width);
+                if (child.MaxSize.Width > 0) childW = Math.Min(childW, child.MaxSize.Width);
+
+                ComputeLayout(child, new RectangleF(currentX, innerY, childW, childH));
+                currentX += child.Layout.Width + node.Spacing;
+            }
+        }
+
+        // ─────────────────────────────────────────────────────────────────
+        // AUTO FIT GRID — FIX: ArrayPool + método estático, sin List ni lambda
+        // ─────────────────────────────────────────────────────────────────
+
+        private static void ComputeAutoFitGrid(
+            RenderNode node,
+            float innerX, float innerY,
+            float innerW)
+        {
+            float minColW = Math.Max(1f, node.GridMinColumnWidth);
+            int columns = Math.Max(1, (int)((innerW + node.Spacing) / (minColW + node.Spacing)));
+            float actualColW = (innerW - ((columns - 1) * node.Spacing)) / columns;
+
+            // Renta un buffer del pool en lugar de new List<RenderNode>()
+            // ArrayPool.Rent puede devolver un array más grande — usamos rowCount para el tamaño real
+            RenderNode[] rowBuffer = ArrayPool<RenderNode>.Shared.Rent(columns);
+            int rowCount = 0;
+            float rowY = innerY;
+
+            try
+            {
                 foreach (var child in node.Children)
                 {
                     if (!child.IsVisible) continue;
 
-                    // El hijo hereda el ancho interno (si tiene StretchX) y calcula su alto
-                    float childW = child.StretchX ? innerW : child.Layout.Width;
-                    float childH = child.StretchY ? innerH : child.Layout.Height;
+                    rowBuffer[rowCount++] = child;
 
-                    if (child.MinSize.Height > 0) childH = Math.Max(childH, child.MinSize.Height);
-
-                    var childRect = new RectangleF(innerX, currentY, childW, childH);
-                    ComputeLayout(child, childRect);
-
-                    currentY += child.Layout.Height + node.Spacing;
-                }
-            }
-            else if (node.LayoutMode == LayoutStyle.HorizontalStack)
-            {
-                float currentX = innerX;
-                foreach (var child in node.Children)
-                {
-                    if (!child.IsVisible) continue;
-
-                    // El hijo calcula su ancho, pero hereda el alto interno (si tiene StretchY)
-                    float childW = child.StretchX ? innerW : child.Layout.Width;
-                    float childH = child.StretchY ? innerH : child.Layout.Height;
-
-                    if (child.MinSize.Width > 0) childW = Math.Max(childW, child.MinSize.Width);
-
-                    var childRect = new RectangleF(currentX, innerY, childW, childH);
-                    ComputeLayout(child, childRect);
-
-                    currentX += child.Layout.Width + node.Spacing;
-                }
-            }
-            else if (node.LayoutMode == LayoutStyle.AutoFitGrid)
-            {
-                float minColW = Math.Max(1f, node.GridMinColumnWidth);
-                int columns = Math.Max(1, (int)((innerW + node.Spacing) / (minColW + node.Spacing)));
-                float actualColW = (innerW - ((columns - 1) * node.Spacing)) / columns;
-
-                float currentX = innerX;
-                float currentY = innerY;
-
-                // 🔥 FIX PRO: Agrupación por filas para calcular la altura real (StretchY)
-                var rowNodes = new System.Collections.Generic.List<RenderNode>();
-
-                Action layoutRow = () =>
-                {
-                    if (rowNodes.Count == 0) return;
-
-                    // Encontrar el hijo más alto de la fila actual
-                    float maxH = 0f;
-                    foreach (var c in rowNodes)
+                    if (rowCount >= columns)
                     {
-                        float h = c.Layout.Height;
-                        if (c.MinSize.Height > 0) h = Math.Max(h, c.MinSize.Height);
-                        maxH = Math.Max(maxH, h);
+                        rowY = FlushGridRow(rowBuffer, rowCount, innerX, rowY, actualColW, node.Spacing);
+                        rowCount = 0;
                     }
-
-                    // Aplicar layout estirando verticalmente si es necesario
-                    float tempX = currentX;
-                    foreach (var c in rowNodes)
-                    {
-                        float childW = actualColW;
-                        if (c.MaxSize.Width > 0) childW = Math.Min(childW, c.MaxSize.Width);
-                        float childH = c.StretchY ? maxH : Math.Max(c.Layout.Height, c.MinSize.Height);
-
-                        ComputeLayout(c, new RectangleF(tempX, currentY, childW, childH));
-                        tempX += actualColW + node.Spacing;
-                    }
-                    currentY += maxH + node.Spacing;
-                    currentX = innerX;
-                    rowNodes.Clear();
-                };
-
-                foreach (var child in node.Children)
-                {
-                    if (!child.IsVisible) continue;
-                    rowNodes.Add(child);
-                    if (rowNodes.Count >= columns) layoutRow();
                 }
-                layoutRow(); // Renderizar hijos restantes
+
+                // Última fila incompleta (si queda algo)
+                if (rowCount > 0)
+                    FlushGridRow(rowBuffer, rowCount, innerX, rowY, actualColW, node.Spacing);
             }
+            finally
+            {
+                // clearArray: true limpia las referencias a RenderNode para el GC
+                ArrayPool<RenderNode>.Shared.Return(rowBuffer, clearArray: true);
+            }
+        }
+
+        /// <summary>
+        /// Calcula la altura máxima de una fila, posiciona sus hijos y devuelve el Y de la siguiente fila.
+        /// Método estático puro — sin capturas de closure, sin allocations.
+        /// </summary>
+        private static float FlushGridRow(
+            RenderNode[] row, int count,
+            float startX, float startY,
+            float colW, float spacing)
+        {
+            // Altura máxima de la fila (respetando MinSize)
+            float maxH = 0f;
+            for (int i = 0; i < count; i++)
+            {
+                float h = row[i].Layout.Height;
+                if (row[i].MinSize.Height > 0) h = Math.Max(h, row[i].MinSize.Height);
+                maxH = Math.Max(maxH, h);
+            }
+
+            // Posicionar cada hijo de la fila
+            float x = startX;
+            for (int i = 0; i < count; i++)
+            {
+                var c = row[i];
+                float childW = colW;
+                float childH = c.StretchY ? maxH : Math.Max(c.Layout.Height, c.MinSize.Height);
+
+                if (c.MaxSize.Width > 0) childW = Math.Min(childW, c.MaxSize.Width);
+                if (c.MaxSize.Height > 0) childH = Math.Min(childH, c.MaxSize.Height);
+
+                ComputeLayout(c, new RectangleF(x, startY, childW, childH));
+                x += colW + spacing;
+            }
+
+            return startY + maxH + spacing;
         }
     }
 }

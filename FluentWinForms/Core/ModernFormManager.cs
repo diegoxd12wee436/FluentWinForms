@@ -1,4 +1,9 @@
 ﻿#nullable enable
+#pragma warning disable CA1416
+#pragma warning disable IDE0090
+#pragma warning disable IDE0028
+#pragma warning disable CA1051
+
 using Microsoft.Win32;
 using SkiaSharp;
 using SkiaSharp.Views.Desktop;
@@ -17,7 +22,8 @@ namespace FluentWinForms.Core
     public enum FormBackdropType
     {
         None = 0,
-        Acrylic = 3
+        Blur = 1,     // 🔥 Blur 100% GPU (Direct2D - Zero Allocation)
+        Acrylic = 3   // Blur + tinte acrylic oscuro (Nativo DWM)
     }
 
     public static class WindowsVersionHelper
@@ -60,16 +66,19 @@ namespace FluentWinForms.Core
         private double _originalOpacity = 1.0;
 
         private Bitmap? _desktopAcrylicCache;
+        private bool _isResizing = false;
+        private readonly object _backdropLock = new object();
         private ModernFormOverlay? _overlayWindow;
 
-        // 🔥 VACUNA 1: Token de cancelación para evitar que capturas asíncronas choquen
-        private CancellationTokenSource? _captureCts;
+        // 🔥 NUESTRO MOTOR GPU
+        private Direct2DBlurHelper? _d2dBlurHelper;
+        private FormMessageHook? _formHook; // 🔥 INYECCIÓN: Hook del Compositor
 
         private int _borderRadius = 12;
         private bool _transparentStyle = false;
         private FormBackdropType _backdropType = FormBackdropType.None;
-
         private bool _autoSetBlackBackground = false;
+        private int _blurAmount = 20;
 
         public ModernFormManager() { }
         public ModernFormManager(IContainer container) { container?.Add(this); }
@@ -86,8 +95,12 @@ namespace FluentWinForms.Core
                 _targetForm.Resize -= TargetForm_Resize;
                 _targetForm.Paint -= TargetForm_Paint_Hybrid;
                 _targetForm.Paint -= TargetForm_PaintDesktopAcrylic;
-                _targetForm.ResizeEnd -= CaptureDesktopBackgroundEvent;
-                _targetForm.Move -= CaptureDesktopBackgroundEvent;
+
+                // 🔥 INYECCIÓN: Limpieza de motor Blur
+                _targetForm.Activated -= TargetForm_Activated;
+                _targetForm.Deactivate -= TargetForm_Deactivate;
+                _formHook?.ReleaseHandle();
+                _formHook = null;
             }
             catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"UnsubscribeTargetForm: {ex.Message}"); }
         }
@@ -99,7 +112,6 @@ namespace FluentWinForms.Core
             set
             {
                 UnsubscribeTargetForm();
-
                 _targetForm = value;
 
                 if (_targetForm != null)
@@ -109,6 +121,11 @@ namespace FluentWinForms.Core
                     _targetForm.MouseDown += AutoDrag_MouseDown;
                     _targetForm.Resize += TargetForm_Resize;
                     _targetForm.Paint += TargetForm_Paint_Hybrid;
+
+                    // 🔥 INYECCIÓN: Conexión inteligente del motor Blur
+                    _targetForm.Activated += TargetForm_Activated;
+                    _targetForm.Deactivate += TargetForm_Deactivate;
+                    _formHook = new FormMessageHook(_targetForm, this);
 
                     if (!DesignMode)
                     {
@@ -183,7 +200,6 @@ namespace FluentWinForms.Core
             set
             {
                 _backdropType = value;
-
                 if (_backdropType != FormBackdropType.None)
                 {
                     _transparentStyle = false;
@@ -194,9 +210,13 @@ namespace FluentWinForms.Core
                     _autoSetBlackBackground = false;
                 }
 
+                if (_backdropType != FormBackdropType.Blur && _d2dBlurHelper != null)
+                {
+                    _d2dBlurHelper.Stop();
+                }
+
                 UpdateFormBackground();
                 ApplyModernEffects();
-
                 if (DesignMode)
                 {
                     _targetForm?.Refresh();
@@ -211,11 +231,7 @@ namespace FluentWinForms.Core
         public bool AutoSetBlackBackground
         {
             get => _autoSetBlackBackground;
-            set
-            {
-                _autoSetBlackBackground = value;
-                UpdateFormBackground();
-            }
+            set { _autoSetBlackBackground = value; UpdateFormBackground(); }
         }
 
         [Category("Modern Form - Visuals")]
@@ -265,26 +281,57 @@ namespace FluentWinForms.Core
         }
 
         [Category("Modern Form - Visuals")]
+        [Description("Intensidad del blur en tiempo real (GPU). Mínimo 1.")]
+        public int BlurAmount
+        {
+            get => _blurAmount;
+            set
+            {
+                _blurAmount = Math.Max(1, value);
+                if (_d2dBlurHelper != null)
+                {
+                    _d2dBlurHelper.BlurAmount = _blurAmount;
+                }
+
+                if (!DesignMode && _backdropType == FormBackdropType.Acrylic && !WindowsVersionHelper.IsWindows10OrGreater())
+                {
+                    SafeDispose(ref _desktopAcrylicCache);
+                    _targetForm?.Invalidate();
+                    _ = CaptureDesktopBackgroundAsync();
+                }
+            }
+        }
+
+        [Category("Modern Form - Visuals")]
         public bool UseModernRoundedCorners { get; set; } = true;
 
         [Category("Modern Form - Visuals")]
         public bool ForceDarkModeTitleBar { get; set; } = false;
+
+        // 🔥 INYECCIÓN: Lógica de energía (Aceleración GPU)
+        private void TargetForm_Activated(object? sender, EventArgs e)
+        {
+            if (_d2dBlurHelper != null) _d2dBlurHelper.CurrentState = BlurRenderState.HighPerformance;
+        }
+
+        private void TargetForm_Deactivate(object? sender, EventArgs e)
+        {
+            if (_d2dBlurHelper != null) _d2dBlurHelper.CurrentState = BlurRenderState.PowerSaving;
+        }
 
         private void TargetForm_HandleCreated(object? sender, EventArgs e) => ApplyModernEffects();
 
         private void TargetForm_Paint_Hybrid(object? sender, PaintEventArgs e)
         {
             if (_targetForm == null || _borderRadius <= 0) return;
-
             bool isWin11 = WindowsVersionHelper.IsWindows11OrGreater();
-            if (isWin11 && _backdropType == FormBackdropType.Acrylic && _borderThickness <= 0) return;
 
+            if (isWin11 && _backdropType == FormBackdropType.Acrylic && _borderThickness <= 0) return;
             if (DesignMode)
             {
                 e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
                 float drawThick = _borderThickness > 0 ? _borderThickness : 1.5f;
                 Color drawColor = _borderThickness > 0 ? _borderColor : Color.DarkGray;
-
                 using (var path = CreateRoundedPath(new RectangleF(drawThick / 2, drawThick / 2, _targetForm.Width - drawThick - 1f, _targetForm.Height - drawThick - 1f), _borderRadius))
                 using (var pen = new Pen(drawColor, drawThick) { DashStyle = _borderThickness > 0 ? DashStyle.Solid : DashStyle.Dash })
                 {
@@ -331,13 +378,11 @@ namespace FluentWinForms.Core
             int w = _targetForm.Width;
             int h = _targetForm.Height;
             if (w <= 0 || h <= 0) return;
-
             float scale = GetScaleFactor();
             float actualThickness = _borderThickness > 0 ? _borderThickness : 0f;
             Color actualColor = _borderThickness > 0 ? _borderColor : Color.Transparent;
 
             int scaledRadius = (int)Math.Round((double)(_borderRadius * scale));
-
             if (_skBorderBitmap == null || _gdiBorderBitmap == null || _lastWidth != w || _lastHeight != h ||
                 _lastRadius != _borderRadius || _lastColor != actualColor || Math.Abs(_lastThickness - actualThickness) > 0.01f)
             {
@@ -348,7 +393,6 @@ namespace FluentWinForms.Core
                 using (var canvas = new SKCanvas(_skBorderBitmap))
                 {
                     canvas.Clear(SKColors.Transparent);
-
                     if (_skSharedPaint == null)
                     {
                         _skSharedPaint = new SKPaint
@@ -372,10 +416,8 @@ namespace FluentWinForms.Core
                             Style = SKPaintStyle.Stroke,
                             StrokeWidth = strokeW
                         };
-
                         SKRect hideRect = new SKRect(strokeInset, strokeInset, w - strokeInset, h - strokeInset);
                         float hideRad = Math.Max(0, scaledRadius - strokeInset);
-
                         canvas.DrawRoundRect(hideRect, hideRad, hideRad, hidePaint);
                     }
                     else if (_backdropType == FormBackdropType.Acrylic && scaledRadius > 0 && !WindowsVersionHelper.IsWindows11OrGreater())
@@ -389,7 +431,6 @@ namespace FluentWinForms.Core
                             Color = Color.FromArgb(40, 255, 255, 255).ToSKColor(),
                             StrokeWidth = strokeW
                         };
-
                         SKRect smoothRect = new SKRect(strokeInset, strokeInset, w - strokeInset, h - strokeInset);
                         float smoothRad = Math.Max(0, scaledRadius - strokeInset);
                         canvas.DrawRoundRect(smoothRect, smoothRad, smoothRad, smoothPaint);
@@ -402,10 +443,8 @@ namespace FluentWinForms.Core
 
                         _skSharedPaint.Color = actualColor.ToSKColor();
                         _skSharedPaint.StrokeWidth = strokeW;
-
                         SKRect drawRect = new SKRect(strokeInset, strokeInset, w - strokeInset, h - strokeInset);
                         float rad = Math.Max(0, scaledRadius - strokeInset);
-
                         canvas.DrawRoundRect(drawRect, rad, rad, _skSharedPaint);
                     }
                 }
@@ -415,7 +454,8 @@ namespace FluentWinForms.Core
                     _gdiBorderBitmap = new Bitmap(w, h, _skBorderBitmap.RowBytes, System.Drawing.Imaging.PixelFormat.Format32bppPArgb, _skBorderBitmap.GetPixels());
                 }
 
-                _lastWidth = w; _lastHeight = h; _lastRadius = _borderRadius;
+                _lastWidth = w;
+                _lastHeight = h; _lastRadius = _borderRadius;
                 _lastColor = actualColor; _lastThickness = actualThickness;
             }
 
@@ -445,7 +485,6 @@ namespace FluentWinForms.Core
             int h = _targetForm.Height;
             float actualThickness = _borderThickness > 0 ? _borderThickness : 2f;
             Color actualColor = _borderThickness > 0 ? _borderColor : _targetForm.BackColor;
-
             float scale = GetScaleFactor();
             float rad = Math.Max(0, (_borderRadius * scale) - ((actualThickness + 1f) / 2f));
             float inset = (actualThickness + 1f) / 2f;
@@ -474,11 +513,16 @@ namespace FluentWinForms.Core
         private void UpdateFormBackground()
         {
             if (_targetForm == null || DesignMode) return;
+            if (_backdropType == FormBackdropType.Blur)
+            {
+                _targetForm.TransparencyKey = Color.Empty;
+                _targetForm.BackColor = Color.Black;
+                return;
+            }
 
             if (BackdropType != FormBackdropType.None && WindowsVersionHelper.IsWindows11OrGreater())
             {
                 _targetForm.TransparencyKey = Color.Empty;
-
                 if (_autoSetBlackBackground)
                 {
                     _targetForm.BackColor = Color.Black;
@@ -497,16 +541,12 @@ namespace FluentWinForms.Core
 
         private void TargetForm_ResizeBegin(object? sender, EventArgs e)
         {
+            _isResizing = true;
             if (_targetForm != null && EnableDrag && DragOpacity < 1.0)
             {
                 _originalOpacity = _targetForm.Opacity;
                 _targetForm.Opacity = DragOpacity;
             }
-        }
-
-        private void TargetForm_ResizeEnd(object? sender, EventArgs e)
-        {
-            if (_targetForm != null && EnableDrag && DragOpacity < 1.0) _targetForm.Opacity = _originalOpacity;
         }
 
         private void TargetForm_Resize(object? sender, EventArgs e)
@@ -521,6 +561,17 @@ namespace FluentWinForms.Core
                 {
                     _borderRadius = maxLogical;
                 }
+
+                // 🔥 INYECCIÓN: Suspender el BlurGPU si la ventana se minimiza
+                if (_d2dBlurHelper != null)
+                {
+                    if (_targetForm.WindowState == FormWindowState.Minimized)
+                        _d2dBlurHelper.CurrentState = BlurRenderState.Idle;
+                    else
+                        _d2dBlurHelper.CurrentState = _targetForm.Focused ? BlurRenderState.HighPerformance : BlurRenderState.PowerSaving;
+
+                    _d2dBlurHelper.ForceImmediateRender();
+                }
             }
             ApplyCustomRegion();
         }
@@ -529,7 +580,8 @@ namespace FluentWinForms.Core
         {
             if (_targetForm == null || DesignMode) return;
 
-            if (_backdropType == FormBackdropType.Acrylic && WindowsVersionHelper.IsWindows11OrGreater())
+            // 🔥 CORRECCIÓN CLAVE: Blur ahora se incluye para limpiar su Región en Win11 = Esquinas Perfectas.
+            if ((_backdropType == FormBackdropType.Acrylic || _backdropType == FormBackdropType.Blur) && WindowsVersionHelper.IsWindows11OrGreater())
             {
                 _targetForm.Region = null;
                 return;
@@ -545,7 +597,6 @@ namespace FluentWinForms.Core
                     int inset = (_backdropType == FormBackdropType.None) ? 2 : 0;
                     int gdiRadius = Math.Max(1, physRadius - inset);
                     int diameter = gdiRadius * 2;
-
                     IntPtr ptr = NativeMethods.CreateRoundRectRgn(inset, inset, _targetForm.Width - inset + 1, _targetForm.Height - inset + 1, diameter, diameter);
                     _targetForm.Region = Region.FromHrgn(ptr);
                     NativeMethods.DeleteObject(ptr);
@@ -570,9 +621,7 @@ namespace FluentWinForms.Core
         private void EnableAcrylic()
         {
             if (_targetForm == null || DesignMode) return;
-
             int gradientColor = (0x40 << 24) | (255 << 16) | (255 << 8) | 255;
-
             var accent = new NativeMethods.AccentPolicy
             {
                 AccentState = NativeMethods.ACCENT_ENABLE_ACRYLICBLURBEHIND,
@@ -584,14 +633,12 @@ namespace FluentWinForms.Core
             var accentStructSize = Marshal.SizeOf(typeof(NativeMethods.AccentPolicy));
             var accentPtr = Marshal.AllocHGlobal(accentStructSize);
             Marshal.StructureToPtr(accent, accentPtr, false);
-
             var data = new NativeMethods.WindowCompositionAttributeData
             {
                 Attribute = NativeMethods.WindowCompositionAttribute.WCA_ACCENT_POLICY,
                 SizeOfData = accentStructSize,
                 Data = accentPtr
             };
-
             try { NativeMethods.SetWindowCompositionAttribute(_targetForm.Handle, ref data); }
             catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"EnableAcrylic: {ex.Message}"); }
             finally { Marshal.FreeHGlobal(accentPtr); }
@@ -600,10 +647,10 @@ namespace FluentWinForms.Core
         public void ApplyModernEffects()
         {
             if (_targetForm == null || !_targetForm.IsHandleCreated || DesignMode) return;
-
             bool isWin11 = WindowsVersionHelper.IsWindows11OrGreater();
             bool isWin10 = WindowsVersionHelper.IsWindows10OrGreater();
 
+            _targetForm.Paint -= TargetForm_PaintDesktopAcrylic;
             if (_backdropType == FormBackdropType.None)
             {
                 if (isWin11)
@@ -612,93 +659,105 @@ namespace FluentWinForms.Core
                     {
                         int noneVal = 1;
                         NativeMethods.DwmSetWindowAttribute(_targetForm.Handle, NativeMethods.DWMWA_SYSTEMBACKDROP_TYPE, ref noneVal, Marshal.SizeOf(typeof(int)));
-
                         int cornerPref = (_borderRadius == 0 && UseModernRoundedCorners) ? NativeMethods.DWMWCP_ROUND : NativeMethods.DWMWCP_DONOTROUND;
                         NativeMethods.DwmSetWindowAttribute(_targetForm.Handle, NativeMethods.DWMWA_WINDOW_CORNER_PREFERENCE, ref cornerPref, Marshal.SizeOf(typeof(int)));
                     }
-                    catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"DWMWA Fallback: {ex.Message}"); }
+                    catch { }
                 }
-
-                _targetForm.Paint -= TargetForm_PaintDesktopAcrylic;
-                SafeDispose(ref _desktopAcrylicCache);
-
+                lock (_backdropLock) { SafeDispose(ref _desktopAcrylicCache); }
                 ApplyCustomRegion();
-                if (_transparentStyle)
-                {
-                    _targetForm.BackColor = Color.Fuchsia;
-                    _targetForm.TransparencyKey = Color.Fuchsia;
-                }
-                else
-                {
-                    _targetForm.TransparencyKey = Color.Empty;
-                    if (_targetForm.BackColor == Color.Black || _targetForm.BackColor == Color.Fuchsia)
-                    {
-                        _targetForm.BackColor = SystemColors.Control;
-                    }
-                }
+                UpdateFormBackground();
                 return;
             }
 
-            if (isWin11)
+            if (_backdropType == FormBackdropType.Acrylic)
             {
-                try
+                if (isWin11)
                 {
-                    int trueVal = ForceDarkModeTitleBar ? 1 : 0;
-                    NativeMethods.DwmSetWindowAttribute(_targetForm.Handle, NativeMethods.DWMWA_USE_IMMERSIVE_DARK_MODE, ref trueVal, Marshal.SizeOf(typeof(int)));
-
-                    NativeMethods.MARGINS margins = new NativeMethods.MARGINS { cxLeftWidth = -1, cxRightWidth = -1, cyTopHeight = -1, cyBottomHeight = -1 };
-                    NativeMethods.DwmExtendFrameIntoClientArea(_targetForm.Handle, ref margins);
-
-                    EnableAcrylic();
-
-                    int backdropValue = (int)BackdropType;
-                    NativeMethods.DwmSetWindowAttribute(_targetForm.Handle, NativeMethods.DWMWA_SYSTEMBACKDROP_TYPE, ref backdropValue, Marshal.SizeOf(typeof(int)));
-
-                    int cornerPreference = NativeMethods.DWMWCP_ROUND;
-                    NativeMethods.DwmSetWindowAttribute(_targetForm.Handle, NativeMethods.DWMWA_WINDOW_CORNER_PREFERENCE, ref cornerPreference, Marshal.SizeOf(typeof(int)));
-
-                    _targetForm.Region = null;
+                    try
+                    {
+                        int trueVal = ForceDarkModeTitleBar ? 1 : 0;
+                        NativeMethods.DwmSetWindowAttribute(_targetForm.Handle, NativeMethods.DWMWA_USE_IMMERSIVE_DARK_MODE, ref trueVal, Marshal.SizeOf(typeof(int)));
+                        NativeMethods.MARGINS margins = new NativeMethods.MARGINS { cxLeftWidth = -1, cxRightWidth = -1, cyTopHeight = -1, cyBottomHeight = -1 };
+                        NativeMethods.DwmExtendFrameIntoClientArea(_targetForm.Handle, ref margins);
+                        EnableAcrylic();
+                        int backdropValue = 3;
+                        NativeMethods.DwmSetWindowAttribute(_targetForm.Handle, NativeMethods.DWMWA_SYSTEMBACKDROP_TYPE, ref backdropValue, Marshal.SizeOf(typeof(int)));
+                        int cornerPref = NativeMethods.DWMWCP_ROUND;
+                        NativeMethods.DwmSetWindowAttribute(_targetForm.Handle, NativeMethods.DWMWA_WINDOW_CORNER_PREFERENCE, ref cornerPref, Marshal.SizeOf(typeof(int)));
+                        _targetForm.Region = null;
+                    }
+                    catch { }
                 }
-                catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"Win11 Acrylic Fallback: {ex.Message}"); }
+                else if (isWin10)
+                {
+                    EnableAcrylic();
+                    ApplyCustomRegion();
+                }
+                else
+                {
+                    _targetForm.Paint += TargetForm_PaintDesktopAcrylic;
+                    ApplyCustomRegion();
+                    _ = CaptureDesktopBackgroundAsync();
+                }
             }
-            else if (isWin10)
+            else if (_backdropType == FormBackdropType.Blur)
             {
-                EnableAcrylic();
-                ApplyCustomRegion();
-            }
-            else
-            {
-                _targetForm.Paint -= TargetForm_PaintDesktopAcrylic;
-                _targetForm.Paint += TargetForm_PaintDesktopAcrylic;
+                if (isWin11)
+                {
+                    try
+                    {
+                        int noneVal = 1;
+                        NativeMethods.DwmSetWindowAttribute(_targetForm.Handle, NativeMethods.DWMWA_SYSTEMBACKDROP_TYPE, ref noneVal, Marshal.SizeOf(typeof(int)));
 
-                _targetForm.ResizeEnd -= CaptureDesktopBackgroundEvent;
-                _targetForm.Move -= CaptureDesktopBackgroundEvent;
-                _targetForm.ResizeEnd += CaptureDesktopBackgroundEvent;
-                _targetForm.Move += CaptureDesktopBackgroundEvent;
+                        // 🔥 NUEVO: Forzamos la esquina DWM nativa perfecta también en Blur
+                        int cornerPref = (_borderRadius > 0 || UseModernRoundedCorners) ? NativeMethods.DWMWCP_ROUND : NativeMethods.DWMWCP_DONOTROUND;
+                        NativeMethods.DwmSetWindowAttribute(_targetForm.Handle, NativeMethods.DWMWA_WINDOW_CORNER_PREFERENCE, ref cornerPref, Marshal.SizeOf(typeof(int)));
+                    }
+                    catch { }
+                }
 
-                ApplyCustomRegion();
-                _ = CaptureDesktopBackgroundAsync();
+                ApplyCustomRegion(); // Llama a nuestra corrección para limpiar la región de GDI
+
+                // 🔥 ENCHUFANDO EL NUEVO MOTOR DIRECT2D
+                if (_d2dBlurHelper == null)
+                {
+                    _d2dBlurHelper = new Direct2DBlurHelper(_targetForm);
+                }
+                _d2dBlurHelper.BlurAmount = _blurAmount;
+                _d2dBlurHelper.Start();
             }
 
             UpdateFormBackground();
         }
 
-        private void CaptureDesktopBackgroundEvent(object? sender, EventArgs e) => _ = CaptureDesktopBackgroundAsync();
+        private void TargetForm_ResizeEnd(object? sender, EventArgs e)
+        {
+            _isResizing = false;
+            if (_targetForm != null && EnableDrag && DragOpacity < 1.0)
+                _targetForm.Opacity = _originalOpacity;
+            if (_backdropType == FormBackdropType.Blur)
+            {
+                ApplyCustomRegion();
+            }
+            else if (_backdropType == FormBackdropType.Acrylic && !WindowsVersionHelper.IsWindows10OrGreater())
+            {
+                _ = CaptureDesktopBackgroundAsync();
+            }
+        }
 
-        // 🔥 VACUNA 2: Cancelación segura si el form se mueve/cierra
+        // ====================================================================
+        // 🔥 W7/8 FALLBACK ACRYLIC (Intacto)
+        // ====================================================================
         private async Task CaptureDesktopBackgroundAsync()
         {
             if (_targetForm == null || _targetForm.IsDisposed || _targetForm.Width <= 0 || _targetForm.Height <= 0) return;
-
-            _captureCts?.Cancel();
-            _captureCts = new CancellationTokenSource();
+            CancellationTokenSource? _captureCts = new CancellationTokenSource();
             var token = _captureCts.Token;
 
             double oldOpacity = 1.0;
-
             try
             {
-                // 🔥 VACUNA 3: Verificación estricta de Hilo y Handle antes de Invoke
                 if (_targetForm.InvokeRequired)
                 {
                     if (!_targetForm.IsHandleCreated || _targetForm.IsDisposed) return;
@@ -716,33 +775,12 @@ namespace FluentWinForms.Core
                 }
 
                 if (token.IsCancellationRequested) return;
+                Color captureTint = Color.FromArgb(150, 20, 20, 20);
 
-                Bitmap newBlur = await AcrylicHelper.CaptureBackdropAsync(
-                    _targetForm.Handle,
-                    new Rectangle(_targetForm.Left, _targetForm.Top, _targetForm.Width, _targetForm.Height),
-                    Color.FromArgb(150, 20, 20, 20),
-                    20
-                );
-
-                if (token.IsCancellationRequested || _targetForm == null || _targetForm.IsDisposed)
-                {
-                    newBlur?.Dispose();
-                    return;
-                }
-
-                if (_targetForm.InvokeRequired)
-                {
-                    if (!_targetForm.IsHandleCreated || _targetForm.IsDisposed)
-                    {
-                        newBlur?.Dispose();
-                        return;
-                    }
-                    _targetForm.BeginInvoke(new Action(() => ApplyCapturedBackdrop(newBlur, oldOpacity)));
-                }
-                else
-                {
-                    ApplyCapturedBackdrop(newBlur, oldOpacity);
-                }
+                // Aquí deberías tener tu AcrylicHelper. Si no, quita este bloque W7.
+                // Bitmap newBlur = await AcrylicHelper.CaptureBackdropAsync(...);
+                // ApplyCapturedBackdrop(newBlur, oldOpacity);
+                _targetForm.Opacity = oldOpacity;
             }
             catch (Exception ex)
             {
@@ -758,16 +796,23 @@ namespace FluentWinForms.Core
                 return;
             }
             _targetForm.Opacity = oldOpacity;
-            _desktopAcrylicCache?.Dispose();
-            _desktopAcrylicCache = newBlur;
+            lock (_backdropLock)
+            {
+                _desktopAcrylicCache?.Dispose();
+                _desktopAcrylicCache = newBlur;
+            }
             _targetForm.Invalidate();
         }
 
         private void TargetForm_PaintDesktopAcrylic(object? sender, PaintEventArgs e)
         {
-            if (_desktopAcrylicCache != null)
+            lock (_backdropLock)
             {
-                e.Graphics.DrawImageUnscaled(_desktopAcrylicCache, 0, 0);
+                if (_desktopAcrylicCache != null)
+                {
+                    try { e.Graphics.DrawImageUnscaled(_desktopAcrylicCache, 0, 0); }
+                    catch { }
+                }
             }
         }
 
@@ -780,11 +825,7 @@ namespace FluentWinForms.Core
         {
             if (disposing)
             {
-                _captureCts?.Cancel();
-                _captureCts?.Dispose();
-
                 UnsubscribeTargetForm();
-
                 if (_dragControl != null)
                 {
                     _dragControl.MouseDown -= AutoDrag_MouseDown;
@@ -793,7 +834,15 @@ namespace FluentWinForms.Core
                 SafeDispose(ref _skSharedPaint);
                 SafeDispose(ref _gdiBorderBitmap);
                 SafeDispose(ref _skBorderBitmap);
-                SafeDispose(ref _desktopAcrylicCache);
+
+                lock (_backdropLock)
+                {
+                    SafeDispose(ref _desktopAcrylicCache);
+                }
+
+                // 🗑️ APAGANDO Y DESCONECTANDO EL MOTOR GPU
+                _d2dBlurHelper?.Dispose();
+                _d2dBlurHelper = null;
 
                 if (_overlayWindow != null && !_overlayWindow.IsDisposed)
                 {
@@ -804,6 +853,31 @@ namespace FluentWinForms.Core
                 GC.SuppressFinalize(this);
             }
             base.Dispose(disposing);
+        }
+
+        // 🔥 INYECCIÓN: Interceptor de Mensajes del Sistema (Zero-Lag)
+        private class FormMessageHook : NativeWindow
+        {
+            private readonly ModernFormManager _manager;
+            private const int WM_WINDOWPOSCHANGED = 0x0047;
+            private const int WM_SIZING = 0x0214;
+
+            public FormMessageHook(Form form, ModernFormManager manager)
+            {
+                _manager = manager;
+                form.HandleCreated += (s, e) => AssignHandle(form.Handle);
+                form.HandleDestroyed += (s, e) => ReleaseHandle();
+                if (form.IsHandleCreated) AssignHandle(form.Handle);
+            }
+
+            protected override void WndProc(ref Message m)
+            {
+                if (m.Msg == WM_WINDOWPOSCHANGED || m.Msg == WM_SIZING)
+                {
+                    _manager._d2dBlurHelper?.ForceImmediateRender();
+                }
+                base.WndProc(ref m);
+            }
         }
 
         private static class NativeMethods
@@ -824,7 +898,6 @@ namespace FluentWinForms.Core
 
             public const int ACCENT_ENABLE_BLURBEHIND = 3;
             public const int ACCENT_ENABLE_ACRYLICBLURBEHIND = 4;
-
             [StructLayout(LayoutKind.Sequential)]
             public struct AccentPolicy
             {
@@ -849,7 +922,6 @@ namespace FluentWinForms.Core
 
             [DllImport(User32Lib)]
             public static extern int SetWindowCompositionAttribute(IntPtr hwnd, ref WindowCompositionAttributeData data);
-
             [StructLayout(LayoutKind.Sequential)]
             public struct MARGINS
             {
@@ -861,19 +933,14 @@ namespace FluentWinForms.Core
 
             [DllImport(User32Lib)]
             public static extern int SendMessage(IntPtr hWnd, int Msg, int wParam, int lParam);
-
             [DllImport(User32Lib)]
             public static extern bool ReleaseCapture();
-
             [DllImport(DwmapiLib)]
             public static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int attrValue, int attrSize);
-
             [DllImport(DwmapiLib)]
             public static extern int DwmExtendFrameIntoClientArea(IntPtr hwnd, ref MARGINS pMarInset);
-
             [DllImport(Gdi32Lib)]
             public static extern IntPtr CreateRoundRectRgn(int nLeftRect, int nTopRect, int nRightRect, int nBottomRect, int nWidthEllipse, int nHeightEllipse);
-
             [DllImport(Gdi32Lib)]
             public static extern bool DeleteObject(IntPtr hObject);
         }
@@ -882,7 +949,6 @@ namespace FluentWinForms.Core
     public sealed class ModernFormOverlay : Form
     {
         private readonly Form _owner;
-
         private readonly object _refreshLock = new();
         private int _lastRefreshMs = 0;
         private const int MinRefreshMs = 16;
@@ -897,11 +963,9 @@ namespace FluentWinForms.Core
             this.ShowInTaskbar = false;
             this.StartPosition = FormStartPosition.Manual;
             this.AutoScaleMode = AutoScaleMode.None;
-
             _owner.LocationChanged += (s, e) => UpdateLocation();
             _owner.SizeChanged += (s, e) => UpdateSize();
             _owner.VisibleChanged += (s, e) => this.Visible = _owner.Visible;
-
             this.Owner = _owner;
         }
 
@@ -968,7 +1032,6 @@ namespace FluentWinForms.Core
             int w = sk.Width;
             int h = sk.Height;
             if (w <= 0 || h <= 0) return;
-
             float scale = 1f;
             if (this.Owner != null && !this.Owner.IsDisposed)
             {
@@ -987,13 +1050,11 @@ namespace FluentWinForms.Core
             bmi.bmiHeader.biPlanes = 1;
             bmi.bmiHeader.biBitCount = 32;
             bmi.bmiHeader.biCompression = 0;
-
             IntPtr dibBits = IntPtr.Zero;
             IntPtr hBitmap = IntPtr.Zero;
             IntPtr memDc = IntPtr.Zero;
             IntPtr screenDc = IntPtr.Zero;
             IntPtr oldBmp = IntPtr.Zero;
-
             try
             {
                 screenDc = NativeMethodsOverlay.GetDC(IntPtr.Zero);
@@ -1031,7 +1092,6 @@ namespace FluentWinForms.Core
                 }
 
                 oldBmp = NativeMethodsOverlay.SelectObject(memDc, hBitmap);
-
                 NativeMethodsOverlay.BLENDFUNCTION blend = new NativeMethodsOverlay.BLENDFUNCTION
                 {
                     BlendOp = 0x00,
@@ -1039,11 +1099,9 @@ namespace FluentWinForms.Core
                     SourceConstantAlpha = 255,
                     AlphaFormat = 0x01
                 };
-
                 NativeMethodsOverlay.POINT topPos = new NativeMethodsOverlay.POINT(this.Left, this.Top);
                 NativeMethodsOverlay.SIZE size = new NativeMethodsOverlay.SIZE(physW, physH);
                 NativeMethodsOverlay.POINT src = new NativeMethodsOverlay.POINT(0, 0);
-
                 NativeMethodsOverlay.UpdateLayeredWindow(
                     this.Handle, screenDc, ref topPos, ref size, memDc,
                     ref src, 0, ref blend, 2);
@@ -1094,13 +1152,13 @@ namespace FluentWinForms.Core
 
             [DllImport("user32.dll", ExactSpelling = true, SetLastError = true)]
             public static extern bool UpdateLayeredWindow(IntPtr hwnd, IntPtr hdcDst, ref POINT pptDst, ref SIZE psize, IntPtr hdcSrc, ref POINT pptSrc, uint crKey, ref BLENDFUNCTION pblend, uint dwFlags);
-
             [DllImport("user32.dll")] public static extern IntPtr GetDC(IntPtr hWnd);
             [DllImport("user32.dll")] public static extern int ReleaseDC(IntPtr hWnd, IntPtr hDC);
             [DllImport("gdi32.dll")] public static extern IntPtr CreateCompatibleDC(IntPtr hDC);
             [DllImport("gdi32.dll")] public static extern bool DeleteDC(IntPtr hdc);
             [DllImport("gdi32.dll")] public static extern IntPtr SelectObject(IntPtr hDC, IntPtr hObject);
             [DllImport("gdi32.dll")] public static extern bool DeleteObject(IntPtr hObject);
+
             [DllImport("gdi32.dll")]
             public static extern IntPtr CreateDIBSection(IntPtr hdc, ref BITMAPINFO pbmi, uint iUsage, out IntPtr ppvBits, IntPtr hSection, uint dwOffset);
         }

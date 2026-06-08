@@ -3,6 +3,7 @@
 #pragma warning disable IDE0090 // Silencia sugerencias de simplificar 'new'
 #pragma warning disable IDE0028 // Silencia sugerencias de inicialización de colecciones
 
+using FluentWinForms.Custom_Controls;
 using SkiaSharp;
 using System;
 using System.Collections.Concurrent; // 🔥 INYECCIÓN: Para Caché Concurrente
@@ -32,17 +33,19 @@ namespace FluentWinForms.Core
         private Bitmap? _netFxSafeBitmap;         // Bitmap GDI+ reutilizable
 #endif
 
-        // 🔥 INYECCIÓN CACHÉ PRO: Mata la fuga de memoria de fuentes nativas (OOM en .NET 8)
-        private static readonly ConcurrentDictionary<(string family, bool bold), SKTypeface> _typefaceCache = new();
+       
+        // 🔥 INYECCIÓN CACHÉ PRO: Mata la fuga de memoria y soporta Cursiva (Italic)
+        private static readonly ConcurrentDictionary<(string family, bool bold, bool italic), SKTypeface> _typefaceCache = new();
 
-        protected static SKTypeface GetOrCreateTypeface(string family, bool bold)
+        protected static SKTypeface GetOrCreateTypeface(string family, bool bold, bool italic)
         {
-            var key = (family, bold);
+            var key = (family, bold, italic);
             return _typefaceCache.GetOrAdd(key, k =>
             {
                 return SKTypeface.FromFamilyName(k.family,
                     k.bold ? SKFontStyleWeight.Bold : SKFontStyleWeight.Normal,
-                    SKFontStyleWidth.Normal, SKFontStyleSlant.Upright);
+                    SKFontStyleWidth.Normal,
+                    k.italic ? SKFontStyleSlant.Italic : SKFontStyleSlant.Upright); // 🔥 LA CURSIVA NACE AQUÍ
             });
         }
 
@@ -79,12 +82,13 @@ namespace FluentWinForms.Core
                 RefreshVisuals();
             }
         }
-        public ControlBuilder Design()
+        //Desing
+        public ControlBuilder<ModernControlBase> Design()
         {
             _visualNode ??= new RenderNode();
 
-            // 🔥 Pasamos 'this' (el control WinForms) al Builder
-            var builder = new ControlBuilder(_visualNode, this);
+            
+            var builder = new ControlBuilder<ModernControlBase>(_visualNode, this);
 
             builder.OnApplied = node =>
             {

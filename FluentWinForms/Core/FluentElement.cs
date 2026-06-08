@@ -1,18 +1,7 @@
-﻿#nullable enable
-using System;
-using System.ComponentModel;
+﻿using System.ComponentModel;
 using System.Drawing;
 using System.Windows.Forms;
 using FluentWinForms.Core;
-
-// =====================================================================
-// FluentElement + ControlBuilder — VERSIÓN FINAL
-// =====================================================================
-// FluentElement → namespace FluentWinForms.Custom_Controls
-// ControlBuilder → namespace FluentWinForms.Core
-//
-// 
-// =====================================================================
 
 namespace FluentWinForms.Custom_Controls
 {
@@ -25,15 +14,24 @@ namespace FluentWinForms.Custom_Controls
         {
             SetStyle(ControlStyles.StandardDoubleClick, false);
             SetStyle(ControlStyles.StandardClick, true);
+
+            SetStyle(ControlStyles.SupportsTransparentBackColor, true);
+            BackColor = Color.Transparent;
+
             // Skia por defecto — antialiasing real, bordes perfectos
             UseSkiaGraphics = true;
         }
 
         /// <summary>
-        /// Punto de entrada de la Fluent API.
-        /// Encadena métodos y termina con .Apply() para renderizar.
+        /// Crea el control al vuelo y abre la Fluent API.
         /// </summary>
-        public ControlBuilder Design()
+        public static ControlBuilder<FluentElement> Design(string name = "")
+        {
+            var element = new FluentElement { Name = name };
+            return element.Design();
+        }
+
+        public ControlBuilder<FluentElement> Design()
         {
             if (VisualNode == null)
                 VisualNode = new RenderNode
@@ -41,12 +39,10 @@ namespace FluentWinForms.Custom_Controls
                     Id = string.IsNullOrEmpty(Name) ? "fe_" + GetHashCode() : Name
                 };
 
-            var builder = new ControlBuilder(VisualNode, this);
+            var builder = new ControlBuilder<FluentElement>(VisualNode, this);
 
             builder.OnApplied = node =>
             {
-                // Forzar setter aunque sea el mismo objeto
-                // El setter del base corre ComputeLayout + RefreshVisuals
                 VisualNode = null;
                 VisualNode = node;
             };

@@ -1,4 +1,5 @@
 ﻿#nullable enable
+using SkiaSharp;
 using System;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
@@ -12,7 +13,7 @@ namespace FluentWinForms.Core
     // ENUMS DE ESTILO (Como CSS)
     // ==========================================
     public enum AnimationEasing { Linear, EaseInOut, EaseOutBack, Spring }
-    public enum BorderStyle { Solid, Dashed, Dotted }
+    public enum FluentBorderStyle { Solid, Dashed, Dotted }
     public enum ImageFit { Fill, Contain, Cover, None }
     public enum TextDecoration { None, Underline, Strikethrough }
     public enum LayoutStyle { Absolute, VerticalStack, HorizontalStack, AutoFitGrid }
@@ -25,6 +26,7 @@ namespace FluentWinForms.Core
         [Browsable(false)] public string Id { get; init; } = Guid.NewGuid().ToString("N");
         [Browsable(false)] public bool StretchX { get; set; } = false;
         [Browsable(false)] public bool StretchY { get; set; } = false;
+
 
         [Category("1. Layout")] public RectangleF Layout { get; set; }
         [Category("1. Layout")][NotifyParentProperty(true)] public ModernPadding Padding { get; set; }
@@ -64,6 +66,7 @@ namespace FluentWinForms.Core
         [Browsable(false)] public float HoverProgress { get; set; } = 0f;
         [Browsable(false)] public float PressProgress { get; set; } = 0f;
         [Browsable(false)] public float AnimatedScale { get; set; } = 1.0f;
+        [Browsable(false)] internal SKImageFilter? _cachedShadowFilter;
 
         // 🔥 CABLES CONECTADOS
         [Browsable(false)] public Action<RenderNode>? OnClickAction { get; set; }
@@ -75,7 +78,7 @@ namespace FluentWinForms.Core
         {
             Padding = new ModernPadding(0);
             Corners = new CornerRadii(0);
-            Border = new BorderData { Thickness = new ModernThickness(0), NormalColor = Color.Transparent, FocusColor = Color.Transparent, Style = BorderStyle.Solid };
+            Border = new BorderData { Thickness = new ModernThickness(0), NormalColor = Color.Transparent, FocusColor = Color.Transparent, Style = FluentBorderStyle.Solid };
             Background = new BackgroundData { Color1 = Color.Transparent, Color2 = Color.Transparent, IsGradient = false };
             Shadow = new ShadowData { Color = Color.Transparent, Radius = 0, OffsetX = 0, OffsetY = 0 };
             Acrylic = new AcrylicData { TintColor = Color.FromArgb(40, 255, 255, 255), BlurRadius = 15, Downsample = 3 };
@@ -148,7 +151,7 @@ namespace FluentWinForms.Core
         [NotifyParentProperty(true)] public ModernThickness Thickness { get; set; }
         [NotifyParentProperty(true)] public Color NormalColor { get; set; }
         [NotifyParentProperty(true)] public Color FocusColor { get; set; }
-        [NotifyParentProperty(true)] public BorderStyle Style { get; set; }
+        [NotifyParentProperty(true)] public FluentBorderStyle Style { get; set; }
     }
 
     [TypeConverter(typeof(ExpandableObjectConverter))]
@@ -191,6 +194,7 @@ namespace FluentWinForms.Core
         [NotifyParentProperty(true)] public Color TextColor { get; set; }
         [NotifyParentProperty(true)] public string FontFamily { get; set; }
         [NotifyParentProperty(true)] public bool IsBold { get; set; }
+        [NotifyParentProperty(true)] public bool IsItalic { get; set; } // 🔥 EL FIX: se me habia olvidado XDDD
         [NotifyParentProperty(true)] public StringAlignment HorizontalAlignment { get; set; }
         [NotifyParentProperty(true)] public StringAlignment VerticalAlignment { get; set; }
         [NotifyParentProperty(true)] public bool WordWrap { get; set; }
