@@ -2,6 +2,8 @@
   
 
 # 🚀 FluentWinForms 
+<img width="1536" height="427" alt="FluentWinForms" src="https://github.com/user-attachments/assets/b104a692-a03f-4cce-ae65-fa92d87637c9" />
+
 *Real Blur · Glassmorphism · Smooth Animations · Pure C# · No XAML · No MVVM*
 
 ![.NET Version](https://img.shields.io/badge/.NET-4.8%20%7C%206.0%20%7C%208.0%20%7C%209.0%20%7C%2010.0-blue)
@@ -42,7 +44,7 @@
 
 La idea es cambiar por completo cómo hacemos UI en WinForms. En vez de pelear con propiedades sueltas, encadenás métodos y armás controles complejos rapidísimo. 
 
-**Mirá lo macanudo y ordenadito que queda el código para armar un Botón de Login moderno y animado:**
+**M y ordenadito que queda el código para armar un Botón de Login moderno y animado:**
 
 ```csharp
 // 🎨 Ejemplo de la Fluent API: Un botón de Login bien clean y animado
@@ -61,7 +63,7 @@ btn.Design()
 ---
 
 ## 🌌 FluentWinUiVerse: Comunidad Abierta
-Inspirado en páginas brutales como *uiverse.io*, este proyecto va a tener **FluentWinUiVerse**: un catálogo de componentes en GitHub Pages donde cualquier maje de la comunidad va a poder subir sus controles personalizados y estilos creados con este motor. ¡La idea es aprender y armar cosas tuani entre todos!
+Inspirado en páginas brutales como *uiverse.io*, este proyecto va a tener **FluentWinUiVerse**: un catálogo de componentes en GitHub Pages donde cualquiera de la comunidad va a poder subir sus controles personalizados y estilos creados con este motor. ¡La idea es aprender y armar cosas tuani entre todos!
 
 ---
 
