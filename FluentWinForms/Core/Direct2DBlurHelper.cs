@@ -12,18 +12,17 @@ using AlphaMode = Vortice.DCommon.AlphaMode;
 
 namespace FluentWinForms.Core
 {
-    // 🔥 ESTADOS DE ENERGÍA: El núcleo del "Live Compositor"
     public enum BlurRenderState
     {
-        HighPerformance, // 120 FPS (8ms) - Foco activo, ventana moviéndose o video detrás
-        PowerSaving,     // 30 FPS (33ms) - Ventana inactiva pero visible
-        Idle             // 1 FPS (1000ms) - Minimizada o completamente estática
+        HighPerformance,
+        PowerSaving,
+        Idle
     }
 
     public sealed class Direct2DBlurHelper : IDisposable
     {
         // ================================================================
-        // P/INVOKE — Captura zero-allocation
+        // P/INVOKE
         // ================================================================
         [DllImport("user32.dll")] private static extern IntPtr GetDC(IntPtr hWnd);
         [DllImport("user32.dll")] private static extern int ReleaseDC(IntPtr hWnd, IntPtr hDC);
@@ -40,13 +39,7 @@ namespace FluentWinForms.Core
         private const int SRCCOPY = 0x00CC0020;
 
         [StructLayout(LayoutKind.Sequential)]
-        private struct BITMAPINFOHEADER
-        {
-            public uint biSize; public int biWidth; public int biHeight;
-            public ushort biPlanes; public ushort biBitCount; public uint biCompression;
-            public uint biSizeImage; public int biXPelsPerMeter; public int biYPelsPerMeter;
-            public uint biClrUsed; public uint biClrImportant;
-        }
+        private struct BITMAPINFOHEADER { public uint biSize; public int biWidth; public int biHeight; public ushort biPlanes; public ushort biBitCount; public uint biCompression; public uint biSizeImage; public int biXPelsPerMeter; public int biYPelsPerMeter; public uint biClrUsed; public uint biClrImportant; }
 
         [StructLayout(LayoutKind.Sequential)]
         private struct BITMAPINFO { public BITMAPINFOHEADER bmiHeader; public uint bmiColors; }
@@ -62,24 +55,22 @@ namespace FluentWinForms.Core
         private ID2D1DeviceContext? _context;
         private ID2D1Bitmap? _bgBitmap;
         private ID2D1Effect? _blurEffect;
+        private ID2D1SolidColorBrush? _tintBrush;
 
-        // Buffer DIB
         private IntPtr _dibBitmap = IntPtr.Zero;
         private IntPtr _dibBits = IntPtr.Zero;
         private IntPtr _dibDc = IntPtr.Zero;
-        private int _dibW, _dibH;
-        private int _rtW, _rtH;
+        private int _dibW, _dibH, _rtW, _rtH;
 
         private float _blurAmount = 20f;
         private volatile bool _running;
         private CancellationTokenSource? _cts;
         private bool _disposed;
 
-        // ================================================================
-        // API PÚBLICA & CONTROL DE RENDIMIENTO
-        // ================================================================
+        // 🔥 CACHÉ DE DELEGADO Y COORDENADAS (Para no generar basura en el Invoke)
+        private int _currentW, _currentH, _currentX, _currentY;
+        private readonly Action _updateBoundsAction;
 
-        // 🔥 PROPIEDAD DE ESTADO: Cambia los FPS al vuelo
         public BlurRenderState CurrentState { get; set; } = BlurRenderState.HighPerformance;
 
         public float BlurAmount
@@ -97,6 +88,18 @@ namespace FluentWinForms.Core
         {
             _form = form ?? throw new ArgumentNullException(nameof(form));
             _factory = D2D1.D2D1CreateFactory<ID2D1Factory1>(FactoryType.SingleThreaded);
+
+            // 🔥 CREAMOS EL DELEGADO UNA SOLA VEZ
+            _updateBoundsAction = () =>
+            {
+                if (!_form.IsDisposed)
+                {
+                    _currentW = _form.Width;
+                    _currentH = _form.Height;
+                    _currentX = _form.Left;
+                    _currentY = _form.Top;
+                }
+            };
         }
 
         public void Start()
@@ -104,33 +107,38 @@ namespace FluentWinForms.Core
             if (_running || _form.IsDisposed) return;
             _running = true;
             _cts = new CancellationTokenSource();
-            var token = _cts.Token;
 
             SetWindowDisplayAffinity(_form.Handle, WDA_EXCLUDEFROMCAPTURE);
 
-            // BUCLE INTELIGENTE (Adaptive Polling)
-            Task.Run(async () =>
+            Thread renderThread = new Thread(() => RenderLoop(_cts.Token))
             {
-                while (_running && !token.IsCancellationRequested)
+                IsBackground = true,
+                Priority = ThreadPriority.BelowNormal,
+                Name = "Direct2DBlurRenderThread"
+            };
+            renderThread.Start();
+        }
+
+        private void RenderLoop(CancellationToken token)
+        {
+            while (_running && !token.IsCancellationRequested)
+            {
+                ExecuteRender();
+
+                int delay = CurrentState switch
                 {
-                    ExecuteRender();
+                    BlurRenderState.HighPerformance => 8,
+                    BlurRenderState.PowerSaving => 33,
+                    BlurRenderState.Idle => 1000,
+                    _ => 16
+                };
 
-                    // Ajuste de FPS basado en el estado
-                    int delay = CurrentState switch
-                    {
-                        BlurRenderState.HighPerformance => 8,  // ~120 FPS
-                        BlurRenderState.PowerSaving => 33,     // ~30 FPS
-                        BlurRenderState.Idle => 1000,          // 1 FPS
-                        _ => 16
-                    };
-
-                    try
-                    {
-                        await Task.Delay(delay, token).ConfigureAwait(false);
-                    }
-                    catch (TaskCanceledException) { break; }
+                try
+                {
+                    if (token.WaitHandle.WaitOne(delay)) break;
                 }
-            }, token);
+                catch { break; }
+            }
         }
 
         public void Stop()
@@ -146,48 +154,38 @@ namespace FluentWinForms.Core
             catch { }
         }
 
-        // 🔥 MÉTODO TRIGGER: Llama a este método desde el WndProc del Form
-        // cuando reciba WM_WINDOWPOSCHANGED o WM_SIZE para refresco instantáneo.
-        public void ForceImmediateRender()
+        public void ForceImmediateRender(bool isDragging = false)
         {
             if (!_running || _form.IsDisposed || !_form.IsHandleCreated || !_form.Visible) return;
+            CurrentState = isDragging ? BlurRenderState.PowerSaving : BlurRenderState.HighPerformance;
             ExecuteRender();
         }
 
         private void ExecuteRender()
         {
-            int w = 0, h = 0, x = 0, y = 0;
             try
             {
                 if (_form.IsDisposed || !_form.IsHandleCreated) return;
 
+                // 🔥 USAMOS EL DELEGADO CACHEADO (0 Bytes de RAM consumidos)
                 if (_form.InvokeRequired)
                 {
-                    _form.Invoke(new Action(() =>
-                    {
-                        if (_form.IsDisposed) return;
-                        w = _form.Width; h = _form.Height;
-                        x = _form.Left; y = _form.Top;
-                    }));
+                    _form.Invoke(_updateBoundsAction);
                 }
                 else
                 {
-                    w = _form.Width; h = _form.Height;
-                    x = _form.Left; y = _form.Top;
+                    _updateBoundsAction.Invoke();
                 }
 
-                if (w > 0 && h > 0 && _form.Visible)
+                if (_currentW > 0 && _currentH > 0 && _form.Visible)
                 {
-                    RenderFrame(w, h, x, y);
+                    RenderFrame(_currentW, _currentH, _currentX, _currentY);
                 }
             }
             catch (ObjectDisposedException) { _running = false; }
             catch { }
         }
 
-        // ================================================================
-        // PIPELINE DE RENDER DIRECT2D
-        // ================================================================
         private void EnsureResources(int w, int h)
         {
             if (_dibW != w || _dibH != h || _dibBitmap == IntPtr.Zero)
@@ -215,8 +213,9 @@ namespace FluentWinForms.Core
             {
                 _hwndTarget.Resize(new SizeI(w, h));
                 _rtW = w; _rtH = h;
-                _bgBitmap?.Dispose();
-                _bgBitmap = null;
+
+                _bgBitmap?.Dispose(); _bgBitmap = null;
+                _tintBrush?.Dispose(); _tintBrush = null; // Limpiar para recrear con nuevo tamaño
             }
 
             if (_hwndTarget == null)
@@ -228,7 +227,7 @@ namespace FluentWinForms.Core
                 {
                     Hwnd = _form.Handle,
                     PixelSize = new SizeI(w, h),
-                    PresentOptions = PresentOptions.Immediately
+                    PresentOptions = PresentOptions.None
                 };
 
                 _hwndTarget = _factory!.CreateHwndRenderTarget(rtProps, hwndProps);
@@ -239,6 +238,9 @@ namespace FluentWinForms.Core
                 IntPtr effectPtr = _context.CreateEffect(EffectGuids.GaussianBlur);
                 _blurEffect = new ID2D1Effect(effectPtr);
                 _blurEffect.SetValue(0, _blurAmount);
+
+                _blurEffect.SetValue(1, 0); // Optimization = Speed
+                _blurEffect.SetValue(2, 0); // BorderMode = Soft
             }
 
             if (_bgBitmap == null)
@@ -247,6 +249,12 @@ namespace FluentWinForms.Core
                     new Vortice.DCommon.PixelFormat(Format.B8G8R8A8_UNorm, AlphaMode.Premultiplied));
 
                 _bgBitmap = _hwndTarget!.CreateBitmap(new SizeI(w, h), IntPtr.Zero, (uint)(w * 4), bmpProps);
+            }
+
+            // Pincel único en memoria
+            if (_tintBrush == null && _context != null)
+            {
+                _tintBrush = _context.CreateSolidColorBrush(new Color4(1f, 1f, 1f, 0.05f));
             }
         }
 
@@ -257,7 +265,7 @@ namespace FluentWinForms.Core
                 if (_factory == null || _disposed) return;
 
                 EnsureResources(w, h);
-                if (_context == null || _bgBitmap == null || _blurEffect == null) return;
+                if (_context == null || _bgBitmap == null || _blurEffect == null || _tintBrush == null) return;
 
                 IntPtr screenDc = GetDC(IntPtr.Zero);
                 BitBlt(_dibDc, 0, 0, w, h, screenDc, x, y, SRCCOPY);
@@ -270,12 +278,10 @@ namespace FluentWinForms.Core
 
                 _blurEffect.SetInput(0, _bgBitmap, true);
 
-                using var output = _blurEffect.Output;
-                if (output != null)
-                    _context.DrawImage(output);
+                _context.DrawImage(_blurEffect);
 
-                using var tint = _context.CreateSolidColorBrush(new Color4(1f, 1f, 1f, 0.05f));
-                _context.FillRectangle(new Rect(0, 0, w, h), tint);
+                // 🔥 CORRECCIÓN: Usamos el _tintBrush que ya existe. ¡Adiós a los 120 objetos/segundo!
+                _context.FillRectangle(new Rect(0, 0, w, h), _tintBrush);
 
                 try
                 {
@@ -288,11 +294,9 @@ namespace FluentWinForms.Core
             }
         }
 
-        // ================================================================
-        // LIMPIEZA
-        // ================================================================
         private void ReleaseDeviceResources()
         {
+            _tintBrush?.Dispose(); _tintBrush = null; // 🔥 MUY IMPORTANTE PARA EVITAR LEAKS DE GPU
             _blurEffect?.Dispose(); _blurEffect = null;
             _bgBitmap?.Dispose(); _bgBitmap = null;
             _context?.Dispose(); _context = null;
