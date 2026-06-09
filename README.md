@@ -10,9 +10,9 @@
 ![Status](https://img.shields.io/badge/Status-En%20Desarrollo%20(WIP)-orange)
 ![License](https://img.shields.io/badge/License-MIT-green)
 
-*[Read the English version below](#-english-version)*
+*[Read the English version below](#english-version)*
 
-*[The engine running (Demo)](#-Demo-test)*
+*[The engine running (Demo)](#demo-test)*
 </div>
 
 ## 📖 La historia detrás de este motor
