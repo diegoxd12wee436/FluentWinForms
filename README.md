@@ -2,15 +2,17 @@
   
 
 # 🚀 FluentWinForms 
+<img width="1536" height="427" alt="FluentWinForms" src="https://github.com/user-attachments/assets/b104a692-a03f-4cce-ae65-fa92d87637c9" />
+
 *Real Blur · Glassmorphism · Smooth Animations · Pure C# · No XAML · No MVVM*
 
-![.NET Version](https://img.shields.io/badge/.NET-4.8%20%7C%206.0%20%7C%208.0%20%7C%209.0%20%7C%2010.0-blue)
+
 ![Status](https://img.shields.io/badge/Status-En%20Desarrollo%20(WIP)-orange)
 ![License](https://img.shields.io/badge/License-MIT-green)
 
-*[Read the English version below](#-english-version)*
+*[Read the English version below](#english-version)*
 
-*[The engine running (Demo)](#-Demo-test)*
+*[The engine running (Demo)](#demo-test)*
 </div>
 
 ## 📖 La historia detrás de este motor
@@ -21,7 +23,7 @@
 
 > **Nota:** Este proyecto no está en contra de WinUI ni WPF. Son frameworks poderosos, pero mi objetivo es ofrecer un camino alternativo para estudiantes y desarrolladores que quieran diseño moderno sin dejar WinForms.
 
-> Necesito ayuda de la comunidad para avanzar. No puedo hacerlo solo y aún no tengo tanta experiencia. ¡Cualquier apoyo es profundamente apreciado! :')
+> ¡Este es un proyecto para la comunidad, hecho por la comunidad! Necesito de su ayuda para llevar FluentWinForms al siguiente nivel. ¿Encontraste un bug? ¿Tienes una idea? ¡Tu contribución es bienvenida y profundamente apreciada :')
 
 ---
 
@@ -42,7 +44,7 @@
 
 La idea es cambiar por completo cómo hacemos UI en WinForms. En vez de pelear con propiedades sueltas, encadenás métodos y armás controles complejos rapidísimo. 
 
-**Mirá lo macanudo y ordenadito que queda el código para armar un Botón de Login moderno y animado:**
+**M y ordenadito que queda el código para armar un Botón de Login moderno y animado:**
 
 ```csharp
 // 🎨 Ejemplo de la Fluent API: Un botón de Login bien clean y animado
@@ -61,7 +63,7 @@ btn.Design()
 ---
 
 ## 🌌 FluentWinUiVerse: Comunidad Abierta
-Inspirado en páginas brutales como *uiverse.io*, este proyecto va a tener **FluentWinUiVerse**: un catálogo de componentes en GitHub Pages donde cualquier maje de la comunidad va a poder subir sus controles personalizados y estilos creados con este motor. ¡La idea es aprender y armar cosas tuani entre todos!
+Inspirado en páginas brutales como *uiverse.io*, este proyecto va a tener **FluentWinUiVerse**: un catálogo de componentes en GitHub Pages donde cualquiera de la comunidad va a poder subir sus controles personalizados y estilos creados con este motor. ¡La idea es aprender y armar cosas tuani entre todos!
 
 ---
 
@@ -117,7 +119,8 @@ Inspirado en páginas brutales como *uiverse.io*, este proyecto va a tener **Flu
 
 >⚠️ Todo esto es funcional, pero aún estoy puliendo el código y optimizando. Si encontrás algún bug o tenés ideas para mejorar, ¡abrime un Issue o mandame un PR!
 
-# Demo test
+## Demo test
+
 ## 🎥 DEMO el motor corriendo en WinForms 
 > **20 controles Skia + formulario Acrílico ejecutándose al mismo tiempo: 17–20 MB de RAM estables.**
 
@@ -137,11 +140,6 @@ https://github.com/user-attachments/assets/0e66c22d-1ced-4cdd-9716-a40d83583374
 
 ---
 
-## 🤝 ¡Sumate al proyecto! (Ocupo ayuda)
-Como te dije, soy estudiante y no me las sé todas. Este proyecto pinta para algo grande, pero el núcleo de la **Fluent API todavía está en pañales** y ocupamos pulirlo . 
-
-Si te gusta C#, sos apasionado de la programación y te llega esta visión de que WinForms tenga una capa visual moderna solo con C#, sin XAML ni MVVM, con una API declarativa que cualquiera pueda usar.... Se aceptan Forks, Pull Requests y cualquier consejo. El proyecto es licencia MIT. ¡Hagamos que esto sea grande!
-
 <div align="center">
   <br>
   <b>¿Te gusta la idea? ¡Dejale caer una ⭐ en GitHub!</b>
@@ -155,7 +153,7 @@ Si te gusta C#, sos apasionado de la programación y te llega esta visión de qu
 
 <div align="center">
 
-#  English Version
+## English Version
 
 </div>
 
@@ -167,7 +165,9 @@ Hi! I'm a 19-year-old student. From my perspective, most of my classmates alread
 
 > **Disclaimer:** This project is not against WinUI or WPF. They are powerful frameworks, but my goal here is to provide an alternative path for students and developers who want modern design while staying in WinForms.
 
-> **Note:** I need help from the community to move forward. I can't do it alone and I don't have that much experience yet. Any help is deeply appreciated! :')
+## 🤝 Join me and help improve it!
+
+> **Note:**"This is a project for the community, made by the community! I need your help to take FluentWinForms to the next level. Did you find a bug? Do you have an idea? Your contribution is welcome and deeply appreciated :')
 
 ---
 
@@ -264,10 +264,8 @@ Inspired by amazing community hubs like *uiverse.io*, this repository will soon 
 
 ---
 
-## 🤝 Join me and help improve it!
-As I told you, I'm a student and I don't know everything. This project has huge potential, but the core of the Fluent API is still in its early stages and we need to polish it.
 
-If you love C#, you're passionate about programming, and you share this vision of giving WinForms a modern visual layer using only C# — no XAML, no MVVM, with a declarative API that anyone can use... then I need you! Forks, Pull Requests, and any advice are completely welcome. The project is MIT licensed. Let's make this grow!
+
 
 <div align="center">
   <br>
