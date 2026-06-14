@@ -4,132 +4,82 @@ using SkiaSharp;
 using SkiaSharp.Views.Desktop;
 using System;
 using System.ComponentModel;
-using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
-using System.Threading;
 using System.Windows.Forms;
 
 namespace FluentWinForms.Panel_Controls
 {
+    public enum PanelBackdropStyle { Solid, Gradient, Glass }
+
     [Designer("System.Windows.Forms.Design.ParentControlDesigner, System.Design")]
     [ToolboxItem(true)]
     [DesignTimeVisible(true)]
-    [Description("Panel Glassmorphism Supremo. Full Zero-Alloc, seguro contra reentrancia y optimizado para .NET Multi-Target.")]
+    [Description("Panel Estático Premium. Cero Ripple, Captura estática, transparencia real de Skia, y bordes perfectos.")]
     public class ModernGlassPanel : ModernControlBase
     {
-        // =========================================
-        // Ocultar propiedades heredadas en el diseñador
-        // =========================================
+        // =========================================================
+        // 🚫 OCULTANDO PROPIEDADES INNECESARIAS DE TU MOTOR 🚫
+        // =========================================================
         [Browsable(false), EditorBrowsable(EditorBrowsableState.Never), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
         public new bool UseAcrylic { get => base.UseAcrylic; set => base.UseAcrylic = value; }
 
         [Browsable(false), EditorBrowsable(EditorBrowsableState.Never), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
-        public new Color BackgroundColor { get => base.BackgroundColor; set => base.BackgroundColor = value; }
-
-        [Browsable(false), EditorBrowsable(EditorBrowsableState.Never), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
-        public new Color BackgroundColor2 { get => base.BackgroundColor2; set => base.BackgroundColor2 = value; }
-
-        [Browsable(false), EditorBrowsable(EditorBrowsableState.Never), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
-        public new float BorderThickness { get => base.BorderThickness; set => base.BorderThickness = value; }
-
-        [Browsable(false), EditorBrowsable(EditorBrowsableState.Never), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
         public new float FocusThickness { get => base.FocusThickness; set => base.FocusThickness = value; }
 
-        // =========================================
-        // Propiedades públicas (Unificadas a float)
-        // =========================================
-        private Color _glassTint = Color.FromArgb(20, 255, 255, 255);
-        [Category("Glassmorphism")]
-        public Color GlassTint { get => _glassTint; set { _glassTint = value; UpdatePaints(); InvalidateCaches(); } }
+        // =========================================================
+        // ✨ PROPIEDADES EXCLUSIVAS DEL PANEL ✨
+        // =========================================================
 
-        private Color _glassBorder = Color.FromArgb(120, 255, 255, 255);
-        [Category("Glassmorphism")]
-        public Color GlassBorder { get => _glassBorder; set { _glassBorder = value; UpdatePaints(); InvalidateCaches(); } }
+        // 🔥 Nace por defecto en Glass
+        private PanelBackdropStyle _backdropStyle = PanelBackdropStyle.Glass;
+        [Category("Modern Appearance")]
+        public PanelBackdropStyle BackdropStyle { get => _backdropStyle; set { _backdropStyle = value; InvalidateCaches(); } }
 
-        private float _glassBorderRadius = 15f; // 🔥 Cambiado a float
-        [Category("Glassmorphism")]
-        public float GlassBorderRadius { get => _glassBorderRadius; set { _glassBorderRadius = Math.Max(0f, value); InvalidateCaches(); } }
+        private float _borderRadius = 15f;
+        [Category("Modern Appearance")]
+        public float BorderRadius { get => _borderRadius; set { _borderRadius = Math.Max(0f, value); InvalidateCaches(); } }
 
-        private float _blurAmount = 15f; // 🔥 Cambiado a float
-        [Category("Glassmorphism")]
-        [Description("0 = usar Acrylic nativo (Win11). >0 = captura+blur solo del área del panel.")]
-        public float BlurAmount { get => _blurAmount; set { _blurAmount = Math.Max(0f, value); UpdatePaints(); InvalidateCaches(); } }
+        // 🔥 Borde blanquito premium por defecto (120 de opacidad)
+        private Color _borderColor = Color.FromArgb(120, 255, 255, 255);
+        [Category("Modern Appearance")]
+        public Color BorderColor { get => _borderColor; set { _borderColor = value; InvalidateCaches(); } }
 
-        // =========================================
-        // Campos internos reutilizables (zero-alloc en caliente)
-        // =========================================
+        private float _gradientAngle = 45f;
+        [Category("Modern Appearance")]
+        public float GradientAngle { get => _gradientAngle; set { _gradientAngle = value % 360f; InvalidateCaches(); } }
+
+        private Color _glassTint = Color.FromArgb(40, 255, 255, 255);
+        [Category("Modern Appearance - Glass")]
+        public Color GlassTint { get => _glassTint; set { _glassTint = value; InvalidateCaches(); } }
+
+        private float _blurAmount = 25f;
+        [Category("Modern Appearance - Glass")]
+        public float BlurAmount { get => _blurAmount; set { _blurAmount = Math.Max(0f, value); InvalidateCaches(); } }
+
+        // =========================================================
+        // VARIABLES ESTÁTICAS Y SEGURAS
+        // =========================================================
         private SKBitmap? _blurredCache;
-        private SKBitmap? _rawWrapperBitmap;
+        private SKBitmap? _sharpCache;
         private bool _cacheDirty = true;
 
-        private SKPaint? _tintPaint;
-        private SKPaint? _borderPaint;
-        private SKPaint? _blurPaint;
-
-        // CancellationTokenSource seguro (swap atómico)
-        private CancellationTokenSource? _genCts;
-        private long _lastGenTicks = 0;
-
-        // =========================================
-        // Constructor (ligero, seguro para diseñador)
-        // =========================================
         public ModernGlassPanel()
         {
             SetStyle(ControlStyles.ContainerControl | ControlStyles.SupportsTransparentBackColor | ControlStyles.OptimizedDoubleBuffer, true);
             BackColor = Color.Transparent;
-
-            // Intentamos desactivar propiedades heredadas si existen
-            try
-            {
-                base.UseAcrylic = false;
-                base.BackgroundColor = Color.Transparent;
-                base.BackgroundColor2 = Color.Transparent;
-                base.BorderThickness = 0f;
-                base.FocusThickness = 0f;
-            }
-            catch { /* ignorar si ModernControlBase no expone esas propiedades */ }
-
-            UpdatePaints();
+            try { base.UseAcrylic = false; } catch { }
         }
 
-        // =========================================
-        // Helpers de escala / casts
-        // =========================================
         private static float S(float v) => v;
-        private static int ToIntRound(float v) => (int)Math.Round(v);
-        private static int S(int v) => v;
 
-        // =========================================
-        // Actualización de pinceles (segura)
-        // =========================================
-        private void UpdatePaints()
-        {
-            try
-            {
-                _tintPaint?.Dispose();
-                _tintPaint = new SKPaint { Color = _glassTint.ToSKColor(), Style = SKPaintStyle.Fill, IsAntialias = true };
-
-                _borderPaint?.Dispose();
-                _borderPaint = new SKPaint { Color = _glassBorder.ToSKColor(), Style = SKPaintStyle.Stroke, StrokeWidth = S(1.5f), IsAntialias = true };
-
-                _blurPaint?.Dispose();
-                if (_blurAmount > 0f)
-                {
-                    float blurRadius = S(_blurAmount); // Ya no requiere cast (float) explícito
-                    _blurPaint = new SKPaint { ImageFilter = SKImageFilter.CreateBlur(blurRadius, blurRadius) };
-                }
-                else
-                {
-                    _blurPaint = null;
-                }
-            }
-            catch
-            {
-                // No fallar en diseño/tiempo de edición
-            }
-        }
+        // 🛑 SILENCIADOS PARA CERO RIPPLE 🛑
+        protected override void OnMouseDown(MouseEventArgs e) { /* SILENCIADO */ }
+        protected override void OnMouseUp(MouseEventArgs e) { /* SILENCIADO */ }
+        protected override void OnMouseMove(MouseEventArgs e) { /* SILENCIADO */ }
+        protected override void OnMouseEnter(EventArgs e) { /* SILENCIADO */ }
+        protected override void OnMouseLeave(EventArgs e) { /* SILENCIADO */ }
 
         private void InvalidateCaches()
         {
@@ -137,217 +87,211 @@ namespace FluentWinForms.Panel_Controls
             Invalidate();
         }
 
+        protected override void OnHandleCreated(EventArgs e) { base.OnHandleCreated(e); InvalidateCaches(); }
         protected override void OnResize(EventArgs e) { base.OnResize(e); InvalidateCaches(); }
         protected override void OnMove(EventArgs e) { base.OnMove(e); InvalidateCaches(); }
 
-        // =========================================
-        // Silenciadores de eventos base (evitar repintados no deseados)
-        // =========================================
-        protected override void OnMouseDown(MouseEventArgs e) { /* intencionalmente vacío */ }
-        protected override void OnMouseUp(MouseEventArgs e) { /* intencionalmente vacío */ }
-        protected override void OnMouseMove(MouseEventArgs e) { /* intencionalmente vacío */ }
-        protected override void OnMouseEnter(EventArgs e) { /* intencionalmente vacío */ }
-        protected override void OnMouseLeave(EventArgs e) { /* intencionalmente vacío */ }
-
-        // =========================================
-        // Generación del cache de blur (robusta y compatible con SkiaSharp 2.88.8)
-        // =========================================
-        private void GenerateBlurCache()
+        // =========================================================
+        // 📸 CAPTURA ESTÁTICA
+        // =========================================================
+        private void GenerateStaticCache()
         {
-            if (DesignMode) return;
-            int w = this.Width;
-            int h = this.Height;
-            if (Parent == null || w <= 0 || h <= 0 || _blurAmount <= 0f) return;
+            if (DesignMode || Parent == null || Width <= 0 || Height <= 0) return;
 
-            // Debounce simple (~30 fps máximo)
-            long now = Stopwatch.GetTimestamp();
-            if ((now - _lastGenTicks) < (Stopwatch.Frequency / 30)) return;
-            _lastGenTicks = now;
+            if (_backdropStyle != PanelBackdropStyle.Glass)
+            {
+                _cacheDirty = false;
+                return;
+            }
 
-            // Swap atómico del CTS antiguo por uno nuevo
-            var newCts = new CancellationTokenSource();
-            var oldCts = Interlocked.Exchange(ref _genCts, newCts);
-            try { oldCts?.Cancel(); } catch { }
-            try { oldCts?.Dispose(); } catch { }
-            var token = newCts.Token;
-
-            // 🔥 CORRECCIÓN: El pool pide dimensiones enteras estrictas (int), removidos los Helpers incorrectos aquí
-            Bitmap bmp = AcrylicHelper.BitmapPool.Rent(w, h);
-            BitmapData? bmpData = null;
             try
             {
-                using (var g = Graphics.FromImage(bmp))
+                using (Bitmap bmp = new Bitmap(Width, Height))
                 {
-                    g.Clear(Color.Transparent);
-                    g.TranslateTransform(-this.Left, -this.Top);
-
-                    // Solo pintar el fondo del padre para evitar reentrancia
-                    var pe = new PaintEventArgs(g, Parent.ClientRectangle);
-                    InvokePaintBackground(Parent, pe);
-
-                    if (token.IsCancellationRequested) return;
-
-                    // Dibujar controles hermanos simples (evitar HWND-hosted)
-                    int myIndex = Parent.Controls.GetChildIndex(this);
-                    for (int i = Parent.Controls.Count - 1; i > myIndex; i--)
+                    using (Graphics g = Graphics.FromImage(bmp))
                     {
-                        if (token.IsCancellationRequested) return;
-                        Control c = Parent.Controls[i];
-                        if (!c.Visible || !c.Bounds.IntersectsWith(this.Bounds)) continue;
+                        g.Clear(Color.Transparent);
+                        g.TranslateTransform(-Left, -Top);
 
-                        string tn = c.GetType().FullName ?? string.Empty;
-                        bool isComplex = tn.Contains("AxHost") || tn.Contains("WebBrowser") || tn.Contains("HwndHost") || tn.Contains("DirectX");
-                        if (isComplex) continue;
+                        using (var pe = new PaintEventArgs(g, Parent.ClientRectangle))
+                            InvokePaintBackground(Parent, pe);
 
-                        int cw = Math.Max(1, c.Width);
-                        int ch = Math.Max(1, c.Height);
-                        Bitmap cBmp = AcrylicHelper.BitmapPool.Rent(cw, ch);
-                        try
+                        int myIndex = Parent.Controls.GetChildIndex(this);
+                        for (int i = Parent.Controls.Count - 1; i > myIndex; i--)
                         {
-                            c.DrawToBitmap(cBmp, new Rectangle(0, 0, cw, ch));
-                            g.DrawImageUnscaled(cBmp, c.Left, c.Top);
+                            Control c = Parent.Controls[i];
+                            if (!c.Visible || !c.Bounds.IntersectsWith(this.Bounds)) continue;
+                            if (c.GetType().FullName?.Contains("AxHost") == true) continue;
+
+                            int cw = Math.Max(1, c.Width);
+                            int ch = Math.Max(1, c.Height);
+
+                            Bitmap cBmp = AcrylicHelper.BitmapPool.Rent(cw, ch);
+                            try
+                            {
+                                c.DrawToBitmap(cBmp, new Rectangle(0, 0, cw, ch));
+                                g.DrawImageUnscaled(cBmp, c.Left, c.Top);
+                            }
+                            finally { AcrylicHelper.BitmapPool.Return(cBmp); }
                         }
-                        finally
+                    }
+
+                    using (var ms = new System.IO.MemoryStream())
+                    {
+                        bmp.Save(ms, ImageFormat.Png);
+                        ms.Position = 0;
+
+                        using (var rawSkia = SKBitmap.Decode(ms))
                         {
-                            AcrylicHelper.BitmapPool.Return(cBmp);
+                            _sharpCache?.Dispose();
+                            _sharpCache = rawSkia.Copy();
+
+                            _blurredCache?.Dispose();
+                            _blurredCache = new SKBitmap(rawSkia.Info);
+
+                            using (var canvas = new SKCanvas(_blurredCache))
+                            {
+                                canvas.Clear(SKColors.Transparent);
+                                if (_blurAmount > 0)
+                                {
+                                    using (var blurPaint = new SKPaint { ImageFilter = SKImageFilter.CreateBlur(S(_blurAmount), S(_blurAmount), SKShaderTileMode.Clamp) })
+                                    {
+                                        canvas.DrawBitmap(rawSkia, 0, 0, blurPaint);
+                                    }
+                                }
+                                else
+                                {
+                                    canvas.DrawBitmap(rawSkia, 0, 0);
+                                }
+                            }
                         }
                     }
                 }
-
-                if (token.IsCancellationRequested) return;
-
-                // LockBits y envolver memoria en Skia sin copias extra
-                var rect = new Rectangle(0, 0, w, h);
-                bmpData = bmp.LockBits(rect, ImageLockMode.ReadOnly, PixelFormat.Format32bppPArgb);
-                var info = new SKImageInfo(w, h, SKColorType.Bgra8888, SKAlphaType.Premul);
-
-                // Reusar wrapper nativo
-                if (_rawWrapperBitmap == null || _rawWrapperBitmap.Width != w || _rawWrapperBitmap.Height != h)
-                {
-                    _rawWrapperBitmap?.Dispose();
-                    _rawWrapperBitmap = new SKBitmap();
-                }
-
-                // InstallPixels envuelve el puntero nativo (SkiaSharp 2.88.8)
-                _rawWrapperBitmap.InstallPixels(info, bmpData.Scan0, bmpData.Stride);
-
-                if (token.IsCancellationRequested) return;
-
-                if (_blurredCache == null || _blurredCache.Width != w || _blurredCache.Height != h)
-                {
-                    _blurredCache?.Dispose();
-                    _blurredCache = new SKBitmap(info);
-                }
-
-                using (var canvas = new SKCanvas(_blurredCache))
-                {
-                    canvas.Clear(SKColors.Transparent);
-                    if (_blurPaint != null)
-                        canvas.DrawBitmap(_rawWrapperBitmap, 0, 0, _blurPaint);
-                    else
-                        canvas.DrawBitmap(_rawWrapperBitmap, 0, 0);
-                    canvas.Flush();
-                }
             }
-            catch
-            {
-                // Fallback silencioso ante redimensionamiento agresivo
-            }
+            catch { }
             finally
             {
-                try { if (bmpData != null) bmp.UnlockBits(bmpData); } catch { }
-                try { AcrylicHelper.BitmapPool.Return(bmp); } catch { }
+                _cacheDirty = false;
             }
-
-            _cacheDirty = false;
         }
 
-        // =========================================
-        // Pipeline Skia (invocado por ModernControlBase)
-        // =========================================
+        private void GetGradientPoints(float width, float height, float angle, out SKPoint start, out SKPoint end)
+        {
+            float angleRad = angle * (float)(Math.PI / 180f);
+            float diagonal = (float)Math.Sqrt(width * width + height * height);
+            float dx = (float)(Math.Cos(angleRad) * diagonal / 2f);
+            float dy = (float)(Math.Sin(angleRad) * diagonal / 2f);
+            float cx = width / 2f;
+            float cy = height / 2f;
+            start = new SKPoint(cx - dx, cy - dy);
+            end = new SKPoint(cx + dx, cy + dy);
+        }
+
+        // =========================================================
+        // 🎨 RENDERIZADO FINAL "TUANI"
+        // =========================================================
         protected override void PaintSkia(SKCanvas canvas, SKRect contentRect, SKRect paddedRect)
         {
+            float rad = S(_borderRadius);
             canvas.Clear(SKColors.Transparent);
 
-            float rad = S(_glassBorderRadius);
-
+            // 🛠️ EL FIX: Usamos contentRect en lugar de paddedRect. 
+            // Así el fondo y el cristal ignoran el grosor del borde y llenan el 100% del panel.
             using (var path = new SKPath())
             {
-                path.AddRoundRect(paddedRect, rad, rad);
-                canvas.Save();
-                canvas.ClipPath(path, SKClipOperation.Intersect, true);
+                path.AddRoundRect(contentRect, rad, rad);
 
-                if (_blurAmount > 0f)
+                // 🛠️ MODO DISEÑADOR
+                if (DesignMode)
                 {
-                    if (_cacheDirty || _blurredCache == null) GenerateBlurCache();
-
-                    if (_blurredCache != null && !_cacheDirty)
+                    if (BackdropStyle == PanelBackdropStyle.Glass)
                     {
-                        canvas.DrawBitmap(_blurredCache, new SKRect(0f, 0f, (float)this.Width, (float)this.Height));
+                        using (var preview = new SKPaint { Color = new SKColor(180, 180, 180, 80), Style = SKPaintStyle.Fill, IsAntialias = true })
+                            canvas.DrawPath(path, preview);
+                        using (var tint = new SKPaint { Color = GlassTint.ToSKColor(), Style = SKPaintStyle.Fill, IsAntialias = true })
+                            canvas.DrawPath(path, tint);
+                    }
+                    else if (BackdropStyle == PanelBackdropStyle.Gradient)
+                    {
+                        GetGradientPoints(contentRect.Width, contentRect.Height, _gradientAngle, out SKPoint p1, out SKPoint p2);
+                        using (var grad = new SKPaint { Shader = SKShader.CreateLinearGradient(p1, p2, new[] { BackgroundColor.ToSKColor(), BackgroundColor2.ToSKColor() }, new[] { 0f, 1f }, SKShaderTileMode.Clamp), IsAntialias = true })
+                            canvas.DrawPath(path, grad);
+                    }
+                    else
+                    {
+                        using (var solid = new SKPaint { Color = BackgroundColor.ToSKColor(), Style = SKPaintStyle.Fill, IsAntialias = true })
+                            canvas.DrawPath(path, solid);
+                    }
+
+                    if (BorderThickness > 0)
+                    {
+                        float offset = S(BorderThickness) / 2f;
+                        float borderRad = Math.Max(0, rad - offset); // Curva perfecta para bordes
+                        var borderRect = new SKRect(contentRect.Left + offset, contentRect.Top + offset, contentRect.Right - offset, contentRect.Bottom - offset);
+                        using (var border = new SKPaint { Color = BorderColor.ToSKColor(), Style = SKPaintStyle.Stroke, StrokeWidth = S(BorderThickness), IsAntialias = true })
+                            canvas.DrawRoundRect(borderRect, borderRad, borderRad, border);
+                    }
+                    return;
+                }
+
+                // 🚀 MODO EJECUCIÓN ESTÁTICO
+                if (BackdropStyle == PanelBackdropStyle.Glass && (_cacheDirty || _blurredCache == null || _sharpCache == null))
+                {
+                    GenerateStaticCache();
+                }
+
+                if (BackdropStyle == PanelBackdropStyle.Glass)
+                {
+                    if (_sharpCache != null) canvas.DrawBitmap(_sharpCache, 0, 0);
+
+                    canvas.Save();
+                    canvas.ClipPath(path, SKClipOperation.Intersect, true);
+
+                    // El blur ahora se dibuja de extremo a extremo sin dejar marcos a los lados
+                    if (_blurredCache != null) canvas.DrawBitmap(_blurredCache, 0, 0);
+
+                    using (var tint = new SKPaint { Color = GlassTint.ToSKColor(), Style = SKPaintStyle.Fill, IsAntialias = true })
+                        canvas.DrawRect(contentRect, tint);
+
+                    canvas.Restore();
+                }
+                else if (BackdropStyle == PanelBackdropStyle.Gradient)
+                {
+                    GetGradientPoints(contentRect.Width, contentRect.Height, _gradientAngle, out SKPoint p1, out SKPoint p2);
+                    using (var grad = new SKPaint { Shader = SKShader.CreateLinearGradient(p1, p2, new[] { BackgroundColor.ToSKColor(), BackgroundColor2.ToSKColor() }, new[] { 0f, 1f }, SKShaderTileMode.Clamp), IsAntialias = true })
+                        canvas.DrawPath(path, grad);
+                }
+                else
+                {
+                    using (var solid = new SKPaint { Color = BackgroundColor.ToSKColor(), Style = SKPaintStyle.Fill, IsAntialias = true })
+                        canvas.DrawPath(path, solid);
+                }
+
+                // 🌟 DIBUJADO DE BORDE PREMIUM
+                if (BorderThickness > 0)
+                {
+                    // Metemos el borde exactamente la mitad de su grosor hacia adentro para que encaje como un guante
+                    float offset = S(BorderThickness) / 2f;
+                    float borderRad = Math.Max(0, rad - offset);
+
+                    var borderRect = new SKRect(contentRect.Left + offset, contentRect.Top + offset, contentRect.Right - offset, contentRect.Bottom - offset);
+
+                    using (var borderPaint = new SKPaint { Color = BorderColor.ToSKColor(), Style = SKPaintStyle.Stroke, StrokeWidth = S(BorderThickness), IsAntialias = true })
+                    {
+                        canvas.DrawRoundRect(borderRect, borderRad, borderRad, borderPaint);
                     }
                 }
-
-                if (_tintPaint != null) canvas.DrawRect(paddedRect, _tintPaint);
-
-                canvas.Restore();
-
-                if (_borderPaint != null)
-                {
-                    float offset = S(0.75f);
-                    var borderRect = new SKRect(paddedRect.Left + offset, paddedRect.Top + offset, paddedRect.Right - offset, paddedRect.Bottom - offset);
-                    canvas.DrawRoundRect(borderRect, rad, rad, _borderPaint);
-                }
             }
         }
 
-        // =========================================
-        // Fallback GDI+ (diseñador)
-        // =========================================
-        protected override void PaintGDIPipeline(Graphics g, RectangleF contentRect, RectangleF paddedRect)
-        {
-            g.SmoothingMode = SmoothingMode.AntiAlias;
-            float rad = S(_glassBorderRadius);
-
-            using (var path = GetRoundedPath(paddedRect, rad))
-            using (var brush = new SolidBrush(_glassTint))
-            using (var pen = new Pen(_glassBorder, S(1.5f)))
-            {
-                g.FillPath(brush, path);
-                g.DrawPath(pen, path);
-            }
-        }
-
-        private GraphicsPath GetRoundedPath(RectangleF rect, float radius)
-        {
-            var path = new GraphicsPath();
-            float d = radius * 2f;
-            if (d <= 0f) { path.AddRectangle(rect); return path; }
-
-            path.AddArc(rect.X, rect.Y, d, d, 180, 90);
-            path.AddArc(rect.Right - d, rect.Y, d, d, 270, 90);
-            path.AddArc(rect.Right - d, rect.Bottom - d, d, d, 0, 90);
-            path.AddArc(rect.Left, rect.Bottom - d, d, d, 90, 90);
-            path.CloseFigure();
-            return path;
-        }
-
-        // =========================================
-        // Dispose robusto (no lanzar en diseñador)
-        // =========================================
         protected override void Dispose(bool disposing)
         {
             if (disposing)
             {
-                var cts = Interlocked.Exchange(ref _genCts, null);
-                try { cts?.Cancel(); } catch { }
-                try { cts?.Dispose(); } catch { }
-
-                try { _blurredCache?.Dispose(); } catch { }
-                try { _rawWrapperBitmap?.Dispose(); } catch { }
-
-                try { _tintPaint?.Dispose(); } catch { }
-                try { _borderPaint?.Dispose(); } catch { }
-                try { _blurPaint?.Dispose(); } catch { }
+                _blurredCache?.Dispose();
+                _blurredCache = null;
+                _sharpCache?.Dispose();
+                _sharpCache = null;
             }
             base.Dispose(disposing);
         }
