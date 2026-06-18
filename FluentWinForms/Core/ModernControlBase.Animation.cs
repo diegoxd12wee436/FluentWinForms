@@ -126,9 +126,25 @@ namespace FluentWinForms.Core
             // 🛡️ Solo tocamos WinForms si de verdad cambió el tamaño
             if (this.Bounds != newPhysicalBounds)
             {
-                _isEngineExpanding = true;
-                this.SetBounds(newPhysicalBounds.X, newPhysicalBounds.Y, newPhysicalBounds.Width, newPhysicalBounds.Height);
-                _isEngineExpanding = false;
+                if (!IsHandleCreated || IsDisposed || DesignMode) return;
+
+                Action updateLayout = () =>
+                {
+                    try
+                    {
+                        _isEngineExpanding = true;
+                        this.SetBounds(newPhysicalBounds.X, newPhysicalBounds.Y, newPhysicalBounds.Width, newPhysicalBounds.Height);
+                    }
+                    finally
+                    {
+                        _isEngineExpanding = false;
+                    }
+                };
+
+                if (InvokeRequired)
+                    BeginInvoke(updateLayout);
+                else
+                    updateLayout();
             }
         }
 

@@ -813,6 +813,11 @@ namespace FluentWinForms.Core
         // =========================================================
         // 🔥 PASO FINAL: MODO FANTASMA (HIT-TESTING A NIVEL OS CON SCALE)
         // =========================================================
+        private static Point GetLParamPoint(IntPtr lParam)
+        {
+            int val = lParam.ToInt32();
+            return new Point((short)(val & 0xffff), (short)((val >> 16) & 0xffff));
+        }
         protected override void WndProc(ref Message m)
         {
             if (m.Msg == 0x0014) return; // WM_ERASEBKGND (Cero parpadeos nativos)
@@ -825,7 +830,7 @@ namespace FluentWinForms.Core
                 base.WndProc(ref m); // Dejamos que Windows haga su cálculo base
                 if (m.Result.ToInt32() == 1) // 1 = HTCLIENT (El mouse tocó el HWND gigante)
                 {
-                    Point screenPoint = new Point(m.LParam.ToInt32() & 0xFFFF, (m.LParam.ToInt32() >> 16) & 0xFFFF);
+                    Point screenPoint = GetLParamPoint(m.LParam);
                     Point clientPoint = this.PointToClient(screenPoint);
 
                     // 🎯 Buscamos la escala máxima activa en este momento
@@ -847,15 +852,19 @@ namespace FluentWinForms.Core
                     float halfShiftY = _logicalBounds.IsEmpty ? 0f : _logicalBounds.Height * (currentScaleY - 1f) / 2f;
 
                     // Calculamos la caja final usando Offset, Traslación y Escala
-                    Rectangle drawnArea = new Rectangle(
-                        (int)(EngineOffset.X + this.TranslateX - halfShiftX),
-                        (int)(EngineOffset.Y + this.TranslateY - halfShiftY),
+                    // 🚀 FIX: Usamos RectangleF (float) para no perder precisión en la física
+                    RectangleF drawnArea = new RectangleF(
+                        EngineOffset.X + this.TranslateX - halfShiftX,
+                        EngineOffset.Y + this.TranslateY - halfShiftY,
                         visualW,
                         visualH
                     );
 
-                    // Si el usuario toca el "colchón" invisible de WinForms, nos volvemos transparentes al clic
-                    if (!drawnArea.Contains(clientPoint))
+                    // Damos 1px de margen de seguridad (Inflate) para absorber errores de redondeo nativo de Windows
+                    drawnArea.Inflate(1f, 1f);
+
+                    // Evaluamos las coordenadas exactas pasando X y Y como floats
+                    if (!drawnArea.Contains(clientPoint.X, clientPoint.Y))
                     {
                         m.Result = (IntPtr)HTTRANSPARENT;
                     }

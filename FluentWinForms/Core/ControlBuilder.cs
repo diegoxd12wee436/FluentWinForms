@@ -22,6 +22,8 @@ namespace FluentWinForms.Core
             ReshowDelay = 200,
             ShowAlways = true
         };
+        // 🛡️ Mantiene el ToolTip enlazado al control sin usar el "Tag" y evita fugas de memoria
+        private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<T, ToolTip> _tooltips = new();
         internal Action<RenderNode>? OnApplied { get; set; }
 
         public ControlBuilder(RenderNode node, T? host = null)
@@ -195,14 +197,48 @@ namespace FluentWinForms.Core
         public ControlBuilder<T> Cursor(Cursor cursor)
         { if (_hostControl != null) _hostControl.Cursor = cursor; return this; }
         public ControlBuilder<T> HandCursor() => Cursor(Cursors.Hand);
-        public ControlBuilder<T> Tooltip(string text)
-        { if (_hostControl != null) _sharedTooltip.SetToolTip(_hostControl, text); return this; }
+        
         public ControlBuilder<T> Tooltip(string text, int autoPopMs = 5000, int delayMs = 500)
         {
             if (_hostControl == null) return this;
-            _sharedTooltip.AutoPopDelay = autoPopMs;
-            _sharedTooltip.InitialDelay = delayMs;
-            _sharedTooltip.SetToolTip(_hostControl, text);
+
+            Action setTooltip = () =>
+            {
+                // 1. Si ya existe, lo REUTILIZAMOS. Así evitamos crear múltiples eventos Disposed
+                if (_tooltips.TryGetValue(_hostControl, out var existing))
+                {
+                    existing.AutoPopDelay = autoPopMs;
+                    existing.InitialDelay = delayMs;
+                    existing.SetToolTip(_hostControl, text);
+                    return; // 🚀 Salimos aquí para no suscribir eventos duplicados
+                }
+
+                // 2. Si no existe, creamos el dedicado
+                var newTooltip = new ToolTip
+                {
+                    AutoPopDelay = autoPopMs,
+                    InitialDelay = delayMs,
+                    ReshowDelay = 200,
+                    ShowAlways = true
+                };
+                newTooltip.SetToolTip(_hostControl, text);
+
+                _tooltips.Add(_hostControl, newTooltip);
+
+                // 3. Suscripción UNA SOLA VEZ a Disposed para limpiar memoria nativa
+                _hostControl.Disposed += (s, e) =>
+                {
+                    if (_tooltips.TryGetValue(_hostControl, out var tt))
+                    {
+                        tt.Dispose();
+                        _tooltips.Remove(_hostControl);
+                    }
+                };
+            };
+
+            if (_hostControl.InvokeRequired) _hostControl.Invoke(setTooltip);
+            else setTooltip();
+
             return this;
         }
 
