@@ -1,4 +1,4 @@
-﻿#nullable enable
+#nullable enable
 using System;
 using System.ComponentModel;
 using System.Drawing;
@@ -40,9 +40,9 @@ namespace FluentWinForms.Core
             };
         }
 
-        // ══════════════════════════════════════════════════════════════
+        // ═════════════════════════════════════════════════════════════════════
         // 1. LAYOUT
-        // ══════════════════════════════════════════════════════════════
+        // ═════════════════════════════════════════════════════════════════════
 
         public ControlBuilder<T> Layout(int x, int y, int width, int height)
             => Layout((double)x, (double)y, (double)width, (double)height);
@@ -53,9 +53,9 @@ namespace FluentWinForms.Core
             _node.StretchY = false;
             return this;
         }
-        // ══════════════════════════════════════════════════════════════
+        // ═════════════════════════════════════════════════════════════════════
         // 🔥 TRANSFORMACIONES (ATAJO DEV-FRIENDLY CSS)
-        // ══════════════════════════════════════════════════════════════
+        // ═════════════════════════════════════════════════════════════════════
         public ControlBuilder<T> Translate(double x, double y)
         {
             if (_hostControl != null)
@@ -126,9 +126,9 @@ namespace FluentWinForms.Core
         public ControlBuilder<T> AddChildren(params Action<ControlBuilder<ModernControlBase>>[] cfgs)
         { foreach (var c in cfgs) AddChild(c); return this; }
 
-        // ══════════════════════════════════════════════════════════════
+        // ═════════════════════════════════════════════════════════════════════
         // 2. ESPACIADO Y FORMA (100% ESTILO CSS CON DOUBLE)
-        // ══════════════════════════════════════════════════════════════
+        // ═════════════════════════════════════════════════════════════════════
 
         // ── PADDING (Espacio interno) ──
 
@@ -156,15 +156,15 @@ namespace FluentWinForms.Core
 
         public ControlBuilder<T> Margin(double vertical, double horizontal)
         {
-            // Constructor de ModernThickness asume: Left, Top, Right, Bottom
-            _node.Margin = new ModernThickness((float)Math.Max(0, horizontal), (float)Math.Max(0, vertical), (float)Math.Max(0, horizontal), (float)Math.Max(0, vertical));
+            // Constructor de ModernThickness asume: Top, Right, Bottom, Left
+            _node.Margin = new ModernThickness((float)Math.Max(0, vertical), (float)Math.Max(0, horizontal), (float)Math.Max(0, vertical), (float)Math.Max(0, horizontal));
             return this;
         }
 
         public ControlBuilder<T> Margin(double top, double right, double bottom, double left) // ⏱️ EL RELOJ CSS
         {
-            // Constructor de ModernThickness asume: Left, Top, Right, Bottom
-            _node.Margin = new ModernThickness((float)Math.Max(0, left), (float)Math.Max(0, top), (float)Math.Max(0, right), (float)Math.Max(0, bottom));
+            // Constructor de ModernThickness asume: Top, Right, Bottom, Left
+            _node.Margin = new ModernThickness((float)Math.Max(0, top), (float)Math.Max(0, right), (float)Math.Max(0, bottom), (float)Math.Max(0, left));
             return this;
         }
 
@@ -181,9 +181,9 @@ namespace FluentWinForms.Core
         }
         public ControlBuilder<T> BorderRadius(int tl, int tr, int br, int bl) => BorderRadius((double)tl, (double)tr, (double)br, (double)bl);
 
-        // ══════════════════════════════════════════════════════════════
+        // ═════════════════════════════════════════════════════════════════════
         // 3. VISIBILIDAD, ANIMACIÓN Y EVENTOS
-        // ══════════════════════════════════════════════════════════════
+        // ═════════════════════════════════════════════════════════════════════
 
         public ControlBuilder<T> Opacity(double o)
         { _node.Opacity = (float)Math.Max(0.0, Math.Min(1.0, o)); return this; }
@@ -284,9 +284,9 @@ namespace FluentWinForms.Core
             return this;
         }
 
-        // ══════════════════════════════════════════════════════════════
+        // ═════════════════════════════════════════════════════════════════════
         // 4. CONTENIDO Y TEXTO
-        // ══════════════════════════════════════════════════════════════
+        // ═════════════════════════════════════════════════════════════════════
 
         public ControlBuilder<T> Content(string text, string? hexColor = null, double? fontSize = null)
         {
@@ -348,9 +348,9 @@ namespace FluentWinForms.Core
         public ControlBuilder<T> ImageFitMode(ImageFit fit)
         { var ct = _node.Content; ct.ImageFit = fit; _node.Content = ct; return this; }
 
-        // ══════════════════════════════════════════════════════════════
+        // ═════════════════════════════════════════════════════════════════════
         // 5. FONDO Y BORDE
-        // ══════════════════════════════════════════════════════════════
+        // ═════════════════════════════════════════════════════════════════════
 
         //Themes
         // ── TOKENS DE TEMA ──────────────────────────────────────────
@@ -451,9 +451,9 @@ namespace FluentWinForms.Core
             return this;
         }
         public ControlBuilder<T> Glow(string hex, double radius = 12) => Shadow(hex, 0, 0, radius);
-        // ══════════════════════════════════════════════════════════════
+        // ═════════════════════════════════════════════════════════════════════
         // 5b. FILTROS COMO CSS
-        // ══════════════════════════════════════════════════════════════
+        // ═════════════════════════════════════════════════════════════════════
         public ControlBuilder<T> Filter(double brightness = 1, double contrast = 1,
                                          double grayscale = 0, double blur = 0)
         {
@@ -509,9 +509,9 @@ namespace FluentWinForms.Core
             return this;
         }
 
-        // ══════════════════════════════════════════════════════════════
+        // ═════════════════════════════════════════════════════════════════════
         // 6. ESTADOS HOVER Y PRESS
-        // ══════════════════════════════════════════════════════════════
+        // ═════════════════════════════════════════════════════════════════════
 
         public ControlBuilder<T> StateHover(Action<StateBuilder> cfg)
         {
@@ -569,9 +569,9 @@ namespace FluentWinForms.Core
                 if (!string.IsNullOrWhiteSpace(textColor)) s.TextColor(textColor); // 🆕
             });
         }
-        // ══════════════════════════════════════════════════════════════
+        // ═════════════════════════════════════════════════════════════════════
         // 7. UTILIDADES
-        // ══════════════════════════════════════════════════════════════
+        // ═════════════════════════════════════════════════════════════════════
 
         public ControlBuilder<T> When(
             bool condition,
@@ -607,9 +607,9 @@ namespace FluentWinForms.Core
         }
         public ControlBuilder<T> When(bool condition, Action<ControlBuilder<T>> cfg)
         { if (condition) cfg(this); return this; }
-        // ══════════════════════════════════════════════════════════════
+        // ═════════════════════════════════════════════════════════════════════
         // 7. APPLY — Normalito y Tuani
-        // ══════════════════════════════════════════════════════════════
+        // ═════════════════════════════════════════════════════════════════════
 
         // 🔥 MIRA ESTO: El Apply devuelve "T" directamente. Adiós a poner genéricos en tu formulario.
         public T Apply(Control? parent = null)
