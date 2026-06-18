@@ -10,6 +10,25 @@ namespace FluentWinForms.Core
 {
     public abstract partial class ModernControlBase
     {
+        // =====================================================================
+        // 🛡️ SISTEMA DE DOBLE REALIDAD (LOGICAL vs PHYSICAL BOUNDS)
+        // =====================================================================
+        protected Rectangle _logicalBounds = Rectangle.Empty;
+        protected bool _isEngineExpanding = false;
+
+        [Browsable(false), EditorBrowsable(EditorBrowsableState.Never)]
+        public Rectangle LogicalBounds => _logicalBounds.IsEmpty ? this.Bounds : _logicalBounds;
+
+        // 🔥 ESCUDO WINFORMS: Intercepta el tamaño real del programador
+        protected override void SetBoundsCore(int x, int y, int width, int height, BoundsSpecified specified)
+        {
+            if (!_isEngineExpanding)
+            {
+                _logicalBounds = new Rectangle(x, y, width, height);
+            }
+            base.SetBoundsCore(x, y, width, height, specified);
+        }
+
         // Configuraciones de Animación
         [Category("Modern -  Animations")]
         [Description("Tipo de curva de animación que usará el control principal.\nAnimation curve type used by the main control.")]
@@ -70,12 +89,75 @@ namespace FluentWinForms.Core
         }
 
         private void UpdateRippleBounds() => _maxRippleRadius = (float)Math.Sqrt(Width * Width + Height * Height);
+        // =====================================================================
+        // 🚀 EXPANSIÓN FÍSICA ZERO-ALLOCATION (CSS-LIKE BEHAVIOR)
+        // =====================================================================
+        protected void UpdatePhysicalBounds()
+        {
+            if (_logicalBounds.IsEmpty || _visualNode == null) return;
+
+            float targetScaleX = 1.0f;
+            float targetScaleY = 1.0f;
+
+            // Buscamos si algún nodo necesita expandirse
+            if (_isAnimating || _isHoveringInternal || _isMouseDownInternal)
+            {
+                CalculateMaxOverflow(_visualNode, ref targetScaleX, ref targetScaleY);
+            }
+
+            // 🚀 MATEMÁTICA CSS: Expandimos la jaula simétricamente para que quepa la traslación
+            float absTranslateX = Math.Abs(this.TranslateX);
+            float absTranslateY = Math.Abs(this.TranslateY);
+
+            int expandedWidth = (int)Math.Ceiling(_logicalBounds.Width * targetScaleX + (absTranslateX * 2)) + 2;
+            int expandedHeight = (int)Math.Ceiling(_logicalBounds.Height * targetScaleY + (absTranslateY * 2)) + 2;
+
+            // Centramos la expansión para que el botón crezca desde el medio
+            int offsetX = (expandedWidth - _logicalBounds.Width) / 2;
+            int offsetY = (expandedHeight - _logicalBounds.Height) / 2;
+
+            Rectangle newPhysicalBounds = new Rectangle(
+                _logicalBounds.X - offsetX,
+                _logicalBounds.Y - offsetY,
+                expandedWidth,
+                expandedHeight
+            );
+
+            // 🛡️ Solo tocamos WinForms si de verdad cambió el tamaño
+            if (this.Bounds != newPhysicalBounds)
+            {
+                _isEngineExpanding = true;
+                this.SetBounds(newPhysicalBounds.X, newPhysicalBounds.Y, newPhysicalBounds.Width, newPhysicalBounds.Height);
+                _isEngineExpanding = false;
+            }
+        }
+
+        // Búsqueda en Stack (Cero Garbage Collector)
+        private void CalculateMaxOverflow(RenderNode node, ref float maxX, ref float maxY)
+        {
+            if (node.HoverState.Scale.HasValue)
+            {
+                maxX = Math.Max(maxX, node.HoverState.Scale.Value);
+                maxY = Math.Max(maxY, node.HoverState.Scale.Value);
+            }
+            if (node.PressState.Scale.HasValue)
+            {
+                maxX = Math.Max(maxX, node.PressState.Scale.Value);
+                maxY = Math.Max(maxY, node.PressState.Scale.Value);
+            }
+
+            for (int i = 0; i < node.Children.Count; i++)
+            {
+                CalculateMaxOverflow(node.Children[i], ref maxX, ref maxY);
+            }
+        }
 
         private void StartAnimation()
         {
             if (!_isAnimating && !DesignMode)
             {
                 _isAnimating = true;
+                UpdatePhysicalBounds();
                 AnimationManager.Register(this);
             }
         }
@@ -103,12 +185,12 @@ namespace FluentWinForms.Core
                 if (node.PressProgress > 0f) { node.PressProgress = Math.Max(0f, node.PressProgress - step); moving = true; }
             }
 
-            foreach (var child in node.Children)
+            // 🔥 (Adiós enumerador, hola optimización)
+            for (int i = 0; i < node.Children.Count; i++)
             {
-                if (UpdateNodeAnimations(child, step)) moving = true;
+                if (UpdateNodeAnimations(node.Children[i], step)) moving = true;
             }
-
-            return moving;
+            return moving;            
         }
 
         // EL CORAZÓN DE LA ANIMACIÓN (Invocado por AnimationManager)
@@ -118,6 +200,7 @@ namespace FluentWinForms.Core
             if (!Enabled || IsDisposed || DesignMode || !IsHandleCreated)
             {
                 _isAnimating = false;
+                UpdatePhysicalBounds();
                 AnimationManager.Unregister(this);
                 return;
             }
@@ -197,6 +280,7 @@ namespace FluentWinForms.Core
             else
             {
                 _isAnimating = false;
+                UpdatePhysicalBounds();
                 AnimationManager.Unregister(this);
             }
         }
@@ -207,7 +291,7 @@ namespace FluentWinForms.Core
         // 🔥 FIX 1: BOUNDING BOX CULLING (Optimización extrema de CPU == Menos consumo RAM)
         private RenderNode? HitTest(RenderNode node, PointF pt)
         {
-            if (!node.IsVisible || !node.Enabled) return null;
+            if (!node.IsVisible) return null;
 
             // 🛡️ ESCUDO: Si el ratón no está dentro del rectángulo de este nodo, 
             // ignoramos automáticamente a este nodo y a todos sus cientos de hijos.

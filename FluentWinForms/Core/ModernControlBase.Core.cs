@@ -47,7 +47,7 @@ namespace FluentWinForms.Core
                     SKFontStyleWidth.Normal,
                     k.italic ? SKFontStyleSlant.Italic : SKFontStyleSlant.Upright); // 🔥 LA CURSIVA NACE AQUÍ
             });
-        }
+        }       
 
         // 🔥 INYECCIÓN: El nodo raíz de la UI (El Lienzo)
         private RenderNode? _visualNode;
@@ -115,6 +115,8 @@ namespace FluentWinForms.Core
             if (!AnimationManager.IsRunning) AnimationManager.Start();
 
             // 🔥 FIX TEMAS: Suscripción a cambios globales de AppTheme
+            // 🔥 FIX TEMAS: Evita la doble suscripción si WinForms recrea el Handle
+            AppTheme.ThemeChanged -= OnThemeChanged;
             AppTheme.ThemeChanged += OnThemeChanged;
         }
 
@@ -195,6 +197,23 @@ namespace FluentWinForms.Core
 
         private float _scaleX = 1.0f; [DesignerSerializationVisibility(DesignerSerializationVisibility.Visible)][Category("Modern -  Transform")][Description("Escala del control en el eje X. \nScale of the control on the X axis.")] public float ScaleX { get => _scaleX; set { _scaleX = value; RefreshVisuals(); } }
         private float _scaleY = 1.0f; [DesignerSerializationVisibility(DesignerSerializationVisibility.Visible)][Category("Modern -  Transform")][Description("Escala del control en el eje Y. \nScale of the control on the Y axis.")] public float ScaleY { get => _scaleY; set { _scaleY = value; RefreshVisuals(); } }
+        // 🔥 LAS PROPIEDADES CSS QUE FALTABAN
+        private float _translateX = 0f;
+        [Category("Modern -  Transform")]
+        [Description("Desplazamiento visual en el eje X (Comportamiento literal CSS).")]
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Visible)]
+        public float TranslateX { get => _translateX; set { _translateX = value; UpdatePhysicalBounds(); RefreshVisuals(); } }
+
+        private float _translateY = 0f;
+        [Category("Modern -  Transform")]
+        [Description("Desplazamiento visual en el eje Y (Comportamiento literal CSS).")]
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Visible)]
+        public float TranslateY { get => _translateY; set { _translateY = value; UpdatePhysicalBounds(); RefreshVisuals(); } }
+
+        // 🔥 EL CEREBRO DE COMPENSACIÓN (EngineOffset)
+        [Browsable(false), EditorBrowsable(EditorBrowsableState.Never)]
+        protected PointF EngineOffset => _logicalBounds.IsEmpty ? PointF.Empty :
+            new PointF((this.Width - _logicalBounds.Width) / 2f, (this.Height - _logicalBounds.Height) / 2f);
 
         private bool _useSkiaGraphics = true;
         [Category("Modern - Engine")]
@@ -232,7 +251,7 @@ namespace FluentWinForms.Core
             BackColor = Color.Transparent;
 
             InitAnimations();
-        }
+        }      
 
         protected override void OnResize(EventArgs e)
         {

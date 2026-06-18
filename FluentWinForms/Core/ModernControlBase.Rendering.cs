@@ -48,11 +48,20 @@ namespace FluentWinForms.Core
                 e.Graphics.Restore(state);
             }
 
-            float activeBorder = S(IsFocusedControl ? FocusThickness : BorderThickness);
-            float shadowSpace = (UseShadow && !IsFocusedControl && Enabled) ? S(ShadowBlur) : 0;
-            float margin = shadowSpace + (activeBorder / 2f);
+            // ==========================================
+            // 🔥 INTELIGENCIA ESPACIAL (ZONA SEGURA AAA)
+            // ==========================================
+            float maxBorder = Math.Max(BorderThickness, FocusThickness);
+            float maxShadowSpace = UseShadow ? S(ShadowBlur) : 0;
+            float hoverSafeZone = EnableHover ? S(6f) : 0; // 6 píxeles de respiración para animaciones
 
+            // El margen maestro NUNCA cambia en tiempo real, evitando recortes y brincos visuales.
+            float margin = maxShadowSpace + S(maxBorder / 2f) + hoverSafeZone;
+
+            // El borde activo sí se actualiza para dibujar correctamente
+            float activeBorder = S(IsFocusedControl ? FocusThickness : BorderThickness);
             var contentRectF = new RectangleF(margin, margin, Width - (margin * 2), Height - (margin * 2));
+
             contentRectF.Inflate(-(activeBorder / 2f), -(activeBorder / 2f));
             var paddedRectF = new RectangleF(contentRectF.Left + S(Padding.Left), contentRectF.Top + S(Padding.Top), contentRectF.Width - S(Padding.Horizontal), contentRectF.Height - S(Padding.Vertical));
 
@@ -66,6 +75,13 @@ namespace FluentWinForms.Core
                 {
                     _skCanvas!.Clear(SKColors.Transparent);
                     _skCanvas.Save();
+                    // =========================================================
+                    // 🔥 EL ANCLA MÓVIL: Centrado automático + Traslación CSS
+                    // =========================================================
+                    if (!_logicalBounds.IsEmpty && EngineOffset != PointF.Empty)
+                    {
+                        _skCanvas.Translate(EngineOffset.X + this.TranslateX, EngineOffset.Y + this.TranslateY);
+                    }
 
                     _sharedPaint ??= new SKPaint { IsAntialias = true };
                     _sharedPath ??= new SKPath();
@@ -204,6 +220,9 @@ namespace FluentWinForms.Core
             float currentOpacity = node.Opacity;
             float targetScaleX = node.ScaleX;
             float targetScaleY = node.ScaleY;
+            Color currentTextColor = node.Content.TextColor; // 
+            float currentTransX = node.TranslateX;        // 
+            float currentTransY = node.TranslateY;        // 
 
             // 2. INTERPOLACIÓN (LERP) PARA HOVER (Transición Suave)
             if (node.HoverProgress > 0)
@@ -224,6 +243,12 @@ namespace FluentWinForms.Core
                     targetScaleX += (node.HoverState.Scale.Value - targetScaleX) * e;
                     targetScaleY += (node.HoverState.Scale.Value - targetScaleY) * e;
                 }
+                if (node.HoverState.TextColor.HasValue)
+                    currentTextColor = LerpColor(currentTextColor, node.HoverState.TextColor.Value, e); // 🆕
+                if (node.HoverState.TranslateX.HasValue)
+                    currentTransX += (node.HoverState.TranslateX.Value - currentTransX) * e;           // 🆕
+                if (node.HoverState.TranslateY.HasValue)
+                    currentTransY += (node.HoverState.TranslateY.Value - currentTransY) * e;           // 🆕
             }
 
             // 3. INTERPOLACIÓN (LERP) PARA PRESS (Transición Suave sobre el Hover)
@@ -245,9 +270,28 @@ namespace FluentWinForms.Core
                     targetScaleX += (node.PressState.Scale.Value - targetScaleX) * e;
                     targetScaleY += (node.PressState.Scale.Value - targetScaleY) * e;
                 }
+                if (node.PressState.TextColor.HasValue)
+                    currentTextColor = LerpColor(currentTextColor, node.PressState.TextColor.Value, e); // 🆕
+                if (node.PressState.TranslateX.HasValue)
+                    currentTransX += (node.PressState.TranslateX.Value - currentTransX) * e;            // 🆕
+                if (node.PressState.TranslateY.HasValue)
+                    currentTransY += (node.PressState.TranslateY.Value - currentTransY) * e;            // 🆕
             }
-
+            // 3b. ESTADO DISABLED — sin lerp, instantáneo
+            if (!node.Enabled)
+            {
+                if (node.DisabledState.Background.HasValue) { bg = node.DisabledState.Background.Value; }
+                if (node.DisabledState.Border.HasValue) bd.NormalColor = node.DisabledState.Border.Value.NormalColor;
+                if (node.DisabledState.Shadow.HasValue) sh.Color = node.DisabledState.Shadow.Value.Color;
+                if (node.DisabledState.Opacity.HasValue) currentOpacity = node.DisabledState.Opacity.Value;
+                if (node.DisabledState.TextColor.HasValue) currentTextColor = node.DisabledState.TextColor.Value;
+                if (node.DisabledState.Scale.HasValue) { targetScaleX = node.DisabledState.Scale.Value; targetScaleY = node.DisabledState.Scale.Value; }
+            }
             // 4. TRANSFORMACIONES (Traslación, Rotación y Escala)
+            // 4.0 Translate del nodo: mueve el elemento en world-space, como CSS
+            if (currentTransX != 0f || currentTransY != 0f)
+                canvas.Translate(currentTransX, currentTransY); // 🆕 usa la versión interpolada
+
             float cx = node.Layout.Left + (node.Layout.Width * node.TransformOrigin.X);
             float cy = node.Layout.Top + (node.Layout.Height * node.TransformOrigin.Y);
 
@@ -255,6 +299,45 @@ namespace FluentWinForms.Core
             if (node.Rotation != 0) canvas.RotateDegrees(node.Rotation);
             if (targetScaleX != 1.0f || targetScaleY != 1.0f) canvas.Scale(targetScaleX, targetScaleY);
             canvas.Translate(-cx, -cy);
+
+            // =========================================================
+            // 🔥 INYECCIÓN: EL EFECTO SWEEP (Capa 3 - Skia Render)
+            // =========================================================
+            if (node.Sweep.IsEnabled && node.HoverProgress > 0)
+            {
+                // Calculamos el radio máximo para que cubra todo el control
+                float maxRadius = (float)Math.Sqrt(node.Layout.Width * node.Layout.Width + node.Layout.Height * node.Layout.Height) * 1.1f;
+
+                // top: 100%, left: 100% (Esquina inferior derecha)
+                float startX = node.Layout.Width + (maxRadius / 2f);
+                float startY = node.Layout.Height + (maxRadius / 2f);
+
+                // Centro final
+                float endX = node.Layout.Width / 2f;
+                float endY = node.Layout.Height / 2f;
+
+                // Interpolación basada en tu HoverProgress (0.0 a 1.0)
+                float currX = startX + (endX - startX) * node.HoverProgress;
+                float currY = startY + (endY - startY) * node.HoverProgress;
+
+                // CSS: overflow: hidden (Clip)
+                using var clipPath = new SKPath();
+                clipPath.AddRoundRect(new SKRect(0, 0, node.Layout.Width, node.Layout.Height), node.Corners.TopLeft, node.Corners.TopLeft);
+
+                canvas.Save();
+                canvas.ClipPath(clipPath, SKClipOperation.Intersect, true);
+
+                // Dibujar el pseudo-elemento ::before (Sweep)
+                using var sweepPaint = new SKPaint
+                {
+                    Color = node.Sweep.ThemeColor.ToSKColor(),
+                    IsAntialias = true,
+                    Style = SKPaintStyle.Fill
+                };
+                canvas.DrawCircle(currX, currY, maxRadius, sweepPaint);
+
+                canvas.Restore();
+            }
 
             // 5. OPACIDAD
             if (currentOpacity < 1.0f)
@@ -484,7 +567,7 @@ namespace FluentWinForms.Core
                 _sharedPaint.LcdRenderText = true;
                 _sharedPaint.SubpixelText = true;
                 _sharedPaint.HintingLevel = SKPaintHinting.Full;
-                _sharedPaint.Color = node.Content.TextColor.ToSKColor();
+                _sharedPaint.Color = currentTextColor.ToSKColor(); // 🆕 interpolado desde estados
                 _sharedPaint.TextSize = S(node.Content.FontSize);
 
                 // 🔥 EL FIX APLICADO: Ahora recibe IsItalic para dibujar la cursiva correctamente
@@ -569,10 +652,51 @@ namespace FluentWinForms.Core
                 foreach (var child in node.Children) RenderNodeTree(canvas, child);
                 canvas.Restore();
             }
+            // 12. BADGE — zero-alloc, top-right del nodo
+            if (node.Badge.IsVisible)
+            {
+                float bHalf = (float)(node.Badge.Size * 0.5);
+                float bX = node.Layout.Right + (float)node.Badge.OffsetX - bHalf;
+                float bY = node.Layout.Top + (float)node.Badge.OffsetY + bHalf;
+
+                _sharedPaint.Reset();
+                _sharedPaint.IsAntialias = true;
+                _sharedPaint.Style = SKPaintStyle.Fill;
+                _sharedPaint.Color = node.Badge.Background.ToSKColor();
+                canvas.DrawCircle(bX, bY, bHalf, _sharedPaint);
+
+                if (!string.IsNullOrEmpty(node.Badge.Text))
+                {
+                    _sharedPaint.Color = node.Badge.TextColor.ToSKColor();
+                    _sharedPaint.TextSize = (float)(node.Badge.Size * 0.55);
+                    _sharedPaint.TextAlign = SKTextAlign.Center;
+                    _sharedPaint.FakeBoldText = true;
+                    canvas.DrawText(node.Badge.Text, bX, bY + _sharedPaint.TextSize * 0.35f, _sharedPaint);
+                }
+
+                _sharedPaint.Reset();
+            }
 
             if (currentOpacity < 1.0f) canvas.Restore();
             canvas.Restore();
         }
+
+        /// <summary>
+        /// Temas
+        /// </summary>
+        private Action? _themeUpdater;
+
+        public void WatchTheme(Action updater)
+        {
+            // limpia suscripción previa
+            if (_themeUpdater != null)
+                AppTheme.ThemeChanged -= _themeUpdater;
+
+            _themeUpdater = updater;
+            AppTheme.ThemeChanged += _themeUpdater;
+        }
+
+       
 
         protected void DrawBaseEngine(SKCanvas canvas, SKRect shadowRect, float activeBorder)
         {
@@ -648,15 +772,22 @@ namespace FluentWinForms.Core
             {
                 SafeDispose(ref _cachedClipPath);
 
+                // 🔥 INTELIGENCIA ESPACIAL EN EL RECORTE
+                float maxBorder = Math.Max(BorderThickness, FocusThickness);
+                float maxShadowSpace = UseShadow ? S(ShadowBlur) : 0;
+                float hoverSafeZone = EnableHover ? S(6f) : 0;
+
+                float margin = maxShadowSpace + S(maxBorder / 2f) + hoverSafeZone;
                 float activeBorder = S(IsFocusedControl ? FocusThickness : BorderThickness);
-                float shadowSpace = (UseShadow && !IsFocusedControl && Enabled) ? S(ShadowBlur) : 0;
-                float margin = shadowSpace + (activeBorder / 2f);
 
                 var shadowRectSK = new SKRect(margin, margin, Width - margin, Height - margin);
-                var contentRectSK = shadowRectSK; contentRectSK.Inflate(-(activeBorder / 2f), -(activeBorder / 2f));
+                var contentRectSK = shadowRectSK;
+                contentRectSK.Inflate(-(activeBorder / 2f), -(activeBorder / 2f));
 
                 _cachedClipPath = new SKPath();
-                float innerRadius = Math.Max(0, S(BorderRadius) - activeBorder);
+
+                // Curva matemática perfecta restando la mitad del borde
+                float innerRadius = Math.Max(0, S(BorderRadius) - (activeBorder / 2f));
                 _cachedClipPath.AddRoundRect(contentRectSK, innerRadius, innerRadius);
             }
             catch { /* no crash on update */ }
@@ -678,6 +809,61 @@ namespace FluentWinForms.Core
         protected virtual void PaintGDIPipeline(Graphics g, RectangleF contentRect, RectangleF paddedRect)
         {
             using (var brush = new SolidBrush(BackgroundColor)) g.FillRectangle(brush, contentRect);
+        }
+        // =========================================================
+        // 🔥 PASO FINAL: MODO FANTASMA (HIT-TESTING A NIVEL OS CON SCALE)
+        // =========================================================
+        protected override void WndProc(ref Message m)
+        {
+            if (m.Msg == 0x0014) return; // WM_ERASEBKGND (Cero parpadeos nativos)
+
+            const int WM_NCHITTEST = 0x0084;
+            const int HTTRANSPARENT = -1;
+
+            if (m.Msg == WM_NCHITTEST && !DesignMode)
+            {
+                base.WndProc(ref m); // Dejamos que Windows haga su cálculo base
+                if (m.Result.ToInt32() == 1) // 1 = HTCLIENT (El mouse tocó el HWND gigante)
+                {
+                    Point screenPoint = new Point(m.LParam.ToInt32() & 0xFFFF, (m.LParam.ToInt32() >> 16) & 0xFFFF);
+                    Point clientPoint = this.PointToClient(screenPoint);
+
+                    // 🎯 Buscamos la escala máxima activa en este momento
+                    float currentScaleX = this.ScaleX;
+                    float currentScaleY = this.ScaleY;
+
+                    if (_visualNode != null && (_isAnimating || _isHoveringInternal || _isMouseDownInternal))
+                    {
+                        CalculateMaxOverflow(_visualNode, ref currentScaleX, ref currentScaleY);
+                    }
+
+                    // Calculamos el tamaño exacto visual ya escalado
+                    int visualW = (int)(_logicalBounds.IsEmpty ? this.Width : _logicalBounds.Width * currentScaleX);
+                    int visualH = (int)(_logicalBounds.IsEmpty ? this.Height : _logicalBounds.Height * currentScaleY);
+
+                    // Calculamos la caja final usando Offset, Traslación y Escala
+                    // Compensamos el shift que genera el scale centrado en Skia
+                    float halfShiftX = _logicalBounds.IsEmpty ? 0f : _logicalBounds.Width * (currentScaleX - 1f) / 2f;
+                    float halfShiftY = _logicalBounds.IsEmpty ? 0f : _logicalBounds.Height * (currentScaleY - 1f) / 2f;
+
+                    // Calculamos la caja final usando Offset, Traslación y Escala
+                    Rectangle drawnArea = new Rectangle(
+                        (int)(EngineOffset.X + this.TranslateX - halfShiftX),
+                        (int)(EngineOffset.Y + this.TranslateY - halfShiftY),
+                        visualW,
+                        visualH
+                    );
+
+                    // Si el usuario toca el "colchón" invisible de WinForms, nos volvemos transparentes al clic
+                    if (!drawnArea.Contains(clientPoint))
+                    {
+                        m.Result = (IntPtr)HTTRANSPARENT;
+                    }
+                }
+                return;
+            }
+
+            base.WndProc(ref m);
         }
     }
 }

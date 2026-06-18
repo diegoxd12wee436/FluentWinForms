@@ -17,6 +17,8 @@ namespace FluentWinForms.Core
     public enum ImageFit { Fill, Contain, Cover, None }
     public enum TextDecoration { None, Underline, Strikethrough }
     public enum LayoutStyle { Absolute, VerticalStack, HorizontalStack, AutoFitGrid }
+    public enum Align { Start, Center, End }
+    public enum Justify { Start, Center, End, SpaceBetween, SpaceAround }
 
     [ToolboxItem(false)]
     [TypeConverter(typeof(ExpandableObjectConverter))]
@@ -30,6 +32,7 @@ namespace FluentWinForms.Core
 
         [Category("1. Layout")] public RectangleF Layout { get; set; }
         [Category("1. Layout")][NotifyParentProperty(true)] public ModernPadding Padding { get; set; }
+        [Category("1. Layout")][NotifyParentProperty(true)] public ModernThickness Margin { get; set; }
         [Category("1. Layout")][NotifyParentProperty(true)] public CornerRadii Corners { get; set; }
         [Category("1. Layout")][NotifyParentProperty(true)] public SizeF MinSize { get; set; } = new SizeF(0, 0);
         [Category("1. Layout")][NotifyParentProperty(true)] public SizeF MaxSize { get; set; } = new SizeF(0, 0);
@@ -37,6 +40,8 @@ namespace FluentWinForms.Core
         [Category("2. Transformación")][NotifyParentProperty(true)] public float ScaleX { get; set; } = 1.0f;
         [Category("2. Transformación")][NotifyParentProperty(true)] public float ScaleY { get; set; } = 1.0f;
         [Category("2. Transformación")][NotifyParentProperty(true)] public float Rotation { get; set; } = 0f;
+        [Category("2. Transformación")][NotifyParentProperty(true)] public float TranslateX { get; set; } = 0f;
+        [Category("2. Transformación")][NotifyParentProperty(true)] public float TranslateY { get; set; } = 0f;
         [Browsable(false)] public PointF TransformOrigin { get; set; } = new PointF(0.5f, 0.5f);
 
         [Category("3. Apariencia")][NotifyParentProperty(true)] public float Opacity { get; set; } = 1.0f;
@@ -51,15 +56,21 @@ namespace FluentWinForms.Core
         [Category("4. Capas Visuales")][DesignerSerializationVisibility(DesignerSerializationVisibility.Content)][NotifyParentProperty(true)] public ContentData Content { get; set; }
         [Category("4. Capas Visuales")][DesignerSerializationVisibility(DesignerSerializationVisibility.Content)][NotifyParentProperty(true)] public RippleData Ripple { get; set; }
         [Category("4. Capas Visuales")][DesignerSerializationVisibility(DesignerSerializationVisibility.Content)][NotifyParentProperty(true)] public FilterData Filters { get; set; }
+        
+        [Category("4. Capas Visuales")] public SweepData Sweep { get; set; } = new SweepData { IsEnabled = false };
+        [Category("4. Capas Visuales")][NotifyParentProperty(true)] public BadgeData Badge { get; set; }
 
         [Category("5. Contenedor")][NotifyParentProperty(true)] public LayoutStyle LayoutMode { get; set; } = LayoutStyle.Absolute;
         [Category("5. Contenedor")][NotifyParentProperty(true)] public float Spacing { get; set; } = 0f;
         [Category("5. Contenedor")][NotifyParentProperty(true)] public float GridMinColumnWidth { get; set; } = 200f;
+        [Category("5. Contenedor")][NotifyParentProperty(true)] public Align AlignItems { get; set; } = Align.Start;
+        [Category("5. Contenedor")][NotifyParentProperty(true)] public Justify JustifyContent { get; set; } = Justify.Start;
 
         [Browsable(false)] public ObservableCollection<RenderNode> Children { get; } = new ObservableCollection<RenderNode>();
 
         [Browsable(false)] public VisualStateOverrides HoverState;
         [Browsable(false)] public VisualStateOverrides PressState;
+        [Browsable(false)] public VisualStateOverrides DisabledState;
 
         [Browsable(false)] public bool IsHovered { get; set; }
         [Browsable(false)] public bool IsPressed { get; set; }
@@ -100,6 +111,22 @@ namespace FluentWinForms.Core
         public ShadowData? Shadow;
         public float? Scale;
         public float? Opacity;
+        public Color? TextColor;   // 🆕 color de texto interpolado
+        public float? TranslateX;  // 🆕 traslación en estado
+        public float? TranslateY;  // 🆕
+        public float? Grayscale;  // 🆕
+        public float? Brightness; // 🆕
+    }
+    [TypeConverter(typeof(ExpandableObjectConverter))]
+    public struct BadgeData
+    {
+        [NotifyParentProperty(true)] public bool IsVisible { get; set; }
+        [NotifyParentProperty(true)] public string Text { get; set; }
+        [NotifyParentProperty(true)] public Color Background { get; set; }
+        [NotifyParentProperty(true)] public Color TextColor { get; set; }
+        [NotifyParentProperty(true)] public double Size { get; set; }
+        [NotifyParentProperty(true)] public double OffsetX { get; set; }
+        [NotifyParentProperty(true)] public double OffsetY { get; set; }
     }
 
     [TypeConverter(typeof(ExpandableObjectConverter))]
@@ -213,5 +240,13 @@ namespace FluentWinForms.Core
         [NotifyParentProperty(true)] public float Opacity { get; set; }
         [Browsable(false)] public PointF Center { get; set; }
         [Browsable(false)] public bool IsActive { get; set; }
+    }
+    
+    [TypeConverter(typeof(ExpandableObjectConverter))]
+    public struct SweepData
+    {
+        [NotifyParentProperty(true)] public bool IsEnabled { get; set; }
+        [NotifyParentProperty(true)] public Color ThemeColor { get; set; }
+        [NotifyParentProperty(true)] public Color TextHoverColor { get; set; }
     }
 }

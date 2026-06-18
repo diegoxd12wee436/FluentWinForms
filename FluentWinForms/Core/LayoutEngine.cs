@@ -70,53 +70,63 @@ namespace FluentWinForms.Core
         // ─────────────────────────────────────────────────────────────────
 
         private static void ComputeVerticalStack(
-            RenderNode node,
-            float innerX, float innerY,
-            float innerW, float innerH)
+    RenderNode node, float innerX, float innerY, float innerW, float innerH)
         {
-            // ── Pasada 1: contar hijos visibles, medir alturas fijas, contar StretchY ──
-            int stretchCount = 0;
+            int stretchCount = 0, visibleCount = 0;
             float fixedH = 0f;
-            int visibleCount = 0;
 
             foreach (var child in node.Children)
             {
                 if (!child.IsVisible) continue;
                 visibleCount++;
-
-                if (child.StretchY)
-                {
-                    stretchCount++;
-                }
+                if (child.StretchY) stretchCount++;
                 else
                 {
                     float h = child.Layout.Height;
                     if (child.MinSize.Height > 0) h = Math.Max(h, child.MinSize.Height);
-                    fixedH += h;
+                    fixedH += h + child.Margin.Top + child.Margin.Bottom;
                 }
             }
 
-            // Espacio sobrante tras restar hijos fijos y separadores
-            float totalSpacing = visibleCount > 1 ? (visibleCount - 1) * node.Spacing : 0f;
-            float stretchH = stretchCount > 0
-                ? Math.Max(0f, (innerH - fixedH - totalSpacing) / stretchCount)
-                : 0f;
+            float baseSpacing = visibleCount > 1 ? node.Spacing : 0f;
+            float totalSpacing = (visibleCount - 1) * baseSpacing;
+            float totalContentH = fixedH + totalSpacing;
+            float stretchH = stretchCount > 0 ? Math.Max(0f, (innerH - fixedH - totalSpacing) / stretchCount) : 0f;
 
-            // ── Pasada 2: posicionar ──
             float currentY = innerY;
+            float dynamicSpacing = baseSpacing;
+
+            switch (node.JustifyContent)
+            {
+                case Justify.Center: currentY = innerY + (innerH - totalContentH) / 2f; break;
+                case Justify.End: currentY = innerY + innerH - totalContentH; break;
+                case Justify.SpaceBetween when visibleCount > 1:
+                    dynamicSpacing = (innerH - fixedH) / (visibleCount - 1); break;
+                case Justify.SpaceAround:
+                    dynamicSpacing = (innerH - fixedH) / Math.Max(1, visibleCount);
+                    currentY = innerY + dynamicSpacing / 2f; break;
+            }
+
             foreach (var child in node.Children)
             {
                 if (!child.IsVisible) continue;
 
-                float childW = child.StretchX ? innerW : child.Layout.Width;
+                float childW = child.StretchX ? innerW - child.Margin.Left - child.Margin.Right : child.Layout.Width;
                 float childH = child.StretchY ? stretchH : child.Layout.Height;
 
-                // Respetar Min/Max del hijo
                 if (child.MinSize.Height > 0) childH = Math.Max(childH, child.MinSize.Height);
                 if (child.MaxSize.Height > 0) childH = Math.Min(childH, child.MaxSize.Height);
 
-                ComputeLayout(child, new RectangleF(innerX, currentY, childW, childH));
-                currentY += child.Layout.Height + node.Spacing;
+                float childX = node.AlignItems switch
+                {
+                    Align.Center => innerX + (innerW - childW) / 2f,
+                    Align.End => innerX + innerW - childW - child.Margin.Right,
+                    _ => innerX + child.Margin.Left
+                };
+
+                currentY += child.Margin.Top;
+                ComputeLayout(child, new RectangleF(childX, currentY, childW, childH));
+                currentY += child.Layout.Height + child.Margin.Bottom + dynamicSpacing;
             }
         }
 
@@ -125,52 +135,63 @@ namespace FluentWinForms.Core
         // ─────────────────────────────────────────────────────────────────
 
         private static void ComputeHorizontalStack(
-            RenderNode node,
-            float innerX, float innerY,
-            float innerW, float innerH)
+        RenderNode node, float innerX, float innerY, float innerW, float innerH)
         {
-            // ── Pasada 1: medir anchos fijos, contar StretchX ──
-            int stretchCount = 0;
+            int stretchCount = 0, visibleCount = 0;
             float fixedW = 0f;
-            int visibleCount = 0;
 
             foreach (var child in node.Children)
             {
                 if (!child.IsVisible) continue;
                 visibleCount++;
-
-                if (child.StretchX)
-                {
-                    stretchCount++;
-                }
+                if (child.StretchX) stretchCount++;
                 else
                 {
                     float w = child.Layout.Width;
                     if (child.MinSize.Width > 0) w = Math.Max(w, child.MinSize.Width);
-                    fixedW += w;
+                    fixedW += w + child.Margin.Left + child.Margin.Right;
                 }
             }
 
-            float totalSpacing = visibleCount > 1 ? (visibleCount - 1) * node.Spacing : 0f;
-            float stretchW = stretchCount > 0
-                ? Math.Max(0f, (innerW - fixedW - totalSpacing) / stretchCount)
-                : 0f;
+            float baseSpacing = visibleCount > 1 ? node.Spacing : 0f;
+            float totalSpacing = (visibleCount - 1) * baseSpacing;
+            float totalContentW = fixedW + totalSpacing;
+            float stretchW = stretchCount > 0 ? Math.Max(0f, (innerW - fixedW - totalSpacing) / stretchCount) : 0f;
 
-            // ── Pasada 2: posicionar ──
             float currentX = innerX;
+            float dynamicSpacing = baseSpacing;
+
+            switch (node.JustifyContent)
+            {
+                case Justify.Center: currentX = innerX + (innerW - totalContentW) / 2f; break;
+                case Justify.End: currentX = innerX + innerW - totalContentW; break;
+                case Justify.SpaceBetween when visibleCount > 1:
+                    dynamicSpacing = (innerW - fixedW) / (visibleCount - 1); break;
+                case Justify.SpaceAround:
+                    dynamicSpacing = (innerW - fixedW) / Math.Max(1, visibleCount);
+                    currentX = innerX + dynamicSpacing / 2f; break;
+            }
+
             foreach (var child in node.Children)
             {
                 if (!child.IsVisible) continue;
 
                 float childW = child.StretchX ? stretchW : child.Layout.Width;
-                float childH = child.StretchY ? innerH : child.Layout.Height;
+                float childH = child.StretchY ? innerH - child.Margin.Top - child.Margin.Bottom : child.Layout.Height;
 
-                // Respetar Min/Max del hijo
                 if (child.MinSize.Width > 0) childW = Math.Max(childW, child.MinSize.Width);
                 if (child.MaxSize.Width > 0) childW = Math.Min(childW, child.MaxSize.Width);
 
-                ComputeLayout(child, new RectangleF(currentX, innerY, childW, childH));
-                currentX += child.Layout.Width + node.Spacing;
+                float childY = node.AlignItems switch
+                {
+                    Align.Center => innerY + (innerH - childH) / 2f,
+                    Align.End => innerY + innerH - childH - child.Margin.Bottom,
+                    _ => innerY + child.Margin.Top
+                };
+
+                currentX += child.Margin.Left;
+                ComputeLayout(child, new RectangleF(currentX, childY, childW, childH));
+                currentX += child.Layout.Width + child.Margin.Right + dynamicSpacing;
             }
         }
 
