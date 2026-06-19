@@ -342,10 +342,12 @@ namespace FluentWinForms.Core
             {
                 // 🔥 FIX TEMAS: Limpiamos la suscripción para evitar Memory Leaks
                 AppTheme.ThemeChanged -= OnThemeChanged;
+                if (_themeUpdater != null) AppTheme.ThemeChanged -= _themeUpdater;
                 if (_visualNode != null) _visualNode.Children.CollectionChanged -= VisualNode_ChildrenChanged;
 
                 DisposeAnimations();
                 ClearCaches();
+                _visualNode?.ReleaseNativeResources();
                 SafeDispose(ref _sharedPaint);
                 SafeDispose(ref _sharedPath);
                 SafeDispose(ref _gdiWrapper);

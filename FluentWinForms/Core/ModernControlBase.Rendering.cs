@@ -815,7 +815,7 @@ namespace FluentWinForms.Core
         // =========================================================
         private static Point GetLParamPoint(IntPtr lParam)
         {
-            int val = lParam.ToInt32();
+            int val = unchecked((int)(long)lParam);
             return new Point((short)(val & 0xffff), (short)((val >> 16) & 0xffff));
         }
         protected override void WndProc(ref Message m)
@@ -825,10 +825,10 @@ namespace FluentWinForms.Core
             const int WM_NCHITTEST = 0x0084;
             const int HTTRANSPARENT = -1;
 
-            if (m.Msg == WM_NCHITTEST && !DesignMode)
+            if (m.Msg == WM_NCHITTEST && !DesignMode && Enabled)
             {
                 base.WndProc(ref m); // Dejamos que Windows haga su cálculo base
-                if (m.Result.ToInt32() == 1) // 1 = HTCLIENT (El mouse tocó el HWND gigante)
+                if (m.Result.ToInt32() == 1 && !_logicalBounds.IsEmpty && EngineOffset != PointF.Empty)
                 {
                     Point screenPoint = GetLParamPoint(m.LParam);
                     Point clientPoint = this.PointToClient(screenPoint);

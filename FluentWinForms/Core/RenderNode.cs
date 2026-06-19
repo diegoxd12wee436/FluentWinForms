@@ -77,7 +77,13 @@ namespace FluentWinForms.Core
         [Browsable(false)] public float HoverProgress { get; set; } = 0f;
         [Browsable(false)] public float PressProgress { get; set; } = 0f;
         [Browsable(false)] public float AnimatedScale { get; set; } = 1.0f;
-        [Browsable(false)] internal SKImageFilter? _cachedShadowFilter;
+        [Browsable(false)] internal SKImageFilter? _cachedShadowFilter; 
+        internal void ReleaseNativeResources()
+        {
+            _cachedShadowFilter?.Dispose();
+            _cachedShadowFilter = null;
+            foreach (var child in Children) child.ReleaseNativeResources();
+        }
 
         // 🔥 CABLES CONECTADOS
         [Browsable(false)] public Action<RenderNode>? OnClickAction { get; set; }

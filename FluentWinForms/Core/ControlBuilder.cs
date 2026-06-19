@@ -14,14 +14,6 @@ namespace FluentWinForms.Core
     {
         private readonly RenderNode _node;
         private readonly T? _hostControl; // Guarda el control real (ej: FluentElement)
-        //toolTip NUEVOO
-        private static readonly ToolTip _sharedTooltip = new ToolTip
-        {
-            AutoPopDelay = 5000,
-            InitialDelay = 500,
-            ReshowDelay = 200,
-            ShowAlways = true
-        };
         // 🛡️ Mantiene el ToolTip enlazado al control sin usar el "Tag" y evita fugas de memoria
         private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<T, ToolTip> _tooltips = new();
         internal Action<RenderNode>? OnApplied { get; set; }
@@ -236,7 +228,8 @@ namespace FluentWinForms.Core
                 };
             };
 
-            if (_hostControl.InvokeRequired) _hostControl.Invoke(setTooltip);
+            if (!_hostControl.IsHandleCreated) setTooltip();
+            else if (_hostControl.InvokeRequired) _hostControl.Invoke(setTooltip);
             else setTooltip();
 
             return this;

@@ -141,10 +141,13 @@ namespace FluentWinForms.Core
                     }
                 };
 
-                if (InvokeRequired)
-                    BeginInvoke(updateLayout);
-                else
-                    updateLayout();
+                try
+                {
+                    if (InvokeRequired) BeginInvoke(updateLayout);
+                    else updateLayout();
+                }
+                catch (ObjectDisposedException) { }
+                catch (InvalidOperationException) { }
             }
         }
 
