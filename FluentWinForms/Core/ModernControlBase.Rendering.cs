@@ -564,8 +564,18 @@ namespace FluentWinForms.Core
                 _sharedPaint.ColorFilter = null;
             }
 
-            // 🔥 10.  TEXTO ALINEADO, WORDWRAP Y DECORACIONES
-            // 🔥 10.  TEXTO ALINEADO, WORDWRAP Y DECORACIONES
+            // 🔥 10.  TEXTO ALINEADO, WORDWRAP Y DECORACIONES MAS SVG  
+            var textRect = rect;
+            if (node.SvgPicture != null && node.IconPosition != IconAlign.Center)
+            {
+                switch (node.IconPosition)
+                {
+                    case IconAlign.Left: textRect.Left += node.SvgSize.Width + node.IconGap; break;
+                    case IconAlign.Right: textRect.Right -= node.SvgSize.Width + node.IconGap; break;
+                    case IconAlign.Top: textRect.Top += node.SvgSize.Height + node.IconGap; break;
+                    case IconAlign.Bottom: textRect.Bottom -= node.SvgSize.Height + node.IconGap; break;
+                }
+            }
             if (!string.IsNullOrEmpty(node.Content.Text))
             {
                 _sharedPaint.Reset();
@@ -573,32 +583,28 @@ namespace FluentWinForms.Core
                 _sharedPaint.LcdRenderText = true;
                 _sharedPaint.SubpixelText = true;
                 _sharedPaint.HintingLevel = SKPaintHinting.Full;
-                _sharedPaint.Color = currentTextColor.ToSKColor(); // 🆕 interpolado desde estados
+                _sharedPaint.Color = currentTextColor.ToSKColor();
                 _sharedPaint.TextSize = S(node.Content.FontSize);
-
-                // 🔥 EL FIX APLICADO: Ahora recibe IsItalic para dibujar la cursiva correctamente
                 _sharedPaint.Typeface = GetOrCreateTypeface(node.Content.FontFamily, node.Content.IsBold, node.Content.IsItalic);
 
-                float tx = rect.Left;
-                if (node.Content.HorizontalAlignment == StringAlignment.Center) { _sharedPaint.TextAlign = SKTextAlign.Center; tx = rect.MidX; }
-                else if (node.Content.HorizontalAlignment == StringAlignment.Far) { _sharedPaint.TextAlign = SKTextAlign.Right; tx = rect.Right; }
+                float tx = textRect.Left;
+                if (node.Content.HorizontalAlignment == StringAlignment.Center) { _sharedPaint.TextAlign = SKTextAlign.Center; tx = textRect.MidX; }
+                else if (node.Content.HorizontalAlignment == StringAlignment.Far) { _sharedPaint.TextAlign = SKTextAlign.Right; tx = textRect.Right; }
                 else { _sharedPaint.TextAlign = SKTextAlign.Left; }
 
                 if (node.Content.WordWrap)
                 {
-                    var lines = WrapTextSkia(node.Content.Text, _sharedPaint, rect.Width);
+                    var lines = WrapTextSkia(node.Content.Text, _sharedPaint, textRect.Width);
                     float lineHeight = _sharedPaint.FontMetrics.Descent - _sharedPaint.FontMetrics.Ascent;
                     float totalHeight = lines.Count * lineHeight;
 
-                    float ty = rect.Top - _sharedPaint.FontMetrics.Ascent;
-                    if (node.Content.VerticalAlignment == StringAlignment.Center) ty = rect.MidY - (totalHeight / 2f) - _sharedPaint.FontMetrics.Ascent;
-                    else if (node.Content.VerticalAlignment == StringAlignment.Far) ty = rect.Bottom - totalHeight - _sharedPaint.FontMetrics.Ascent;
+                    float ty = textRect.Top - _sharedPaint.FontMetrics.Ascent;
+                    if (node.Content.VerticalAlignment == StringAlignment.Center) ty = textRect.MidY - (totalHeight / 2f) - _sharedPaint.FontMetrics.Ascent;
+                    else if (node.Content.VerticalAlignment == StringAlignment.Far) ty = textRect.Bottom - totalHeight - _sharedPaint.FontMetrics.Ascent;
 
                     foreach (var line in lines)
                     {
                         canvas.DrawText(line, tx, ty, _sharedPaint);
-
-                        // Decoraciones Multilínea
                         if (node.Content.Decoration == TextDecoration.Underline)
                         {
                             SKRect lb = new SKRect();
@@ -613,7 +619,6 @@ namespace FluentWinForms.Core
                             float strikeY = ty - (lb.Height / 2f);
                             canvas.DrawLine(lb.Left + tx, strikeY, lb.Right + tx, strikeY, _sharedPaint);
                         }
-
                         ty += lineHeight;
                     }
                 }
@@ -622,12 +627,11 @@ namespace FluentWinForms.Core
                     SKRect textBounds = new SKRect();
                     _sharedPaint.MeasureText(node.Content.Text, ref textBounds);
 
-                    float ty = rect.Top;
-                    if (node.Content.VerticalAlignment == StringAlignment.Center) ty = rect.MidY - textBounds.MidY;
-                    else if (node.Content.VerticalAlignment == StringAlignment.Far) ty = rect.Bottom - textBounds.Bottom;
-                    else ty = rect.Top - textBounds.Top;
+                    float ty = textRect.Top;
+                    if (node.Content.VerticalAlignment == StringAlignment.Center) ty = textRect.MidY - textBounds.MidY;
+                    else if (node.Content.VerticalAlignment == StringAlignment.Far) ty = textRect.Bottom - textBounds.Bottom;
+                    else ty = textRect.Top - textBounds.Top;
 
-                    // Decoraciones Simple
                     if (node.Content.Decoration == TextDecoration.Underline)
                     {
                         float underlineY = ty + S(2f);
@@ -665,8 +669,15 @@ namespace FluentWinForms.Core
                 float scaleX = cull.Width > 0 ? node.SvgSize.Width / cull.Width : 1f;
                 float scaleY = cull.Height > 0 ? node.SvgSize.Height / cull.Height : 1f;
 
-                float px = node.Layout.X + (node.Layout.Width - node.SvgSize.Width) / 2f;
-                float py = node.Layout.Y + (node.Layout.Height - node.SvgSize.Height) / 2f;
+                float px, py;
+                switch (node.IconPosition)
+                {
+                    case IconAlign.Left: px = rect.Left; py = rect.MidY - node.SvgSize.Height / 2f; break;
+                    case IconAlign.Right: px = rect.Right - node.SvgSize.Width; py = rect.MidY - node.SvgSize.Height / 2f; break;
+                    case IconAlign.Top: px = rect.MidX - node.SvgSize.Width / 2f; py = rect.Top; break;
+                    case IconAlign.Bottom: px = rect.MidX - node.SvgSize.Width / 2f; py = rect.Bottom - node.SvgSize.Height; break;
+                    default: px = rect.MidX - node.SvgSize.Width / 2f; py = rect.MidY - node.SvgSize.Height / 2f; break;
+                }
 
                 var matrix = SKMatrix.CreateScaleTranslation(scaleX, scaleY, px, py);
 

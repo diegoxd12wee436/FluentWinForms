@@ -300,6 +300,27 @@ namespace FluentWinForms.Core
             }
             return this;
         }
+        public ControlBuilder<T> IconPosition(IconAlign align, double gap = 8)
+        { _node.IconPosition = align; _node.IconGap = (float)gap; return this; }
+
+        /// <summary>
+        /// EN: Loads a vector icon from an .svg file on disk.
+        /// ES: Carga un ícono vectorial desde un archivo .svg en disco.
+        /// </summary>
+        public ControlBuilder<T> IconSvgFile(string filePath, double width = 24, double height = 24, string? color = null)
+        {
+            _node.ClearSvg();
+            using var svg = new SKSvg();
+            var picture = svg.Load(filePath);
+
+            if (picture != null)
+            {
+                _node.SvgPicture = picture;
+                _node.SvgSize = new SizeF((float)width, (float)height);
+                if (!string.IsNullOrWhiteSpace(color)) _node.SvgTintColor = ParseHex(color!);
+            }
+            return this;
+        }
 
         public ControlBuilder<T> Content(string text, string? hexColor = null, double? fontSize = null)
         {

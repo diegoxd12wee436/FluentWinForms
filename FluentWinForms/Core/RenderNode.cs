@@ -17,6 +17,7 @@ namespace FluentWinForms.Core
     public enum ImageFit { Fill, Contain, Cover, None }
     public enum TextDecoration { None, Underline, Strikethrough }
     public enum LayoutStyle { Absolute, VerticalStack, HorizontalStack, AutoFitGrid }
+    public enum IconAlign { Center, Left, Right, Top, Bottom }
     public enum Align { Start, Center, End }
     public enum Justify { Start, Center, End, SpaceBetween, SpaceAround }
 
@@ -61,6 +62,8 @@ namespace FluentWinForms.Core
         [Browsable(false)] public SKPicture? SvgPicture { get; set; }
         [Browsable(false)] public Color SvgTintColor { get; set; } = Color.Empty;
         [Browsable(false)] public SizeF SvgSize { get; set; }
+        [Browsable(false)] public IconAlign IconPosition { get; set; } = IconAlign.Center;
+        [Browsable(false)] public float IconGap { get; set; } = 8f;
         [Browsable(false)] internal SKColorFilter? _cachedSvgTint;
         [Browsable(false)] internal Color _lastSvgTintColor = Color.Empty;
         [Category("4. Capas Visuales")][NotifyParentProperty(true)] public BadgeData Badge { get; set; }
