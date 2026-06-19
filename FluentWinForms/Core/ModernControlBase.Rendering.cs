@@ -221,6 +221,7 @@ namespace FluentWinForms.Core
             float targetScaleX = node.ScaleX;
             float targetScaleY = node.ScaleY;
             Color currentTextColor = node.Content.TextColor; // 
+            Color currentIconColor = node.SvgTintColor;       // 🆕
             float currentTransX = node.TranslateX;        // 
             float currentTransY = node.TranslateY;        // 
 
@@ -245,6 +246,8 @@ namespace FluentWinForms.Core
                 }
                 if (node.HoverState.TextColor.HasValue)
                     currentTextColor = LerpColor(currentTextColor, node.HoverState.TextColor.Value, e); // 🆕
+                if (node.HoverState.IconColor.HasValue)
+                    currentIconColor = LerpColor(currentIconColor, node.HoverState.IconColor.Value, e); // 🆕
                 if (node.HoverState.TranslateX.HasValue)
                     currentTransX += (node.HoverState.TranslateX.Value - currentTransX) * e;           // 🆕
                 if (node.HoverState.TranslateY.HasValue)
@@ -272,6 +275,8 @@ namespace FluentWinForms.Core
                 }
                 if (node.PressState.TextColor.HasValue)
                     currentTextColor = LerpColor(currentTextColor, node.PressState.TextColor.Value, e); // 🆕
+                if (node.PressState.IconColor.HasValue)
+                    currentIconColor = LerpColor(currentIconColor, node.PressState.IconColor.Value, e); // 🆕
                 if (node.PressState.TranslateX.HasValue)
                     currentTransX += (node.PressState.TranslateX.Value - currentTransX) * e;            // 🆕
                 if (node.PressState.TranslateY.HasValue)
@@ -285,6 +290,7 @@ namespace FluentWinForms.Core
                 if (node.DisabledState.Shadow.HasValue) sh.Color = node.DisabledState.Shadow.Value.Color;
                 if (node.DisabledState.Opacity.HasValue) currentOpacity = node.DisabledState.Opacity.Value;
                 if (node.DisabledState.TextColor.HasValue) currentTextColor = node.DisabledState.TextColor.Value;
+                if (node.DisabledState.IconColor.HasValue) currentIconColor = node.DisabledState.IconColor.Value;
                 if (node.DisabledState.Scale.HasValue) { targetScaleX = node.DisabledState.Scale.Value; targetScaleY = node.DisabledState.Scale.Value; }
             }
             // 4. TRANSFORMACIONES (Traslación, Rotación y Escala)
@@ -635,6 +641,41 @@ namespace FluentWinForms.Core
 
                     canvas.DrawText(node.Content.Text, tx, ty, _sharedPaint);
                 }
+            }
+            // 10.5. SVG ICON — vectorial, escala sin pixelar
+            if (node.SvgPicture != null)
+            {
+                _sharedPaint.Reset();
+                _sharedPaint.IsAntialias = true;
+
+                if (currentIconColor != Color.Empty)
+                {
+                    if (node._cachedSvgTint == null || node._lastSvgTintColor != currentIconColor)
+                    {
+                        node._cachedSvgTint?.Dispose();
+                        node._cachedSvgTint = SKColorFilter.CreateBlendMode(
+                            new SKColor(currentIconColor.R, currentIconColor.G, currentIconColor.B, currentIconColor.A),
+                            SKBlendMode.SrcIn);
+                        node._lastSvgTintColor = currentIconColor;
+                    }
+                    _sharedPaint.ColorFilter = node._cachedSvgTint;
+                }
+
+                var cull = node.SvgPicture.CullRect;
+                float scaleX = cull.Width > 0 ? node.SvgSize.Width / cull.Width : 1f;
+                float scaleY = cull.Height > 0 ? node.SvgSize.Height / cull.Height : 1f;
+
+                float px = node.Layout.X + (node.Layout.Width - node.SvgSize.Width) / 2f;
+                float py = node.Layout.Y + (node.Layout.Height - node.SvgSize.Height) / 2f;
+
+                var matrix = SKMatrix.CreateScaleTranslation(scaleX, scaleY, px, py);
+
+                canvas.Save();
+                canvas.Concat(ref matrix);
+                canvas.DrawPicture(node.SvgPicture, _sharedPaint);
+                canvas.Restore();
+
+                _sharedPaint.Reset();
             }
 
             // 11. RECURSIVIDAD DE HIJOS

@@ -1,4 +1,5 @@
 #nullable enable
+using Svg.Skia;
 using System;
 using System.ComponentModel;
 using System.Drawing;
@@ -280,6 +281,25 @@ namespace FluentWinForms.Core
         // ═════════════════════════════════════════════════════════════════════
         // 4. CONTENIDO Y TEXTO
         // ═════════════════════════════════════════════════════════════════════
+        /// <summary>
+        /// EN: Loads and caches a vector icon from SVG markup. Stays sharp at any size/DPI.
+        /// ES: Carga y cachea un ícono vectorial desde código SVG. Se ve nítido en cualquier tamaño/DPI.
+        /// </summary>
+        public ControlBuilder<T> IconSvg(string svgXml, double width = 24, double height = 24, string? color = null)
+        {
+            _node.ClearSvg();
+            using var svg = new SKSvg();
+            using var stream = new System.IO.MemoryStream(System.Text.Encoding.UTF8.GetBytes(svgXml));
+            var picture = svg.Load(stream);
+
+            if (picture != null)
+            {
+                _node.SvgPicture = picture;
+                _node.SvgSize = new SizeF((float)width, (float)height);
+                if (!string.IsNullOrWhiteSpace(color)) _node.SvgTintColor = ParseHex(color!);
+            }
+            return this;
+        }
 
         public ControlBuilder<T> Content(string text, string? hexColor = null, double? fontSize = null)
         {
@@ -538,7 +558,7 @@ namespace FluentWinForms.Core
         }
 
         public ControlBuilder<T> Hover(string? bg = null, double? scale = null, double? opacity = null,
-                                string? border = null, string? shadow = null, string? textColor = null)
+                                string? border = null, string? shadow = null, string? textColor = null, string? iconColor = null)
         {
             return StateHover(s => {
                 if (!string.IsNullOrWhiteSpace(bg)) s.Background(bg);
@@ -546,12 +566,13 @@ namespace FluentWinForms.Core
                 if (opacity.HasValue) s.Opacity(opacity.Value);
                 if (!string.IsNullOrWhiteSpace(border)) s.Border(border);
                 if (!string.IsNullOrWhiteSpace(shadow)) s.Shadow(shadow);
-                if (!string.IsNullOrWhiteSpace(textColor)) s.TextColor(textColor); // 🆕
+                if (!string.IsNullOrWhiteSpace(textColor)) s.TextColor(textColor);
+                if (!string.IsNullOrWhiteSpace(iconColor)) s.IconColor(iconColor); // 🆕
             });
         }
 
         public ControlBuilder<T> Press(string? bg = null, double? scale = null, double? opacity = null,
-                                        string? border = null, string? shadow = null, string? textColor = null)
+                                        string? border = null, string? shadow = null, string? textColor = null, string? iconColor = null)
         {
             return StatePress(s => {
                 if (!string.IsNullOrWhiteSpace(bg)) s.Background(bg);
@@ -559,7 +580,8 @@ namespace FluentWinForms.Core
                 if (opacity.HasValue) s.Opacity(opacity.Value);
                 if (!string.IsNullOrWhiteSpace(border)) s.Border(border);
                 if (!string.IsNullOrWhiteSpace(shadow)) s.Shadow(shadow);
-                if (!string.IsNullOrWhiteSpace(textColor)) s.TextColor(textColor); // 🆕
+                if (!string.IsNullOrWhiteSpace(textColor)) s.TextColor(textColor);
+                if (!string.IsNullOrWhiteSpace(iconColor)) s.IconColor(iconColor); // 🆕
             });
         }
         // ═════════════════════════════════════════════════════════════════════
@@ -658,6 +680,7 @@ namespace FluentWinForms.Core
             public StateBuilder Opacity(double opacity) { _s.Opacity = (float)Math.Max(0.0, Math.Min(1.0, opacity)); return this; }
             public StateBuilder TextColor(string hex) { try { _s.TextColor = ParseHex(hex); } catch { } return this; }
             public StateBuilder TextColor(Color color) { _s.TextColor = color; return this; }
+            public StateBuilder IconColor(string hex) { try { _s.IconColor = ParseHex(hex); } catch { } return this; }
             public StateBuilder Translate(double x, double y) { _s.TranslateX = (float)x; _s.TranslateY = (float)y; return this; }
             internal VisualStateOverrides Build() => _s;
         }

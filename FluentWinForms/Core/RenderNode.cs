@@ -58,6 +58,11 @@ namespace FluentWinForms.Core
         [Category("4. Capas Visuales")][DesignerSerializationVisibility(DesignerSerializationVisibility.Content)][NotifyParentProperty(true)] public FilterData Filters { get; set; }
         
         [Category("4. Capas Visuales")] public SweepData Sweep { get; set; } = new SweepData { IsEnabled = false };
+        [Browsable(false)] public SKPicture? SvgPicture { get; set; }
+        [Browsable(false)] public Color SvgTintColor { get; set; } = Color.Empty;
+        [Browsable(false)] public SizeF SvgSize { get; set; }
+        [Browsable(false)] internal SKColorFilter? _cachedSvgTint;
+        [Browsable(false)] internal Color _lastSvgTintColor = Color.Empty;
         [Category("4. Capas Visuales")][NotifyParentProperty(true)] public BadgeData Badge { get; set; }
 
         [Category("5. Contenedor")][NotifyParentProperty(true)] public LayoutStyle LayoutMode { get; set; } = LayoutStyle.Absolute;
@@ -77,12 +82,24 @@ namespace FluentWinForms.Core
         [Browsable(false)] public float HoverProgress { get; set; } = 0f;
         [Browsable(false)] public float PressProgress { get; set; } = 0f;
         [Browsable(false)] public float AnimatedScale { get; set; } = 1.0f;
-        [Browsable(false)] internal SKImageFilter? _cachedShadowFilter; 
+        [Browsable(false)] internal SKImageFilter? _cachedShadowFilter;
         internal void ReleaseNativeResources()
         {
             _cachedShadowFilter?.Dispose();
             _cachedShadowFilter = null;
+            _cachedSvgTint?.Dispose();
+            _cachedSvgTint = null;
+            SvgPicture?.Dispose();
+            SvgPicture = null;
             foreach (var child in Children) child.ReleaseNativeResources();
+        }
+
+        public void ClearSvg()
+        {
+            _cachedSvgTint?.Dispose();
+            _cachedSvgTint = null;
+            SvgPicture?.Dispose();
+            SvgPicture = null;
         }
 
         // 🔥 CABLES CONECTADOS
@@ -122,6 +139,7 @@ namespace FluentWinForms.Core
         public float? TranslateY;  // 🆕
         public float? Grayscale;  // 🆕
         public float? Brightness; // 🆕
+        public Color? IconColor;  // 🆕 tinte del ícono en hover/press
     }
     [TypeConverter(typeof(ExpandableObjectConverter))]
     public struct BadgeData
