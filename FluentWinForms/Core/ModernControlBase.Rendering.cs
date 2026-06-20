@@ -235,6 +235,11 @@ namespace FluentWinForms.Core
                 {
                     bg.Color1 = LerpColor(bg.Color1, node.HoverState.Background.Value.Color1, e);
                     bg.Color2 = LerpColor(bg.Color2, node.HoverState.Background.Value.Color2, e);
+                    if (node.HoverState.Background.Value.IsGradient)
+                    {
+                        bg.IsGradient = true;
+                        bg.GradientAngle += (node.HoverState.Background.Value.GradientAngle - bg.GradientAngle) * e;
+                    }
                 }
                 if (node.HoverState.Border.HasValue) bd.NormalColor = LerpColor(bd.NormalColor, node.HoverState.Border.Value.NormalColor, e);
                 if (node.HoverState.Shadow.HasValue) sh.Color = LerpColor(sh.Color, node.HoverState.Shadow.Value.Color, e);
@@ -264,6 +269,11 @@ namespace FluentWinForms.Core
                 {
                     bg.Color1 = LerpColor(bg.Color1, node.PressState.Background.Value.Color1, e);
                     bg.Color2 = LerpColor(bg.Color2, node.PressState.Background.Value.Color2, e);
+                    if (node.PressState.Background.Value.IsGradient)
+                    {
+                        bg.IsGradient = true;
+                        bg.GradientAngle += (node.PressState.Background.Value.GradientAngle - bg.GradientAngle) * e;
+                    }
                 }
                 if (node.PressState.Border.HasValue) bd.NormalColor = LerpColor(bd.NormalColor, node.PressState.Border.Value.NormalColor, e);
                 if (node.PressState.Shadow.HasValue) sh.Color = LerpColor(sh.Color, node.PressState.Shadow.Value.Color, e);

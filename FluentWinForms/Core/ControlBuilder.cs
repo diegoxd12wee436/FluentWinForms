@@ -288,21 +288,29 @@ namespace FluentWinForms.Core
         public ControlBuilder<T> IconSvg(string svgXml, double width = 24, double height = 24, string? color = null)
         {
             _node.ClearSvg();
-            using var svg = new SKSvg();
-            using var stream = new System.IO.MemoryStream(System.Text.Encoding.UTF8.GetBytes(svgXml));
-            var picture = svg.Load(stream);
-
-            if (picture != null)
+            try
             {
-                _node.SvgPicture = picture;
-                _node.SvgSize = new SizeF((float)width, (float)height);
-                if (!string.IsNullOrWhiteSpace(color)) _node.SvgTintColor = ParseHex(color!);
+                using var svg = new SKSvg();
+                using var stream = new System.IO.MemoryStream(System.Text.Encoding.UTF8.GetBytes(svgXml));
+                var picture = svg.Load(stream);
+
+                if (picture != null)
+                {
+                    _node.SvgPicture = picture;
+                    _node.SvgSize = new SizeF((float)width, (float)height);
+                    if (!string.IsNullOrWhiteSpace(color)) _node.SvgTintColor = ParseHex(color!);
+                }
+                else
+                {
+                    System.Diagnostics.Debug.WriteLine($"[FluentWinForms] IconSvg: XML inválido o vacío en nodo '{_node.Id}'.");
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[FluentWinForms] IconSvg: error al parsear SVG en '{_node.Id}' — {ex.Message}");
             }
             return this;
         }
-        public ControlBuilder<T> IconPosition(IconAlign align, double gap = 8)
-        { _node.IconPosition = align; _node.IconGap = (float)gap; return this; }
-
         /// <summary>
         /// EN: Loads a vector icon from an .svg file on disk.
         /// ES: Carga un ícono vectorial desde un archivo .svg en disco.
@@ -310,17 +318,38 @@ namespace FluentWinForms.Core
         public ControlBuilder<T> IconSvgFile(string filePath, double width = 24, double height = 24, string? color = null)
         {
             _node.ClearSvg();
-            using var svg = new SKSvg();
-            var picture = svg.Load(filePath);
 
-            if (picture != null)
+            if (!System.IO.File.Exists(filePath))
             {
-                _node.SvgPicture = picture;
-                _node.SvgSize = new SizeF((float)width, (float)height);
-                if (!string.IsNullOrWhiteSpace(color)) _node.SvgTintColor = ParseHex(color!);
+                System.Diagnostics.Debug.WriteLine($"[FluentWinForms] IconSvgFile: archivo no encontrado — '{filePath}'.");
+                return this;
+            }
+
+            try
+            {
+                using var svg = new SKSvg();
+                var picture = svg.Load(filePath);
+
+                if (picture != null)
+                {
+                    _node.SvgPicture = picture;
+                    _node.SvgSize = new SizeF((float)width, (float)height);
+                    if (!string.IsNullOrWhiteSpace(color)) _node.SvgTintColor = ParseHex(color!);
+                }
+                else
+                {
+                    System.Diagnostics.Debug.WriteLine($"[FluentWinForms] IconSvgFile: formato inválido — '{filePath}'.");
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[FluentWinForms] IconSvgFile: error al cargar '{filePath}' — {ex.Message}");
             }
             return this;
         }
+        public ControlBuilder<T> IconPosition(IconAlign align, double gap = 8)
+        { _node.IconPosition = align; _node.IconGap = (float)gap; return this; }      
+        
 
         public ControlBuilder<T> Content(string text, string? hexColor = null, double? fontSize = null)
         {
@@ -562,7 +591,7 @@ namespace FluentWinForms.Core
             _node.Enabled = false;
             return this;
         }
-        public ControlBuilder<T> Disabled(float opacity = 0.4f, string? textColor = null, string? bg = null)
+        public ControlBuilder<T> Disabled(double opacity = 0.4, string? textColor = null, string? bg = null)
         {
             return StateDisabled(s => {
                 s.Opacity(opacity);
@@ -579,7 +608,9 @@ namespace FluentWinForms.Core
         }
 
         public ControlBuilder<T> Hover(string? bg = null, double? scale = null, double? opacity = null,
-                                string? border = null, string? shadow = null, string? textColor = null, string? iconColor = null)
+        string? border = null, string? shadow = null, string? textColor = null, string? iconColor = null,
+        (string from, string to, double angle)? gradient = null,   // 🆕
+        double? translateX = null, double? translateY = null)     // 🆕
         {
             return StateHover(s => {
                 if (!string.IsNullOrWhiteSpace(bg)) s.Background(bg);
@@ -588,12 +619,16 @@ namespace FluentWinForms.Core
                 if (!string.IsNullOrWhiteSpace(border)) s.Border(border);
                 if (!string.IsNullOrWhiteSpace(shadow)) s.Shadow(shadow);
                 if (!string.IsNullOrWhiteSpace(textColor)) s.TextColor(textColor);
-                if (!string.IsNullOrWhiteSpace(iconColor)) s.IconColor(iconColor); // 🆕
+                if (!string.IsNullOrWhiteSpace(iconColor)) s.IconColor(iconColor);
+                if (gradient.HasValue) s.Gradient(gradient.Value.from, gradient.Value.to, gradient.Value.angle);
+                if (translateX.HasValue || translateY.HasValue) s.Translate(translateX ?? 0, translateY ?? 0);
             });
         }
-
+        // igual para Press()
         public ControlBuilder<T> Press(string? bg = null, double? scale = null, double? opacity = null,
-                                        string? border = null, string? shadow = null, string? textColor = null, string? iconColor = null)
+        string? border = null, string? shadow = null, string? textColor = null, string? iconColor = null,
+        (string from, string to, double angle)? gradient = null,
+        double? translateX = null, double? translateY = null)
         {
             return StatePress(s => {
                 if (!string.IsNullOrWhiteSpace(bg)) s.Background(bg);
@@ -602,7 +637,9 @@ namespace FluentWinForms.Core
                 if (!string.IsNullOrWhiteSpace(border)) s.Border(border);
                 if (!string.IsNullOrWhiteSpace(shadow)) s.Shadow(shadow);
                 if (!string.IsNullOrWhiteSpace(textColor)) s.TextColor(textColor);
-                if (!string.IsNullOrWhiteSpace(iconColor)) s.IconColor(iconColor); // 🆕
+                if (!string.IsNullOrWhiteSpace(iconColor)) s.IconColor(iconColor);
+                if (gradient.HasValue) s.Gradient(gradient.Value.from, gradient.Value.to, gradient.Value.angle);
+                if (translateX.HasValue || translateY.HasValue) s.Translate(translateX ?? 0, translateY ?? 0);
             });
         }
         // ═════════════════════════════════════════════════════════════════════
@@ -695,6 +732,12 @@ namespace FluentWinForms.Core
             internal StateBuilder(VisualStateOverrides s) { _s = s; }
 
             public StateBuilder Background(string hex) { try { _s.Background = new BackgroundData { Color1 = ParseHex(hex), IsGradient = false }; } catch { } return this; }
+            public StateBuilder Gradient(string hexFrom, string hexTo, double angle = 0)
+            {
+                try { _s.Background = new BackgroundData { Color1 = ParseHex(hexFrom), Color2 = ParseHex(hexTo), IsGradient = true, GradientAngle = (float)angle }; }
+                catch { }
+                return this;
+            }
             public StateBuilder Border(string hex) { try { _s.Border = new BorderData { NormalColor = ParseHex(hex), Thickness = new ModernThickness(1) }; } catch { } return this; }
             public StateBuilder Shadow(string hex) { try { _s.Shadow = new ShadowData { Color = ParseHex(hex), Radius = 8, OffsetY = 4 }; } catch { } return this; }
             public StateBuilder Scale(double scale) { _s.Scale = (float)scale; return this; }
