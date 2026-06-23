@@ -79,7 +79,7 @@ namespace FluentWinForms
             modernGlassPanel1.BlurAmount = 25F;
             modernGlassPanel1.BorderColor = Color.FromArgb(120, 255, 255, 255);
             modernGlassPanel1.BorderRadius = 15F;
-            modernGlassPanel1.BorderThickness = 1F;
+            modernGlassPanel1.BorderThickness = 0F;
             modernGlassPanel1.CheckedColor = Color.FromArgb(0, 120, 215);
             modernGlassPanel1.CheckedColor2 = Color.FromArgb(0, 90, 180);
             modernGlassPanel1.DisabledColor = Color.FromArgb(200, 200, 200);
@@ -95,7 +95,7 @@ namespace FluentWinForms
             modernGlassPanel1.HoverColor = Color.FromArgb(240, 240, 240);
             modernGlassPanel1.HoverColor2 = Color.FromArgb(220, 220, 220);
             modernGlassPanel1.ImageOpacity = 1F;
-            modernGlassPanel1.Location = new Point(346, 98);
+            modernGlassPanel1.Location = new Point(356, 121);
             modernGlassPanel1.Name = "modernGlassPanel1";
             modernGlassPanel1.Opacity = 1F;
             modernGlassPanel1.PressColor = Color.FromArgb(220, 220, 220);
@@ -109,11 +109,13 @@ namespace FluentWinForms
             modernGlassPanel1.ShadowOffsetX = 0F;
             modernGlassPanel1.ShadowOffsetY = 4F;
             modernGlassPanel1.ShadowOpacity = 0.5F;
-            modernGlassPanel1.Size = new Size(342, 213);
+            modernGlassPanel1.Size = new Size(481, 225);
             modernGlassPanel1.TabIndex = 2;
             modernGlassPanel1.Text = "modernGlassPanel1";
             modernGlassPanel1.TextAlignment = StringAlignment.Center;
             modernGlassPanel1.TextColor = Color.Black;
+            modernGlassPanel1.TranslateX = 0F;
+            modernGlassPanel1.TranslateY = 0F;
             modernGlassPanel1.UseGradient = false;
             modernGlassPanel1.UseRipple = false;
             modernGlassPanel1.UseShadow = false;

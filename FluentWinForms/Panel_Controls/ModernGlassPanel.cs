@@ -106,12 +106,18 @@ namespace FluentWinForms.Panel_Controls
 
             try
             {
-                using (Bitmap bmp = new Bitmap(Width, Height))
+                // Usamos bounds lógicos, no físicos — evita capturar el colchón de expansión
+                int captureW = _logicalBounds.IsEmpty ? Width : (int)_logicalBounds.Width;
+                int captureH = _logicalBounds.IsEmpty ? Height : (int)_logicalBounds.Height;
+                int captureX = _logicalBounds.IsEmpty ? Left : _logicalBounds.X;
+                int captureY = _logicalBounds.IsEmpty ? Top : _logicalBounds.Y;
+
+                using (Bitmap bmp = new Bitmap(Math.Max(1, captureW), Math.Max(1, captureH)))
                 {
                     using (Graphics g = Graphics.FromImage(bmp))
                     {
                         g.Clear(Color.Transparent);
-                        g.TranslateTransform(-Left, -Top);
+                        g.TranslateTransform(-captureX, -captureY);
 
                         using (var pe = new PaintEventArgs(g, Parent.ClientRectangle))
                             InvokePaintBackground(Parent, pe);
@@ -120,7 +126,8 @@ namespace FluentWinForms.Panel_Controls
                         for (int i = Parent.Controls.Count - 1; i > myIndex; i--)
                         {
                             Control c = Parent.Controls[i];
-                            if (!c.Visible || !c.Bounds.IntersectsWith(this.Bounds)) continue;
+                            var logicalRect = _logicalBounds.IsEmpty ? this.Bounds : Rectangle.Round(_logicalBounds);
+                            if (!c.Visible || !c.Bounds.IntersectsWith(logicalRect)) continue;
                             if (c.GetType().FullName?.Contains("AxHost") == true) continue;
 
                             int cw = Math.Max(1, c.Width);
@@ -154,7 +161,7 @@ namespace FluentWinForms.Panel_Controls
                                 canvas.Clear(SKColors.Transparent);
                                 if (_blurAmount > 0)
                                 {
-                                    using (var blurPaint = new SKPaint { ImageFilter = SKImageFilter.CreateBlur(S(_blurAmount), S(_blurAmount), SKShaderTileMode.Clamp) })
+                                    using (var blurPaint = new SKPaint { ImageFilter = SKImageFilter.CreateBlur(S(_blurAmount), S(_blurAmount), SKShaderTileMode.Decal) })
                                     {
                                         canvas.DrawBitmap(rawSkia, 0, 0, blurPaint);
                                     }
@@ -245,7 +252,7 @@ namespace FluentWinForms.Panel_Controls
                     canvas.Save();
                     canvas.ClipPath(path, SKClipOperation.Intersect, true);
 
-                    if (_sharpCache != null) canvas.DrawBitmap(_sharpCache, 0, 0); // 🔥 adentro del clip
+                    
 
                     // El blur ahora se dibuja de extremo a extremo sin dejar marcos a los lados
                     if (_blurredCache != null) canvas.DrawBitmap(_blurredCache, 0, 0);
