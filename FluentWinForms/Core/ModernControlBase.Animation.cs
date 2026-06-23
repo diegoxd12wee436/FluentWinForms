@@ -92,7 +92,7 @@ namespace FluentWinForms.Core
         // =====================================================================
         // 🚀 EXPANSIÓN FÍSICA ZERO-ALLOCATION (CSS-LIKE BEHAVIOR)
         // =====================================================================
-        protected void UpdatePhysicalBounds()
+        protected virtual void UpdatePhysicalBounds()
         {
             if (_logicalBounds.IsEmpty || _visualNode == null) return;
 

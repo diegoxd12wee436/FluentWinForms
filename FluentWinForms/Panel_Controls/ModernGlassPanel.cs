@@ -70,6 +70,10 @@ namespace FluentWinForms.Panel_Controls
             SetStyle(ControlStyles.ContainerControl | ControlStyles.SupportsTransparentBackColor | ControlStyles.OptimizedDoubleBuffer, true);
             BackColor = Color.Transparent;
             try { base.UseAcrylic = false; } catch { }
+            EnableHover = false; // 🔥 Sin safe zone — el panel no tiene hover effects
+            BorderThickness = 0;
+            FocusThickness = 0;
+
         }
 
         private static float S(float v) => v;
@@ -80,6 +84,8 @@ namespace FluentWinForms.Panel_Controls
         protected override void OnMouseMove(MouseEventArgs e) { /* SILENCIADO */ }
         protected override void OnMouseEnter(EventArgs e) { /* SILENCIADO */ }
         protected override void OnMouseLeave(EventArgs e) { /* SILENCIADO */ }
+        // Panel no necesita HWND expandido — cero hover scale, cero translate
+        protected override void UpdatePhysicalBounds() { }
 
         private void InvalidateCaches()
         {
@@ -159,16 +165,38 @@ namespace FluentWinForms.Panel_Controls
                             using (var canvas = new SKCanvas(_blurredCache))
                             {
                                 canvas.Clear(SKColors.Transparent);
+                                _blurredCache?.Dispose();
+                                _blurredCache = new SKBitmap(rawSkia.Width, rawSkia.Height);
+
                                 if (_blurAmount > 0)
                                 {
-                                    using (var blurPaint = new SKPaint { ImageFilter = SKImageFilter.CreateBlur(S(_blurAmount), S(_blurAmount), SKShaderTileMode.Decal) })
+                                    int pad = (int)Math.Ceiling(S(_blurAmount)) + 2;
+                                    int pw = rawSkia.Width + pad * 2;
+                                    int ph = rawSkia.Height + pad * 2;
+
+                                    using (var padded = new SKBitmap(pw, ph))
+                                    using (var pc = new SKCanvas(padded))
                                     {
-                                        canvas.DrawBitmap(rawSkia, 0, 0, blurPaint);
+                                        pc.Clear(SKColors.Transparent);
+                                        pc.DrawBitmap(rawSkia, pad, pad);
+
+                                        using (var blurred = new SKBitmap(pw, ph))
+                                        using (var bc = new SKCanvas(blurred))
+                                        using (var bp = new SKPaint { ImageFilter = SKImageFilter.CreateBlur(S(_blurAmount), S(_blurAmount), SKShaderTileMode.Clamp) })
+                                        {
+                                            bc.DrawBitmap(padded, 0, 0, bp);
+
+                                            using (var fc = new SKCanvas(_blurredCache))
+                                                fc.DrawBitmap(blurred,
+                                                    new SKRect(pad, pad, pad + rawSkia.Width, pad + rawSkia.Height),
+                                                    new SKRect(0, 0, rawSkia.Width, rawSkia.Height));
+                                        }
                                     }
                                 }
                                 else
                                 {
-                                    canvas.DrawBitmap(rawSkia, 0, 0);
+                                    using (var fc = new SKCanvas(_blurredCache))
+                                        fc.DrawBitmap(rawSkia, 0, 0);
                                 }
                             }
                         }
@@ -199,6 +227,15 @@ namespace FluentWinForms.Panel_Controls
         // =========================================================
         protected override void PaintSkia(SKCanvas canvas, SKRect contentRect, SKRect paddedRect)
         {
+            // Usamos bounds lógicos si el HWND está expandido — evita pintar en el colchón invisible
+            if (!_logicalBounds.IsEmpty && EngineOffset != PointF.Empty)
+            {
+                float w = _logicalBounds.Width;
+                float h = _logicalBounds.Height;
+                contentRect = new SKRect(EngineOffset.X, EngineOffset.Y, EngineOffset.X + w, EngineOffset.Y + h);
+                paddedRect = contentRect;
+            }
+
             float rad = S(_borderRadius);
             canvas.Clear(SKColors.Transparent);
 
@@ -249,12 +286,12 @@ namespace FluentWinForms.Panel_Controls
 
                 if (BackdropStyle == PanelBackdropStyle.Glass)
                 {
+                    // Esquinas — sharp bitmap fuera del clip (rellena las esquinas con el fondo real)
+                    if (_sharpCache != null) canvas.DrawBitmap(_sharpCache, 0, 0);
+
                     canvas.Save();
                     canvas.ClipPath(path, SKClipOperation.Intersect, true);
 
-                    
-
-                    // El blur ahora se dibuja de extremo a extremo sin dejar marcos a los lados
                     if (_blurredCache != null) canvas.DrawBitmap(_blurredCache, 0, 0);
 
                     using (var tint = new SKPaint { Color = GlassTint.ToSKColor(), Style = SKPaintStyle.Fill, IsAntialias = true })
