@@ -35,8 +35,8 @@ namespace FluentWinForms.Core
         [Category("1. Layout")][NotifyParentProperty(true)] public ModernPadding Padding { get; set; }
         [Category("1. Layout")][NotifyParentProperty(true)] public ModernThickness Margin { get; set; }
         [Category("1. Layout")][NotifyParentProperty(true)] public CornerRadii Corners { get; set; }
-        [Category("1. Layout")][NotifyParentProperty(true)] public SizeF MinSize { get; set; } = new SizeF(0, 0);
-        [Category("1. Layout")][NotifyParentProperty(true)] public SizeF MaxSize { get; set; } = new SizeF(0, 0);
+        [Category("1. Layout")][Browsable(false)] public SizeF MinSize { get; set; } = new SizeF(0, 0);
+        [Category("1. Layout")][Browsable(false)] public SizeF MaxSize { get; set; } = new SizeF(0, 0);
 
         [Category("2. Transformación")][NotifyParentProperty(true)] public float ScaleX { get; set; } = 1.0f;
         [Category("2. Transformación")][NotifyParentProperty(true)] public float ScaleY { get; set; } = 1.0f;

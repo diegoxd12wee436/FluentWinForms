@@ -116,6 +116,11 @@ namespace FluentWinForms.Core
         }
         public ControlBuilder<T> AddChild(RenderNode child)
         { if (child != null) _node.Children.Add(child); return this; }
+        public ControlBuilder<T> AddChild(ControlBuilder<ModernControlBase> child)
+        { if (child != null) _node.Children.Add(child.GetNode()); return this; }
+
+        public ControlBuilder<T> AddChildren(params ControlBuilder<ModernControlBase>[] children)
+        { foreach (var c in children) AddChild(c); return this; }
         public ControlBuilder<T> AddChildren(params Action<ControlBuilder<ModernControlBase>>[] cfgs)
         { foreach (var c in cfgs) AddChild(c); return this; }
 
@@ -262,6 +267,14 @@ namespace FluentWinForms.Core
             _node.Ripple = rp;
             return this;
         }
+        public ControlBuilder<T> NoRipple()
+        {
+            var rp = _node.Ripple;
+            rp.Color = System.Drawing.Color.Transparent;
+            rp.Opacity = 0f;
+            _node.Ripple = rp;
+            return this;
+        }
         /// <summary>
         /// Aplica el efecto animado Sweep (Círculo expansivo) en Hover.
         /// </summary>
@@ -311,6 +324,14 @@ namespace FluentWinForms.Core
             }
             return this;
         }
+        /// <summary>
+        /// EN: Short alias for IconSvg. Ideal for use inside Icon() nodes.
+        /// ES: Alias corto de IconSvg. Ideal para usar dentro de nodos Icon().
+        /// </summary>
+        public ControlBuilder<T> SvgIcon(string svgXml, double size = 24, string? color = null)
+            => IconSvg(svgXml, size, size, color);
+        public ControlBuilder<T> SvgIcon(string svgXml, double width, double height, string? color = null)
+            => IconSvg(svgXml, width, height, color);
         /// <summary>
         /// EN: Loads a vector icon from an .svg file on disk.
         /// ES: Carga un ícono vectorial desde un archivo .svg en disco.
@@ -553,7 +574,7 @@ namespace FluentWinForms.Core
             _node.Badge = b;
             return this;
         }
-        public ControlBuilder<T> Badge(string bg = "#E53935", double size = 10)
+        public ControlBuilder<T> BadgeDot(string bg = "#E53935", double size = 10)
         {
             var b = _node.Badge;
             b.IsVisible = true;
