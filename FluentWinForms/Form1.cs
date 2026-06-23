@@ -53,6 +53,7 @@ namespace FluentWinForms
                 .Press(scale: 0.95)
                 .HandCursor().AnimateSpring(160)
                 .Tooltip("Esta acción no se puede deshacer")
+                
                 .Apply(this);
 
             // ── Botón 4: Glass / Blur ──
@@ -76,7 +77,7 @@ namespace FluentWinForms
                 .BorderRadius(24)
                 .Text("Notificaciones").Bold().FontSize(13).TextColor("#fff")
                 .Shadow(3).Glow("#7c3aed", 16)
-                .Hover(gradient: ("#6d28d9", "#be185d", 135), scale: 1.03, translateY: -2)
+                .Hover(gradient: ("#6d28d9", "#be185d", 135), scale: 1.03, translateY: 42)
                 .Press(scale: 0.95)
                 .Badge("5").BadgeOffset(-4, -6)
                 .Tooltip("5 notificaciones nuevas")

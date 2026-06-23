@@ -212,8 +212,7 @@ namespace FluentWinForms.Core
 
         // 🔥 EL CEREBRO DE COMPENSACIÓN (EngineOffset)
         [Browsable(false), EditorBrowsable(EditorBrowsableState.Never)]
-        protected PointF EngineOffset => _logicalBounds.IsEmpty ? PointF.Empty :
-            new PointF((this.Width - _logicalBounds.Width) / 2f, (this.Height - _logicalBounds.Height) / 2f);
+        protected PointF EngineOffset => _logicalBounds.IsEmpty ? PointF.Empty : new PointF(_logicalBounds.X - this.Left, _logicalBounds.Y - this.Top);
 
         private bool _useSkiaGraphics = true;
         [Category("Modern - Engine")]

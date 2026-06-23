@@ -53,10 +53,9 @@ namespace FluentWinForms.Core
             // ==========================================
             float maxBorder = Math.Max(BorderThickness, FocusThickness);
             float maxShadowSpace = UseShadow ? S(ShadowBlur) : 0;
-            float hoverSafeZone = EnableHover ? S(6f) : 0; // 6 píxeles de respiración para animaciones
 
             // El margen maestro NUNCA cambia en tiempo real, evitando recortes y brincos visuales.
-            float margin = maxShadowSpace + S(maxBorder / 2f) + hoverSafeZone;
+            float margin = maxShadowSpace + S(maxBorder / 2f);
 
             // El borde activo sí se actualiza para dibujar correctamente
             float activeBorder = S(IsFocusedControl ? FocusThickness : BorderThickness);
@@ -78,9 +77,11 @@ namespace FluentWinForms.Core
                     // =========================================================
                     // 🔥 EL ANCLA MÓVIL: Centrado automático + Traslación CSS
                     // =========================================================
-                    if (!_logicalBounds.IsEmpty && EngineOffset != PointF.Empty)
+                    if (!_logicalBounds.IsEmpty)
                     {
-                        _skCanvas.Translate(EngineOffset.X + this.TranslateX, EngineOffset.Y + this.TranslateY);
+                        float ox = _logicalBounds.X - this.Left;
+                        float oy = _logicalBounds.Y - this.Top;
+                        _skCanvas.Translate(ox + this.TranslateX, oy + this.TranslateY);
                     }
 
                     _sharedPaint ??= new SKPaint { IsAntialias = true };
@@ -657,6 +658,7 @@ namespace FluentWinForms.Core
                 }
             }
             // 10.5. SVG ICON — vectorial, escala sin pixelar
+            // 10.5. SVG ICON — vectorial, escala sin pixelar (🔥 FIX: Matriz corregida)
             if (node.SvgPicture != null)
             {
                 _sharedPaint.Reset();
@@ -689,7 +691,8 @@ namespace FluentWinForms.Core
                     default: px = rect.MidX - node.SvgSize.Width / 2f; py = rect.MidY - node.SvgSize.Height / 2f; break;
                 }
 
-                var matrix = SKMatrix.CreateScaleTranslation(scaleX, scaleY, px, py);
+                // 🔥 FIX PIXELADO: Compensar el offset del CullRect para que el SVG se dibuje nítido
+                var matrix = SKMatrix.CreateScaleTranslation(scaleX, scaleY, px - cull.Left * scaleX, py - cull.Top * scaleY);
 
                 canvas.Save();
                 canvas.Concat(ref matrix);
@@ -837,9 +840,8 @@ namespace FluentWinForms.Core
                 // 🔥 INTELIGENCIA ESPACIAL EN EL RECORTE
                 float maxBorder = Math.Max(BorderThickness, FocusThickness);
                 float maxShadowSpace = UseShadow ? S(ShadowBlur) : 0;
-                float hoverSafeZone = EnableHover ? S(6f) : 0;
 
-                float margin = maxShadowSpace + S(maxBorder / 2f) + hoverSafeZone;
+                float margin = maxShadowSpace + S(maxBorder / 2f);
                 float activeBorder = S(IsFocusedControl ? FocusThickness : BorderThickness);
 
                 var shadowRectSK = new SKRect(margin, margin, Width - margin, Height - margin);

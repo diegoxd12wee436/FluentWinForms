@@ -106,21 +106,20 @@ namespace FluentWinForms.Core
             }
 
             // 🚀 MATEMÁTICA CSS: Expandimos la jaula simétricamente para que quepa la traslación
-            float absTranslateX = Math.Abs(this.TranslateX);
-            float absTranslateY = Math.Abs(this.TranslateY);
+            // 🚀 MATEMÁTICA CSS ASIMÉTRICA: Scale expande desde el centro, Translate solo hacia el lado que necesita
+            float scaleExtraW = _logicalBounds.Width * (targetScaleX - 1f) / 2f;
+            float scaleExtraH = _logicalBounds.Height * (targetScaleY - 1f) / 2f;
 
-            int expandedWidth = (int)Math.Ceiling(_logicalBounds.Width * targetScaleX + (absTranslateX * 2)) + 2;
-            int expandedHeight = (int)Math.Ceiling(_logicalBounds.Height * targetScaleY + (absTranslateY * 2)) + 2;
-
-            // Centramos la expansión para que el botón crezca desde el medio
-            int offsetX = (expandedWidth - _logicalBounds.Width) / 2;
-            int offsetY = (expandedHeight - _logicalBounds.Height) / 2;
+            float expandLeft = scaleExtraW + Math.Max(0f, -this.TranslateX);
+            float expandRight = scaleExtraW + Math.Max(0f, this.TranslateX);
+            float expandTop = scaleExtraH + Math.Max(0f, -this.TranslateY);
+            float expandBottom = scaleExtraH + Math.Max(0f, this.TranslateY);
 
             Rectangle newPhysicalBounds = new Rectangle(
-                _logicalBounds.X - offsetX,
-                _logicalBounds.Y - offsetY,
-                expandedWidth,
-                expandedHeight
+                (int)Math.Floor(_logicalBounds.X - expandLeft),
+                (int)Math.Floor(_logicalBounds.Y - expandTop),
+                (int)Math.Ceiling(_logicalBounds.Width + expandLeft + expandRight),
+                (int)Math.Ceiling(_logicalBounds.Height + expandTop + expandBottom)
             );
 
             // 🛡️ Solo tocamos WinForms si de verdad cambió el tamaño
@@ -151,24 +150,36 @@ namespace FluentWinForms.Core
             }
         }
 
+        
         // Búsqueda en Stack (Cero Garbage Collector)
-        private void CalculateMaxOverflow(RenderNode node, ref float maxX, ref float maxY)
+        // Escanea Scale + Translate de hover/press — solo durante animación
+        private void CalculateMaxOverflow(RenderNode node, ref float maxScaleX, ref float maxScaleY,
+            ref float maxLeft, ref float maxRight, ref float maxTop, ref float maxBottom)
         {
-            if (node.HoverState.Scale.HasValue)
-            {
-                maxX = Math.Max(maxX, node.HoverState.Scale.Value);
-                maxY = Math.Max(maxY, node.HoverState.Scale.Value);
-            }
-            if (node.PressState.Scale.HasValue)
-            {
-                maxX = Math.Max(maxX, node.PressState.Scale.Value);
-                maxY = Math.Max(maxY, node.PressState.Scale.Value);
-            }
+            if (node.HoverState.Scale.HasValue) { maxScaleX = Math.Max(maxScaleX, node.HoverState.Scale.Value); maxScaleY = Math.Max(maxScaleY, node.HoverState.Scale.Value); }
+            if (node.PressState.Scale.HasValue) { maxScaleX = Math.Max(maxScaleX, node.PressState.Scale.Value); maxScaleY = Math.Max(maxScaleY, node.PressState.Scale.Value); }
+
+            if (node.HoverState.TranslateX.HasValue) { float tx = node.HoverState.TranslateX.Value; if (tx < 0) maxLeft = Math.Max(maxLeft, -tx); else maxRight = Math.Max(maxRight, tx); }
+            if (node.HoverState.TranslateY.HasValue) { float ty = node.HoverState.TranslateY.Value; if (ty < 0) maxTop = Math.Max(maxTop, -ty); else maxBottom = Math.Max(maxBottom, ty); }
+            if (node.PressState.TranslateX.HasValue) { float tx = node.PressState.TranslateX.Value; if (tx < 0) maxLeft = Math.Max(maxLeft, -tx); else maxRight = Math.Max(maxRight, tx); }
+            if (node.PressState.TranslateY.HasValue) { float ty = node.PressState.TranslateY.Value; if (ty < 0) maxTop = Math.Max(maxTop, -ty); else maxBottom = Math.Max(maxBottom, ty); }
 
             for (int i = 0; i < node.Children.Count; i++)
+                CalculateMaxOverflow(node.Children[i], ref maxScaleX, ref maxScaleY,
+                    ref maxLeft, ref maxRight, ref maxTop, ref maxBottom);
+        }
+
+        // Escanea badges SIEMPRE (necesitan espacio incluso en reposo)
+        private void CalculateBadgeOverflow(RenderNode node, ref float maxRight, ref float maxTop)
+        {
+            if (node.Badge.IsVisible)
             {
-                CalculateMaxOverflow(node.Children[i], ref maxX, ref maxY);
+                float bHalf = (float)(node.Badge.Size * 0.5);
+                maxRight = Math.Max(maxRight, bHalf + Math.Max(0f, (float)node.Badge.OffsetX));
+                maxTop = Math.Max(maxTop, bHalf + Math.Max(0f, -(float)node.Badge.OffsetY));
             }
+            for (int i = 0; i < node.Children.Count; i++)
+                CalculateBadgeOverflow(node.Children[i], ref maxRight, ref maxTop);
         }
 
         private void StartAnimation()

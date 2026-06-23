@@ -41,9 +41,9 @@ namespace FluentWinForms
             // pictureBox1
             // 
             pictureBox1.Image = Properties.Resources.Copilot_20260514_173627;
-            pictureBox1.Location = new Point(199, 43);
+            pictureBox1.Location = new Point(436, 41);
             pictureBox1.Name = "pictureBox1";
-            pictureBox1.Size = new Size(720, 344);
+            pictureBox1.Size = new Size(641, 344);
             pictureBox1.SizeMode = PictureBoxSizeMode.Zoom;
             pictureBox1.TabIndex = 1;
             pictureBox1.TabStop = false;
@@ -95,7 +95,7 @@ namespace FluentWinForms
             modernGlassPanel1.HoverColor = Color.FromArgb(240, 240, 240);
             modernGlassPanel1.HoverColor2 = Color.FromArgb(220, 220, 220);
             modernGlassPanel1.ImageOpacity = 1F;
-            modernGlassPanel1.Location = new Point(391, 95);
+            modernGlassPanel1.Location = new Point(567, 93);
             modernGlassPanel1.Name = "modernGlassPanel1";
             modernGlassPanel1.Opacity = 1F;
             modernGlassPanel1.PressColor = Color.FromArgb(220, 220, 220);
@@ -109,7 +109,7 @@ namespace FluentWinForms
             modernGlassPanel1.ShadowOffsetX = 0F;
             modernGlassPanel1.ShadowOffsetY = 4F;
             modernGlassPanel1.ShadowOpacity = 0.5F;
-            modernGlassPanel1.Size = new Size(327, 194);
+            modernGlassPanel1.Size = new Size(327, 177);
             modernGlassPanel1.TabIndex = 2;
             modernGlassPanel1.Text = "modernGlassPanel1";
             modernGlassPanel1.TextAlignment = StringAlignment.Center;
