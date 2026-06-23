@@ -242,10 +242,10 @@ namespace FluentWinForms.Panel_Controls
 
                 if (BackdropStyle == PanelBackdropStyle.Glass)
                 {
-                    if (_sharpCache != null) canvas.DrawBitmap(_sharpCache, 0, 0);
-
                     canvas.Save();
                     canvas.ClipPath(path, SKClipOperation.Intersect, true);
+
+                    if (_sharpCache != null) canvas.DrawBitmap(_sharpCache, 0, 0); // 🔥 adentro del clip
 
                     // El blur ahora se dibuja de extremo a extremo sin dejar marcos a los lados
                     if (_blurredCache != null) canvas.DrawBitmap(_blurredCache, 0, 0);
