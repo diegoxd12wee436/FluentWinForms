@@ -958,14 +958,16 @@ namespace FluentWinForms.Core
         public ModernFormOverlay(Form owner)
         {
             _owner = owner ?? throw new ArgumentNullException(nameof(owner));
-
             this.FormBorderStyle = FormBorderStyle.None;
             this.ShowInTaskbar = false;
             this.StartPosition = FormStartPosition.Manual;
             this.AutoScaleMode = AutoScaleMode.None;
             _owner.LocationChanged += (s, e) => UpdateLocation();
             _owner.SizeChanged += (s, e) => UpdateSize();
-            _owner.VisibleChanged += (s, e) => this.Visible = _owner.Visible;
+            _owner.VisibleChanged += (s, e) => { if (!_owner.IsDisposed) this.Visible = _owner.Visible; };
+            // 🔥 FIX FANTASMA: destruir el overlay cuando el owner muere
+            _owner.FormClosed += (s, e) => { if (!this.IsDisposed) this.Dispose(); };
+            _owner.Disposed += (s, e) => { if (!this.IsDisposed) this.Dispose(); };
             this.Owner = _owner;
         }
 

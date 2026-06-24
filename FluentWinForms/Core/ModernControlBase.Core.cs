@@ -267,7 +267,7 @@ namespace FluentWinForms.Core
         }
 
         // Reconstrucción Híbrida Inteligente (segura)
-        private void RebuildCanvas()
+        protected void RebuildCanvas()
         {
             if (Width <= 0 || Height <= 0) { _isRenderable = false; return; }
 

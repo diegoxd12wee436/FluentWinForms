@@ -95,7 +95,7 @@ namespace FluentWinForms
             modernGlassPanel1.HoverColor = Color.FromArgb(240, 240, 240);
             modernGlassPanel1.HoverColor2 = Color.FromArgb(220, 220, 220);
             modernGlassPanel1.ImageOpacity = 1F;
-            modernGlassPanel1.Location = new Point(567, 93);
+            modernGlassPanel1.Location = new Point(607, 108);
             modernGlassPanel1.Name = "modernGlassPanel1";
             modernGlassPanel1.Opacity = 1F;
             modernGlassPanel1.PressColor = Color.FromArgb(220, 220, 220);

@@ -903,7 +903,9 @@ namespace FluentWinForms.Core
 
                     if (_visualNode != null && (_isAnimating || _isHoveringInternal || _isMouseDownInternal))
                     {
-                        CalculateMaxOverflow(_visualNode, ref currentScaleX, ref currentScaleY);
+                        float _dum1 = 0f, _dum2 = 0f, _dum3 = 0f, _dum4 = 0f;
+                        CalculateMaxOverflow(_visualNode, ref currentScaleX, ref currentScaleY,
+                            ref _dum1, ref _dum2, ref _dum3, ref _dum4);
                     }
 
                     // Calculamos el tamaño exacto visual ya escalado

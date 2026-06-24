@@ -96,61 +96,62 @@ namespace FluentWinForms.Core
         {
             if (_logicalBounds.IsEmpty || _visualNode == null) return;
 
-            float targetScaleX = 1.0f;
-            float targetScaleY = 1.0f;
+            float maxScaleX = 1f, maxScaleY = 1f;
+            float maxLeft = 0f, maxRight = 0f, maxTop = 0f, maxBottom = 0f;
 
-            // Buscamos si algún nodo necesita expandirse
+            // Overflow por hover/press scale + translate — solo durante animación
             if (_isAnimating || _isHoveringInternal || _isMouseDownInternal)
-            {
-                CalculateMaxOverflow(_visualNode, ref targetScaleX, ref targetScaleY);
-            }
+                CalculateMaxOverflow(_visualNode, ref maxScaleX, ref maxScaleY,
+                    ref maxLeft, ref maxRight, ref maxTop, ref maxBottom);
 
-            // 🚀 MATEMÁTICA CSS: Expandimos la jaula simétricamente para que quepa la traslación
-            // 🚀 MATEMÁTICA CSS ASIMÉTRICA: Scale expande desde el centro, Translate solo hacia el lado que necesita
-            float scaleExtraW = _logicalBounds.Width * (targetScaleX - 1f) / 2f;
-            float scaleExtraH = _logicalBounds.Height * (targetScaleY - 1f) / 2f;
+            // Overflow por badge — SIEMPRE (visible en reposo también)
+            CalculateBadgeOverflow(_visualNode, ref maxRight, ref maxTop);
 
-            float expandLeft = scaleExtraW + Math.Max(0f, -this.TranslateX);
-            float expandRight = scaleExtraW + Math.Max(0f, this.TranslateX);
-            float expandTop = scaleExtraH + Math.Max(0f, -this.TranslateY);
-            float expandBottom = scaleExtraH + Math.Max(0f, this.TranslateY);
+            float scaleExW = _logicalBounds.Width * (maxScaleX - 1f) / 2f;
+            float scaleExH = _logicalBounds.Height * (maxScaleY - 1f) / 2f;
 
-            Rectangle newPhysicalBounds = new Rectangle(
-                (int)Math.Floor(_logicalBounds.X - expandLeft),
-                (int)Math.Floor(_logicalBounds.Y - expandTop),
-                (int)Math.Ceiling(_logicalBounds.Width + expandLeft + expandRight),
-                (int)Math.Ceiling(_logicalBounds.Height + expandTop + expandBottom)
+            float exLeft = scaleExW + maxLeft + 1f;
+            float exRight = scaleExW + maxRight + 1f;
+            float exTop = scaleExH + maxTop + 1f;
+            float exBottom = scaleExH + maxBottom + 1f;
+
+            Rectangle newBounds = new Rectangle(
+                (int)Math.Floor(_logicalBounds.X - exLeft),
+                (int)Math.Floor(_logicalBounds.Y - exTop),
+                (int)Math.Ceiling(_logicalBounds.Width + exLeft + exRight),
+                (int)Math.Ceiling(_logicalBounds.Height + exTop + exBottom)
             );
 
-            // 🛡️ Solo tocamos WinForms si de verdad cambió el tamaño
-            if (this.Bounds != newPhysicalBounds)
+            // Clamp al parent — EngineOffset compensa automáticamente via logicalBounds.X - this.Left
+            var p = this.Parent;
+            if (p != null)
             {
-                if (!IsHandleCreated || IsDisposed || DesignMode) return;
+                newBounds = Rectangle.FromLTRB(
+                    Math.Max(0, newBounds.Left),
+                    Math.Max(0, newBounds.Top),
+                    Math.Min(p.ClientSize.Width, newBounds.Right),
+                    Math.Min(p.ClientSize.Height, newBounds.Bottom));
+            }
 
-                Action updateLayout = () =>
-                {
-                    try
-                    {
-                        _isEngineExpanding = true;
-                        this.SetBounds(newPhysicalBounds.X, newPhysicalBounds.Y, newPhysicalBounds.Width, newPhysicalBounds.Height);
-                    }
-                    finally
-                    {
-                        _isEngineExpanding = false;
-                    }
-                };
+            if (this.Bounds == newBounds) return;
+            if (!IsHandleCreated || IsDisposed || DesignMode) return;
 
+            Action update = () => {
                 try
                 {
-                    if (InvokeRequired) BeginInvoke(updateLayout);
-                    else updateLayout();
+                    _isEngineExpanding = true;
+                    SetBounds(newBounds.X, newBounds.Y, newBounds.Width, newBounds.Height);
+                    // 🔥 FIX FANTASMA: forzar rebuild inmediato antes del próximo WM_PAINT
+                    if (Width > 0 && Height > 0) RebuildCanvas();
                 }
-                catch (ObjectDisposedException) { }
-                catch (InvalidOperationException) { }
-            }
+                finally { _isEngineExpanding = false; }
+            };
+            try { if (InvokeRequired) BeginInvoke(update); else update(); }
+            catch (ObjectDisposedException) { }
+            catch (InvalidOperationException) { }
         }
 
-        
+
         // Búsqueda en Stack (Cero Garbage Collector)
         // Escanea Scale + Translate de hover/press — solo durante animación
         private void CalculateMaxOverflow(RenderNode node, ref float maxScaleX, ref float maxScaleY,
