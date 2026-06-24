@@ -38,7 +38,8 @@ namespace FluentWinForms.Core
                 e.Graphics.DrawString("Render Error (OOM)", SystemFonts.DefaultFont, Brushes.Red, 5, 5);
                 return;
             }
-
+            // 🔥 FIX PÍXELES MUERTOS: limpiar el HWND completo antes de pintar
+            e.Graphics.Clear(Color.Transparent);
             if (Parent != null)
             {
                 var state = e.Graphics.Save();

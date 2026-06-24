@@ -26,6 +26,13 @@ namespace FluentWinForms.Core
             {
                 _logicalBounds = new Rectangle(x, y, width, height);
             }
+            else
+            {
+                // 🛡️ HWND expandido: pasar los bounds físicos a WinForms
+                // pero NO dejar que WinForms luego restaure _logicalBounds con el tamaño inflado
+                base.SetBoundsCore(x, y, width, height, specified);
+                return; // Salir sin el segundo base.SetBoundsCore
+            }
             base.SetBoundsCore(x, y, width, height, specified);
         }
 
@@ -346,7 +353,8 @@ namespace FluentWinForms.Core
 
             if (_visualNode != null)
             {
-                var hit = HitTest(_visualNode, e.Location);
+                var pt = new PointF(e.Location.X - EngineOffset.X, e.Location.Y - EngineOffset.Y);
+                var hit = HitTest(_visualNode, pt);
                 if (hit != _currentHoveredNode)
                 {
                     if (_currentHoveredNode != null)
@@ -411,7 +419,8 @@ namespace FluentWinForms.Core
 
                 if (_visualNode != null)
                 {
-                    var hit = HitTest(_visualNode, e.Location);
+                    var pt = new PointF(e.Location.X - EngineOffset.X, e.Location.Y - EngineOffset.Y);
+                    var hit = HitTest(_visualNode, pt);
                     if (hit != null)
                     {
                         _currentPressedNode = hit;
