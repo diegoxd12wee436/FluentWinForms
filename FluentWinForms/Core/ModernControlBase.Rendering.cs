@@ -37,9 +37,7 @@ namespace FluentWinForms.Core
                 using (var pen = new Pen(Color.Red, 2)) e.Graphics.DrawRectangle(pen, 1, 1, Width - 3, Height - 3);
                 e.Graphics.DrawString("Render Error (OOM)", SystemFonts.DefaultFont, Brushes.Red, 5, 5);
                 return;
-            }
-            // 🔥 FIX PÍXELES MUERTOS: limpiar el HWND completo antes de pintar
-            e.Graphics.Clear(Color.Transparent);
+            }                      
             if (Parent != null)
             {
                 var state = e.Graphics.Save();
@@ -388,8 +386,7 @@ namespace FluentWinForms.Core
                 if (node.Corners.TopLeft > 0) canvas.DrawRoundRect(rect, node.Corners.TopLeft, node.Corners.TopLeft, _sharedPaint);
                 else canvas.DrawRect(rect, _sharedPaint);
 
-                _sharedPaint.ImageFilter?.Dispose();
-                _sharedPaint.ImageFilter = null;
+                _sharedPaint.ImageFilter = null; // no Dispose — node._cachedShadowFilter es el dueño
             }
 
             // 🔥 INYECCIÓN 2 CORREGIDA: CRISTAL ÓPTICO (Skia 2.88.8 - Cero Lag)
@@ -485,8 +482,13 @@ namespace FluentWinForms.Core
                 _sharedPaint.Style = SKPaintStyle.Fill;
                 if (bg.IsGradient)
                 {
+                    float _aRad = (float)(bg.GradientAngle * Math.PI / 180.0);
+                    float _sinA = (float)Math.Sin(_aRad);
+                    float _cosA = (float)Math.Cos(_aRad);
+                    float _half = (Math.Abs(rect.Width * _sinA) + Math.Abs(rect.Height * _cosA)) * 0.5f;
                     _sharedPaint.Shader = SKShader.CreateLinearGradient(
-                        new SKPoint(rect.Left, rect.Top), new SKPoint(rect.Right, rect.Bottom),
+                        new SKPoint(rect.MidX - _sinA * _half, rect.MidY + _cosA * _half),
+                        new SKPoint(rect.MidX + _sinA * _half, rect.MidY - _cosA * _half),
                         new SKColor[] { bg.Color1.ToSKColor(), bg.Color2.ToSKColor() }, null, SKShaderTileMode.Clamp);
                 }
                 else
@@ -582,10 +584,10 @@ namespace FluentWinForms.Core
             {
                 switch (node.IconPosition)
                 {
-                    case IconAlign.Left: textRect.Left += node.SvgSize.Width + node.IconGap; break;
-                    case IconAlign.Right: textRect.Right -= node.SvgSize.Width + node.IconGap; break;
-                    case IconAlign.Top: textRect.Top += node.SvgSize.Height + node.IconGap; break;
-                    case IconAlign.Bottom: textRect.Bottom -= node.SvgSize.Height + node.IconGap; break;
+                    case IconAlign.Left: textRect.Left += S(node.SvgSize.Width) + S(node.IconGap); break;
+                    case IconAlign.Right: textRect.Right -= S(node.SvgSize.Width) + S(node.IconGap); break;
+                    case IconAlign.Top: textRect.Top += S(node.SvgSize.Height) + S(node.IconGap); break;
+                    case IconAlign.Bottom: textRect.Bottom -= S(node.SvgSize.Height) + S(node.IconGap); break;
                 }
             }
             if (!string.IsNullOrEmpty(node.Content.Text))
@@ -679,17 +681,19 @@ namespace FluentWinForms.Core
                 }
 
                 var cull = node.SvgPicture.CullRect;
-                float scaleX = cull.Width > 0 ? node.SvgSize.Width / cull.Width : 1f;
-                float scaleY = cull.Height > 0 ? node.SvgSize.Height / cull.Height : 1f;
+                float svgW = S(node.SvgSize.Width);
+                float svgH = S(node.SvgSize.Height);
+                float scaleX = cull.Width > 0 ? svgW / cull.Width : 1f;
+                float scaleY = cull.Height > 0 ? svgH / cull.Height : 1f;
 
                 float px, py;
                 switch (node.IconPosition)
                 {
-                    case IconAlign.Left: px = rect.Left; py = rect.MidY - node.SvgSize.Height / 2f; break;
-                    case IconAlign.Right: px = rect.Right - node.SvgSize.Width; py = rect.MidY - node.SvgSize.Height / 2f; break;
-                    case IconAlign.Top: px = rect.MidX - node.SvgSize.Width / 2f; py = rect.Top; break;
-                    case IconAlign.Bottom: px = rect.MidX - node.SvgSize.Width / 2f; py = rect.Bottom - node.SvgSize.Height; break;
-                    default: px = rect.MidX - node.SvgSize.Width / 2f; py = rect.MidY - node.SvgSize.Height / 2f; break;
+                    case IconAlign.Left: px = rect.Left; py = rect.MidY - svgH / 2f; break;
+                    case IconAlign.Right: px = rect.Right - svgW; py = rect.MidY - svgH / 2f; break;
+                    case IconAlign.Top: px = rect.MidX - svgW / 2f; py = rect.Top; break;
+                    case IconAlign.Bottom: px = rect.MidX - svgW / 2f; py = rect.Bottom - svgH; break;
+                    default: px = rect.MidX - svgW / 2f; py = rect.MidY - svgH / 2f; break;
                 }
 
                 // 🔥 FIX PIXELADO: Compensar el offset del CullRect para que el SVG se dibuje nítido
@@ -721,9 +725,10 @@ namespace FluentWinForms.Core
             // 12. BADGE — zero-alloc, top-right del nodo
             if (node.Badge.IsVisible)
             {
-                float bHalf = (float)(node.Badge.Size * 0.5);
-                float bX = node.Layout.Right + (float)node.Badge.OffsetX - bHalf;
-                float bY = node.Layout.Top + (float)node.Badge.OffsetY + bHalf;
+                float bSize = S((float)node.Badge.Size);
+                float bHalf = bSize * 0.5f;
+                float bX = node.Layout.Right + S((float)node.Badge.OffsetX) - bHalf;
+                float bY = node.Layout.Top + S((float)node.Badge.OffsetY) + bHalf;
 
                 _sharedPaint.Reset();
                 _sharedPaint.IsAntialias = true;
@@ -734,7 +739,7 @@ namespace FluentWinForms.Core
                 if (!string.IsNullOrEmpty(node.Badge.Text))
                 {
                     _sharedPaint.Color = node.Badge.TextColor.ToSKColor();
-                    _sharedPaint.TextSize = (float)(node.Badge.Size * 0.55);
+                    _sharedPaint.TextSize = bSize * 0.55f;
                     _sharedPaint.TextAlign = SKTextAlign.Center;
                     _sharedPaint.FakeBoldText = true;
                     canvas.DrawText(node.Badge.Text, bX, bY + _sharedPaint.TextSize * 0.35f, _sharedPaint);
