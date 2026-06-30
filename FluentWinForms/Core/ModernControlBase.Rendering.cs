@@ -396,9 +396,10 @@ namespace FluentWinForms.Core
                 // 1. Recortamos el cristal respetando tus bordes curvos
                 if (node.Corners.TopLeft > 0)
                 {
-                    using var clipPath = new SKPath();
-                    clipPath.AddRoundRect(rect, node.Corners.TopLeft, node.Corners.TopLeft);
-                    canvas.ClipPath(clipPath, SKClipOperation.Intersect, true);
+                    node._cachedAcrylicClip ??= new SKPath();
+                    node._cachedAcrylicClip.Reset();
+                    node._cachedAcrylicClip.AddRoundRect(rect, node.Corners.TopLeft, node.Corners.TopLeft);
+                    canvas.ClipPath(node._cachedAcrylicClip, SKClipOperation.Intersect, true);
                 }
                 else
                 {
@@ -559,16 +560,16 @@ namespace FluentWinForms.Core
                         SKColors.White.WithAlpha((byte)(node.Content.ImageOpacity * 255)), SKBlendMode.DstIn);
                 }
 
-                using (var ms = new System.IO.MemoryStream())
+                if (node._cachedContentImage == null || node._lastContentImageRef != node.Content.Image)
                 {
+                    node._cachedContentImage?.Dispose();
+                    using var ms = new System.IO.MemoryStream();
                     node.Content.Image.Save(ms, System.Drawing.Imaging.ImageFormat.Png);
                     ms.Position = 0;
-                    using (var skImage = SKImage.FromEncodedData(ms))
-                    {
-                        var destRect = rect;
-                        canvas.DrawImage(skImage, destRect, _sharedPaint);
-                    }
+                    node._cachedContentImage = SKImage.FromEncodedData(ms);
+                    node._lastContentImageRef = node.Content.Image;
                 }
+                canvas.DrawImage(node._cachedContentImage, rect, _sharedPaint);
                 _sharedPaint.ColorFilter?.Dispose();
                 _sharedPaint.ColorFilter = null;
             }
@@ -708,9 +709,10 @@ namespace FluentWinForms.Core
                 canvas.Save();
                 if (node.Corners.TopLeft > 0)
                 {
-                    using var clipPath = new SKPath();
-                    clipPath.AddRoundRect(rect, node.Corners.TopLeft, node.Corners.TopLeft);
-                    canvas.ClipPath(clipPath, SKClipOperation.Intersect, true);
+                    node._cachedChildClip ??= new SKPath();
+                    node._cachedChildClip.Reset();
+                    node._cachedChildClip.AddRoundRect(rect, node.Corners.TopLeft, node.Corners.TopLeft);
+                    canvas.ClipPath(node._cachedChildClip, SKClipOperation.Intersect, true);
                 }
                 else canvas.ClipRect(rect, SKClipOperation.Intersect, true);
 

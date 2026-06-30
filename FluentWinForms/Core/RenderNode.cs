@@ -87,6 +87,8 @@ namespace FluentWinForms.Core
         [Browsable(false)] public float AnimatedScale { get; set; } = 1.0f;
         [Browsable(false)] internal SKImageFilter? _cachedShadowFilter;
         [Browsable(false)] internal SKPath? _cachedSweepClip;
+        [Browsable(false)] internal SKPath? _cachedChildClip;
+        [Browsable(false)] internal SKPath? _cachedAcrylicClip;
         [Browsable(false)] internal SKPaint? _cachedSweepPaint;
         [Browsable(false)] internal SKPaint? _cachedAlphaPaint;
         [Browsable(false)] internal SKPaint? _cachedTintPaint;
@@ -96,6 +98,8 @@ namespace FluentWinForms.Core
         [Browsable(false)] internal SKImageFilter? _cachedBlurFilter;
         [Browsable(false)] internal SKColorFilter? _cachedColorMatrixFilter;
         [Browsable(false)] internal SKImageFilter? _cachedComposedFilter;
+        [Browsable(false)] internal SKImage? _cachedContentImage;
+        [Browsable(false)] internal object? _lastContentImageRef;
         [Browsable(false)] internal float[]? _colorMatrixBuffer;
         [Browsable(false)] internal float _lastBlurValue = -1f, _lastGrayscale = -1f, _lastBrightness = -1f, _lastContrast = -1f;
         [Browsable(false)] internal float _lastSweepW = -1, _lastSweepH = -1;
@@ -103,7 +107,10 @@ namespace FluentWinForms.Core
         {
             _cachedShadowFilter?.Dispose();
             _cachedShadowFilter = null;
+            _cachedContentImage?.Dispose(); _cachedContentImage = null; _lastContentImageRef = null;
             _cachedSweepClip?.Dispose(); _cachedSweepClip = null;
+            _cachedChildClip?.Dispose(); _cachedChildClip = null;
+            _cachedAcrylicClip?.Dispose(); _cachedAcrylicClip = null;
             _cachedSweepPaint?.Dispose(); _cachedSweepPaint = null;
             _cachedAlphaPaint?.Dispose(); _cachedAlphaPaint = null;
             _cachedTintPaint?.Dispose(); _cachedTintPaint = null;

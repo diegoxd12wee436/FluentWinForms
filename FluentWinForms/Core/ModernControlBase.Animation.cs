@@ -81,6 +81,7 @@ namespace FluentWinForms.Core
         protected bool _isHoveringInternal = false;
         protected bool _isMouseDownInternal = false;
         private bool _isAnimating = false;
+        private int _invalidatePending = 0;
 
         // 🔥 HIT-TESTING: Nodos detectados por el mouse
         private RenderNode? _currentHoveredNode;
@@ -314,9 +315,26 @@ namespace FluentWinForms.Core
 #endif
 
             // 8. Gestión de Renderizado
+            // 8. Gestión de Renderizado (Thread-Safe: AnimationTick corre en el Render Thread, no en UI Thread)
             if (isMoving)
             {
-                this.Invalidate();
+                if (Interlocked.Exchange(ref _invalidatePending, 1) == 0)
+                {
+                    try
+                    {
+                        if (IsHandleCreated && !IsDisposed)
+                        {
+                            BeginInvoke((Action)(() =>
+                            {
+                                try { if (!IsDisposed && IsHandleCreated) Invalidate(); }
+                                finally { Interlocked.Exchange(ref _invalidatePending, 0); }
+                            }));
+                        }
+                        else Interlocked.Exchange(ref _invalidatePending, 0);
+                    }
+                    catch (ObjectDisposedException) { Interlocked.Exchange(ref _invalidatePending, 0); }
+                    catch (InvalidOperationException) { Interlocked.Exchange(ref _invalidatePending, 0); }
+                }
             }
             else
             {

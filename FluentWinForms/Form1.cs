@@ -17,6 +17,7 @@ namespace FluentWinForms
         public Form1()
         {
             InitializeComponent();
+
             // ── Botón 1: Primario clásico con glow ──
             var btn1 = FluentElement.Design("btn-primary")
                 .Layout(40, 40, 180, 48)
@@ -86,9 +87,32 @@ namespace FluentWinForms
 
 
         }
-
+        private void DumpMemDiag(string tag)
+        {
+            var p = Process.GetCurrentProcess();
+            p.Refresh();
+            long managed = GC.GetTotalMemory(false);
+            MessageBox.Show($"[{tag}] Private={p.PrivateMemorySize64 / 1024}KB | WorkingSet={p.WorkingSet64 / 1024}KB | Handles={p.HandleCount} | Managed={managed / 1024}KB");
+        }
+        private void ForceGcDump()
+        {
+            GC.Collect(2, GCCollectionMode.Forced, true);
+            GC.WaitForPendingFinalizers();
+            GC.Collect();
+            DumpMemDiag("DESPUES-DE-GC-FORZADO");
+        }
         private void Form1_Load(object sender, EventArgs e)
         {
+            DumpMemDiag("INICIO");
+
+            var btnDiag = FluentElement.Design("btn-diag")
+                .Layout(40, 380, 180, 40)
+                .Background("#444444")
+                .BorderRadius(8)
+                .Text("Dump memoria").FontSize(12).TextColor("#fff")
+                .Apply(this);
+            btnDiag.Click += (s, e2) => ForceGcDump();
+
             //AnimationManager.FrameTicked += dt =>
             //{
             //    Debug.WriteLine(AnimationManager.DumpDiagnostics());
