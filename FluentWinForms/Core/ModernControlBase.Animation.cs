@@ -15,6 +15,8 @@ namespace FluentWinForms.Core
         // =====================================================================
         protected Rectangle _logicalBounds = Rectangle.Empty;
         protected bool _isEngineExpanding = false;
+        private Rectangle _pendingBounds;
+        private Action? _cachedBoundsUpdate;
 
         [Browsable(false), EditorBrowsable(EditorBrowsableState.Never)]
         public Rectangle LogicalBounds => _logicalBounds.IsEmpty ? this.Bounds : _logicalBounds;
@@ -143,17 +145,18 @@ namespace FluentWinForms.Core
             if (this.Bounds == newBounds) return;
             if (!IsHandleCreated || IsDisposed || DesignMode) return;
 
-            Action update = () => {
+            _pendingBounds = newBounds;
+            _cachedBoundsUpdate ??= () =>
+            {
                 try
                 {
                     _isEngineExpanding = true;
-                    SetBounds(newBounds.X, newBounds.Y, newBounds.Width, newBounds.Height);
-                    // 🔥 FIX FANTASMA: forzar rebuild inmediato antes del próximo WM_PAINT
+                    SetBounds(_pendingBounds.X, _pendingBounds.Y, _pendingBounds.Width, _pendingBounds.Height);
                     if (Width > 0 && Height > 0) RebuildCanvas();
                 }
                 finally { _isEngineExpanding = false; }
             };
-            try { if (InvokeRequired) BeginInvoke(update); else update(); }
+            try { if (InvokeRequired) BeginInvoke(_cachedBoundsUpdate); else _cachedBoundsUpdate(); }
             catch (ObjectDisposedException) { }
             catch (InvalidOperationException) { }
         }
@@ -228,7 +231,7 @@ namespace FluentWinForms.Core
             {
                 if (UpdateNodeAnimations(node.Children[i], step)) moving = true;
             }
-            return moving;            
+            return moving;
         }
 
         // EL CORAZÓN DE LA ANIMACIÓN (Invocado por AnimationManager)
@@ -326,23 +329,83 @@ namespace FluentWinForms.Core
         protected virtual bool CustomAnimationLoop(float dt, float step) => false;
 
 
-        // 🔥 FIX 1: BOUNDING BOX CULLING (Optimización extrema de CPU == Menos consumo RAM)
+        // 🔥 Convierte coords HWND → espacio de layout Skia (descuenta EngineOffset + TranslateX/Y del control)
+        private PointF ToLayoutPoint(Point hwndPt)
+        {
+            var eo = EngineOffset;
+            // TranslateX/Y sólo se aplica al canvas cuando _logicalBounds no es vacío
+            float tx = _logicalBounds.IsEmpty ? 0f : this.TranslateX;
+            float ty = _logicalBounds.IsEmpty ? 0f : this.TranslateY;
+            return new PointF(hwndPt.X - eo.X - tx, hwndPt.Y - eo.Y - ty);
+        }
+
+        // 🔥 HIT-TEST TRANSFORM-AWARE: inverse-transforma el punto por el translate+scale
+        // animado de cada nodo (espeja exactamente lo que hace RenderNodeTree en el canvas).
+        // Los layouts son absolutos → al deshacer la transformación del padre, el punto queda
+        // en el mismo espacio que usan los layouts de sus hijos.
         private RenderNode? HitTest(RenderNode node, PointF pt)
         {
             if (!node.IsVisible) return null;
 
-            // 🛡️ ESCUDO: Si el ratón no está dentro del rectángulo de este nodo, 
-            // ignoramos automáticamente a este nodo y a todos sus cientos de hijos.
-            if (!node.Layout.Contains(pt)) return null;
+            // ── Recalcula los valores animados actuales (igual que RenderNodeTree) ──
+            float transX = node.TranslateX;
+            float transY = node.TranslateY;
+            float scaleX = node.ScaleX;
+            float scaleY = node.ScaleY;
 
-            // Si el mouse SÍ está adentro, revisamos a los hijos de arriba hacia abajo (Z-Index)
-            for (int i = node.Children.Count - 1; i >= 0; i--)
+            if (node.HoverProgress > 0f)
             {
-                var hit = HitTest(node.Children[i], pt);
-                if (hit != null) return hit; // Si tocamos un hijo, devolvemos el hijo
+                float eH = Easing.Calculate(node.Easing, node.HoverProgress);
+                if (node.HoverState.TranslateX.HasValue)
+                    transX += (node.HoverState.TranslateX.Value - transX) * eH;
+                if (node.HoverState.TranslateY.HasValue)
+                    transY += (node.HoverState.TranslateY.Value - transY) * eH;
+                if (node.HoverState.Scale.HasValue)
+                {
+                    scaleX += (node.HoverState.Scale.Value - scaleX) * eH;
+                    scaleY += (node.HoverState.Scale.Value - scaleY) * eH;
+                }
             }
 
-            // Si ningún hijo fue tocado, significa que tocamos el fondo de este nodo padre y adios papu XD
+            if (node.PressProgress > 0f)
+            {
+                float eP = Easing.Calculate(node.Easing, node.PressProgress);
+                if (node.PressState.TranslateX.HasValue)
+                    transX += (node.PressState.TranslateX.Value - transX) * eP;
+                if (node.PressState.TranslateY.HasValue)
+                    transY += (node.PressState.TranslateY.Value - transY) * eP;
+                if (node.PressState.Scale.HasValue)
+                {
+                    scaleX += (node.PressState.Scale.Value - scaleX) * eP;
+                    scaleY += (node.PressState.Scale.Value - scaleY) * eP;
+                }
+            }
+
+            // ── Inverse-transform: deshace translate y luego scale alrededor del TransformOrigin ──
+            float ix = pt.X - transX;
+            float iy = pt.Y - transY;
+
+            if (scaleX != 1f || scaleY != 1f)
+            {
+                float cx = node.Layout.Left + node.Layout.Width * node.TransformOrigin.X;
+                float cy = node.Layout.Top + node.Layout.Height * node.TransformOrigin.Y;
+                if (scaleX != 0f) ix = (ix - cx) / scaleX + cx;
+                if (scaleY != 0f) iy = (iy - cy) / scaleY + cy;
+            }
+
+            var localPt = new PointF(ix, iy);
+
+            // 🛡️ ESCUDO: bounding-box cull en coordenadas locales (pre-transform)
+            if (!node.Layout.Contains(localPt)) return null;
+
+            // Revisamos hijos de arriba hacia abajo (Z-Index), pasando el punto LOCAL
+            // (los layouts hijos son absolutos en el mismo espacio pre-transform del padre)
+            for (int i = node.Children.Count - 1; i >= 0; i--)
+            {
+                var hit = HitTest(node.Children[i], localPt);
+                if (hit != null) return hit;
+            }
+
             return node;
         }
 
@@ -353,7 +416,7 @@ namespace FluentWinForms.Core
 
             if (_visualNode != null)
             {
-                var pt = new PointF(e.Location.X - EngineOffset.X, e.Location.Y - EngineOffset.Y);
+                var pt = ToLayoutPoint(e.Location);
                 var hit = HitTest(_visualNode, pt);
                 if (hit != _currentHoveredNode)
                 {
@@ -419,7 +482,7 @@ namespace FluentWinForms.Core
 
                 if (_visualNode != null)
                 {
-                    var pt = new PointF(e.Location.X - EngineOffset.X, e.Location.Y - EngineOffset.Y);
+                    var pt = ToLayoutPoint(e.Location);
                     var hit = HitTest(_visualNode, pt);
                     if (hit != null)
                     {
@@ -449,7 +512,9 @@ namespace FluentWinForms.Core
                 if (_currentPressedNode != null)
                 {
                     _currentPressedNode.IsPressed = false;
-                    if (_currentPressedNode.Layout.Contains(e.Location))
+                    // 🔥 FIX: convertir a layout-space y usar HitTest para respetar transforms
+                    var upPt = ToLayoutPoint(e.Location);
+                    if (HitTest(_currentPressedNode, upPt) != null)
                     {
                         _currentPressedNode.OnClickAction?.Invoke(_currentPressedNode);
                     }

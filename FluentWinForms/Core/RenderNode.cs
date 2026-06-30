@@ -86,10 +86,33 @@ namespace FluentWinForms.Core
         [Browsable(false)] public float PressProgress { get; set; } = 0f;
         [Browsable(false)] public float AnimatedScale { get; set; } = 1.0f;
         [Browsable(false)] internal SKImageFilter? _cachedShadowFilter;
+        [Browsable(false)] internal SKPath? _cachedSweepClip;
+        [Browsable(false)] internal SKPaint? _cachedSweepPaint;
+        [Browsable(false)] internal SKPaint? _cachedAlphaPaint;
+        [Browsable(false)] internal SKPaint? _cachedTintPaint;
+        [Browsable(false)] internal SKPaint? _cachedGlowPaint;
+        [Browsable(false)] internal SKPaint? _cachedRipplePaint;
+        [Browsable(false)] internal SKPath? _cachedRippleClip;
+        [Browsable(false)] internal SKImageFilter? _cachedBlurFilter;
+        [Browsable(false)] internal SKColorFilter? _cachedColorMatrixFilter;
+        [Browsable(false)] internal SKImageFilter? _cachedComposedFilter;
+        [Browsable(false)] internal float[]? _colorMatrixBuffer;
+        [Browsable(false)] internal float _lastBlurValue = -1f, _lastGrayscale = -1f, _lastBrightness = -1f, _lastContrast = -1f;
+        [Browsable(false)] internal float _lastSweepW = -1, _lastSweepH = -1;
         internal void ReleaseNativeResources()
         {
             _cachedShadowFilter?.Dispose();
             _cachedShadowFilter = null;
+            _cachedSweepClip?.Dispose(); _cachedSweepClip = null;
+            _cachedSweepPaint?.Dispose(); _cachedSweepPaint = null;
+            _cachedAlphaPaint?.Dispose(); _cachedAlphaPaint = null;
+            _cachedTintPaint?.Dispose(); _cachedTintPaint = null;
+            _cachedGlowPaint?.Dispose(); _cachedGlowPaint = null;
+            _cachedRipplePaint?.Dispose(); _cachedRipplePaint = null;
+            _cachedRippleClip?.Dispose(); _cachedRippleClip = null;
+            _cachedBlurFilter?.Dispose(); _cachedBlurFilter = null;
+            _cachedColorMatrixFilter?.Dispose(); _cachedColorMatrixFilter = null;
+            _cachedComposedFilter?.Dispose(); _cachedComposedFilter = null;
             _cachedSvgTint?.Dispose();
             _cachedSvgTint = null;
             SvgPicture?.Dispose();

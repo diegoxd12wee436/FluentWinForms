@@ -336,38 +336,36 @@ namespace FluentWinForms.Core
                 float currX = startX + (endX - startX) * node.HoverProgress;
                 float currY = startY + (endY - startY) * node.HoverProgress;
 
-                // CSS: overflow: hidden (Clip)
-                using var clipPath = new SKPath();
-                clipPath.AddRoundRect(new SKRect(0, 0, node.Layout.Width, node.Layout.Height), node.Corners.TopLeft, node.Corners.TopLeft);
+                // CSS: overflow: hidden (Clip) — cacheado, solo se reconstruye si cambia el tamaño
+                if (node._cachedSweepClip == null || node._lastSweepW != node.Layout.Width || node._lastSweepH != node.Layout.Height)
+                {
+                    node._cachedSweepClip?.Dispose();
+                    node._cachedSweepClip = new SKPath();
+                    node._cachedSweepClip.AddRoundRect(new SKRect(0, 0, node.Layout.Width, node.Layout.Height), node.Corners.TopLeft, node.Corners.TopLeft);
+                    node._lastSweepW = node.Layout.Width;
+                    node._lastSweepH = node.Layout.Height;
+                }
 
                 canvas.Save();
-                canvas.ClipPath(clipPath, SKClipOperation.Intersect, true);
+                canvas.ClipPath(node._cachedSweepClip, SKClipOperation.Intersect, true);
 
                 // Dibujar el pseudo-elemento ::before (Sweep)
-                using var sweepPaint = new SKPaint
-                {
-                    Color = node.Sweep.ThemeColor.ToSKColor(),
-                    IsAntialias = true,
-                    Style = SKPaintStyle.Fill
-                };
-                canvas.DrawCircle(currX, currY, maxRadius, sweepPaint);
+                node._cachedSweepPaint ??= new SKPaint { IsAntialias = true, Style = SKPaintStyle.Fill };
+                node._cachedSweepPaint.Color = node.Sweep.ThemeColor.ToSKColor();
+                canvas.DrawCircle(currX, currY, maxRadius, node._cachedSweepPaint);
 
                 canvas.Restore();
-            }
-
+            }          
             // 5. OPACIDAD
             if (currentOpacity < 1.0f)
             {
                 byte alpha = (byte)Math.Max(0, Math.Min(255, currentOpacity * 255f));
-                using (var alphaPaint = new SKPaint { Color = SKColors.White.WithAlpha(alpha) })
-                {
-                    canvas.SaveLayer(alphaPaint);
-                }
+                node._cachedAlphaPaint ??= new SKPaint();
+                node._cachedAlphaPaint.Color = SKColors.White.WithAlpha(alpha);
+                canvas.SaveLayer(node._cachedAlphaPaint);
             }
-
             var rect = new SKRect(node.Layout.Left, node.Layout.Top, node.Layout.Right, node.Layout.Bottom);
             _sharedPaint ??= new SKPaint();
-
             // 6. SOMBRA
             if (sh.Radius > 0 && sh.Color.A > 0)
             {
@@ -406,33 +404,22 @@ namespace FluentWinForms.Core
                 {
                     canvas.ClipRect(rect, SKClipOperation.Intersect, true);
                 }
-
                 // 2. Tinte Cristalino (Glassmorphism por Transparencia Alpha)
                 var tint = node.Acrylic.TintColor;
-                using var tintPaint = new SKPaint
-                {
-                    Style = SKPaintStyle.Fill,
-                    Color = new SKColor(tint.R, tint.G, tint.B, tint.A),
-                    IsAntialias = true
-                };
-                canvas.DrawRect(rect, tintPaint);
+                node._cachedTintPaint ??= new SKPaint { Style = SKPaintStyle.Fill, IsAntialias = true };
+                node._cachedTintPaint.Color = new SKColor(tint.R, tint.G, tint.B, tint.A);
+                canvas.DrawRect(rect, node._cachedTintPaint);
 
                 // 3. Efecto "Bisel" (Glow Interno) para simular volumen de cristal 3D
-                using var glowPaint = new SKPaint
-                {
-                    Style = SKPaintStyle.Stroke,
-                    // Si el cristal es oscuro, brillo blanco sutil. Si es claro, brillo más fuerte.
-                    Color = new SKColor(255, 255, 255, (byte)(tint.A > 100 ? 25 : 60)),
-                    StrokeWidth = 1.5f,
-                    IsAntialias = true
-                };
+                node._cachedGlowPaint ??= new SKPaint { Style = SKPaintStyle.Stroke, StrokeWidth = 1.5f, IsAntialias = true };
+                node._cachedGlowPaint.Color = new SKColor(255, 255, 255, (byte)(tint.A > 100 ? 25 : 60));
 
                 // Dibujamos el reflejo 1 pixel hacia adentro
                 var glowRect = new SKRect(rect.Left + 1, rect.Top + 1, rect.Right - 1, rect.Bottom - 1);
                 if (node.Corners.TopLeft > 0)
-                    canvas.DrawRoundRect(glowRect, node.Corners.TopLeft, node.Corners.TopLeft, glowPaint);
+                    canvas.DrawRoundRect(glowRect, node.Corners.TopLeft, node.Corners.TopLeft, node._cachedGlowPaint);
                 else
-                    canvas.DrawRect(glowRect, glowPaint);
+                    canvas.DrawRect(glowRect, node._cachedGlowPaint);
 
                 canvas.Restore();
             }
@@ -441,15 +428,17 @@ namespace FluentWinForms.Core
             _sharedPaint.Reset();
             _sharedPaint.IsAntialias = true;
 
-            SKImageFilter? blurFilter = null;
-            SKColorFilter? colorFilter = null;
-
-            if (node.Filters.Blur > 0)
+            if (node.Filters.Blur > 0 && node.Filters.Blur != node._lastBlurValue)
             {
-                blurFilter = SKImageFilter.CreateBlur(node.Filters.Blur, node.Filters.Blur);
+                node._cachedBlurFilter?.Dispose();
+                node._cachedBlurFilter = SKImageFilter.CreateBlur(node.Filters.Blur, node.Filters.Blur);
+                node._lastBlurValue = node.Filters.Blur;
+                node._cachedComposedFilter?.Dispose();
+                node._cachedComposedFilter = null;
             }
 
-            if (node.Filters.Grayscale > 0 || node.Filters.Brightness != 1f || node.Filters.Contrast != 1f)
+            bool wantsColorAdjust = node.Filters.Grayscale > 0 || node.Filters.Brightness != 1f || node.Filters.Contrast != 1f;
+            if (wantsColorAdjust && (node.Filters.Grayscale != node._lastGrayscale || node.Filters.Brightness != node._lastBrightness || node.Filters.Contrast != node._lastContrast))
             {
                 float b = node.Filters.Brightness;
                 float c = node.Filters.Contrast;
@@ -461,21 +450,29 @@ namespace FluentWinForms.Core
                 float lumG = 0.7152f * g;
                 float lumB = 0.0722f * g;
 
-                float[] matrix = new float[] {
-                    (lumR + invG) * c * b, (lumG) * c * b,        (lumB) * c * b,        0, t * 255,
-                    (lumR) * c * b,        (lumG + invG) * c * b, (lumB) * c * b,        0, t * 255,
-                    (lumR) * c * b,        (lumG) * c * b,        (lumB + invG) * c * b, 0, t * 255,
-                    0,                     0,                     0,                     1, 0
-                };
-                colorFilter = SKColorFilter.CreateColorMatrix(matrix);
+                node._colorMatrixBuffer ??= new float[20];
+                var m = node._colorMatrixBuffer;
+                m[0] = (lumR + invG) * c * b; m[1] = lumG * c * b; m[2] = lumB * c * b; m[3] = 0; m[4] = t * 255;
+                m[5] = lumR * c * b; m[6] = (lumG + invG) * c * b; m[7] = lumB * c * b; m[8] = 0; m[9] = t * 255;
+                m[10] = lumR * c * b; m[11] = lumG * c * b; m[12] = (lumB + invG) * c * b; m[13] = 0; m[14] = t * 255;
+                m[15] = 0; m[16] = 0; m[17] = 0; m[18] = 1; m[19] = 0;
+
+                node._cachedColorMatrixFilter?.Dispose();
+                node._cachedColorMatrixFilter = SKColorFilter.CreateColorMatrix(m);
+                node._lastGrayscale = g; node._lastBrightness = b; node._lastContrast = c;
+                node._cachedComposedFilter?.Dispose();
+                node._cachedComposedFilter = null;
             }
 
-            if (blurFilter != null && colorFilter != null)
-                _sharedPaint.ImageFilter = SKImageFilter.CreateCompose(blurFilter, SKImageFilter.CreateColorFilter(colorFilter));
-            else if (blurFilter != null)
-                _sharedPaint.ImageFilter = blurFilter;
-            else if (colorFilter != null)
-                _sharedPaint.ColorFilter = colorFilter;
+            if (node._cachedBlurFilter != null && node._cachedColorMatrixFilter != null)
+            {
+                node._cachedComposedFilter ??= SKImageFilter.CreateCompose(node._cachedBlurFilter, SKImageFilter.CreateColorFilter(node._cachedColorMatrixFilter));
+                _sharedPaint.ImageFilter = node._cachedComposedFilter;
+            }
+            else if (node._cachedBlurFilter != null)
+                _sharedPaint.ImageFilter = node._cachedBlurFilter;
+            else if (node._cachedColorMatrixFilter != null)
+                _sharedPaint.ColorFilter = node._cachedColorMatrixFilter;
 
             if (bg.Color1.A > 0 || bg.Color2.A > 0)
             {
@@ -503,10 +500,8 @@ namespace FluentWinForms.Core
                 _sharedPaint.Shader = null;
             }
 
-            _sharedPaint.ImageFilter?.Dispose();
-            _sharedPaint.ImageFilter = null;
-            _sharedPaint.ColorFilter?.Dispose();
-            _sharedPaint.ColorFilter = null;
+            _sharedPaint.ImageFilter = null; // no Dispose — node._cachedBlurFilter/_cachedComposedFilter es el dueño
+            _sharedPaint.ColorFilter = null;  // no Dispose — node._cachedColorMatrixFilter es el dueño
 
             // 8. RIPPLE EFFECT EN NODO
             if (_isRippling && Enabled && node == _currentPressedNode && node.Ripple.Color.A > 0)
@@ -514,16 +509,16 @@ namespace FluentWinForms.Core
                 canvas.Save();
                 if (node.Corners.TopLeft > 0)
                 {
-                    using var rClip = new SKPath(); // 🔥 FIX LEAK: Cierre hermético de memoria C++
-                    rClip.AddRoundRect(rect, node.Corners.TopLeft, node.Corners.TopLeft);
-                    canvas.ClipPath(rClip, SKClipOperation.Intersect, true);
+                    node._cachedRippleClip ??= new SKPath();
+                    node._cachedRippleClip.Reset();
+                    node._cachedRippleClip.AddRoundRect(rect, node.Corners.TopLeft, node.Corners.TopLeft);
+                    canvas.ClipPath(node._cachedRippleClip, SKClipOperation.Intersect, true);
                 }
                 else canvas.ClipRect(rect, SKClipOperation.Intersect, true);
 
-                using (var ripplePaint = new SKPaint { Color = node.Ripple.Color.ToSKColor().WithAlpha((byte)(node.Ripple.Opacity * 255)), IsAntialias = true })
-                {
-                    canvas.DrawCircle(_rippleCenter.X, _rippleCenter.Y, _rippleRadius, ripplePaint);
-                }
+                node._cachedRipplePaint ??= new SKPaint { IsAntialias = true };
+                node._cachedRipplePaint.Color = node.Ripple.Color.ToSKColor().WithAlpha((byte)(node.Ripple.Opacity * 255));
+                canvas.DrawCircle(_rippleCenter.X, _rippleCenter.Y, _rippleRadius, node._cachedRipplePaint);
                 canvas.Restore();
             }
 
