@@ -393,94 +393,125 @@ namespace FluentWinForms.Core
                 _sharedPaint.ImageFilter?.Dispose();
                 _sharedPaint.ImageFilter = null;
             }
-
-            // 🔥 INYECCIÓN 2 CORREGIDA: CRISTAL ÓPTICO (Skia 2.88.8 - Cero Lag)
-            // Solo preguntamos si está habilitado (los Structs nunca son null)
+            // 🔥 INYECCIÓN 2: CRISTAL ÓPTICO — ZERO-ALLOC: paints/clip cacheados por nodo
             if (node.Acrylic.IsEnabled)
             {
                 canvas.Save();
 
-                // 1. Recortamos el cristal respetando tus bordes curvos
+                // 1. Clip cacheado — solo se reconstruye si cambia tamaño o radio
                 if (node.Corners.TopLeft > 0)
                 {
-                    using var clipPath = new SKPath();
-                    clipPath.AddRoundRect(rect, node.Corners.TopLeft, node.Corners.TopLeft);
-                    canvas.ClipPath(clipPath, SKClipOperation.Intersect, true);
+                    if (node._cachedAcrylicClipPath == null || node._lastAcrylicRect != rect || node._lastAcrylicCorner != node.Corners.TopLeft)
+                    {
+                        node._cachedAcrylicClipPath?.Dispose();
+                        node._cachedAcrylicClipPath = new SKPath();
+                        node._cachedAcrylicClipPath.AddRoundRect(rect, node.Corners.TopLeft, node.Corners.TopLeft);
+                        node._lastAcrylicRect = rect;
+                        node._lastAcrylicCorner = node.Corners.TopLeft;
+                    }
+                    canvas.ClipPath(node._cachedAcrylicClipPath, SKClipOperation.Intersect, true);
                 }
                 else
                 {
                     canvas.ClipRect(rect, SKClipOperation.Intersect, true);
                 }
 
-                // 2. Tinte Cristalino (Glassmorphism por Transparencia Alpha)
+                // 2. Tinte + Glow cacheados — solo se reconstruyen si cambia el color del tinte
                 var tint = node.Acrylic.TintColor;
-                using var tintPaint = new SKPaint
+                if (node._cachedAcrylicTintPaint == null || node._lastAcrylicTintColor != tint)
                 {
-                    Style = SKPaintStyle.Fill,
-                    Color = new SKColor(tint.R, tint.G, tint.B, tint.A),
-                    IsAntialias = true
-                };
-                canvas.DrawRect(rect, tintPaint);
+                    node._cachedAcrylicTintPaint?.Dispose();
+                    node._cachedAcrylicTintPaint = new SKPaint
+                    {
+                        Style = SKPaintStyle.Fill,
+                        Color = new SKColor(tint.R, tint.G, tint.B, tint.A),
+                        IsAntialias = true
+                    };
+
+                    node._cachedAcrylicGlowPaint?.Dispose();
+                    node._cachedAcrylicGlowPaint = new SKPaint
+                    {
+                        Style = SKPaintStyle.Stroke,
+                        // Si el cristal es oscuro, brillo blanco sutil. Si es claro, brillo más fuerte.
+                        Color = new SKColor(255, 255, 255, (byte)(tint.A > 100 ? 25 : 60)),
+                        StrokeWidth = 1.5f,
+                        IsAntialias = true
+                    };
+
+                    node._lastAcrylicTintColor = tint;
+                }
+                canvas.DrawRect(rect, node._cachedAcrylicTintPaint);
 
                 // 3. Efecto "Bisel" (Glow Interno) para simular volumen de cristal 3D
-                using var glowPaint = new SKPaint
-                {
-                    Style = SKPaintStyle.Stroke,
-                    // Si el cristal es oscuro, brillo blanco sutil. Si es claro, brillo más fuerte.
-                    Color = new SKColor(255, 255, 255, (byte)(tint.A > 100 ? 25 : 60)),
-                    StrokeWidth = 1.5f,
-                    IsAntialias = true
-                };
-
-                // Dibujamos el reflejo 1 pixel hacia adentro
                 var glowRect = new SKRect(rect.Left + 1, rect.Top + 1, rect.Right - 1, rect.Bottom - 1);
                 if (node.Corners.TopLeft > 0)
-                    canvas.DrawRoundRect(glowRect, node.Corners.TopLeft, node.Corners.TopLeft, glowPaint);
+                    canvas.DrawRoundRect(glowRect, node.Corners.TopLeft, node.Corners.TopLeft, node._cachedAcrylicGlowPaint);
                 else
-                    canvas.DrawRect(glowRect, glowPaint);
+                    canvas.DrawRect(glowRect, node._cachedAcrylicGlowPaint);
 
                 canvas.Restore();
             }
 
-            // 🔥 7.  FONDO Y FILTROS CSS
+            // 🔥 7.  FONDO Y FILTROS CSS — ZERO-ALLOC: filtros cacheados por nodo, se reconstruyen solo si cambian los valores
             _sharedPaint.Reset();
             _sharedPaint.IsAntialias = true;
 
-            SKImageFilter? blurFilter = null;
-            SKColorFilter? colorFilter = null;
+            bool filtersChanged = node._lastFilterBlur != node.Filters.Blur
+                || node._lastFilterGrayscale != node.Filters.Grayscale
+                || node._lastFilterBrightness != node.Filters.Brightness
+                || node._lastFilterContrast != node.Filters.Contrast;
 
-            if (node.Filters.Blur > 0)
+            if (filtersChanged)
             {
-                blurFilter = SKImageFilter.CreateBlur(node.Filters.Blur, node.Filters.Blur);
+                node._cachedFilterImageFilter?.Dispose();
+                node._cachedFilterImageFilter = null;
+                node._cachedFilterColorFilterOnly?.Dispose();
+                node._cachedFilterColorFilterOnly = null;
+
+                SKImageFilter? blurFilter = null;
+                SKColorFilter? colorFilter = null;
+
+                if (node.Filters.Blur > 0)
+                {
+                    blurFilter = SKImageFilter.CreateBlur(node.Filters.Blur, node.Filters.Blur);
+                }
+
+                if (node.Filters.Grayscale > 0 || node.Filters.Brightness != 1f || node.Filters.Contrast != 1f)
+                {
+                    float b = node.Filters.Brightness;
+                    float c = node.Filters.Contrast;
+                    float t = (1.0f - c) / 2.0f;
+                    float g = node.Filters.Grayscale;
+                    float invG = 1f - g;
+
+                    float lumR = 0.2126f * g;
+                    float lumG = 0.7152f * g;
+                    float lumB = 0.0722f * g;
+
+                    float[] matrix = new float[] {
+                        (lumR + invG) * c * b, (lumG) * c * b,        (lumB) * c * b,        0, t * 255,
+                        (lumR) * c * b,        (lumG + invG) * c * b, (lumB) * c * b,        0, t * 255,
+                        (lumR) * c * b,        (lumG) * c * b,        (lumB + invG) * c * b, 0, t * 255,
+                        0,                     0,                     0,                     1, 0
+                    };
+                    colorFilter = SKColorFilter.CreateColorMatrix(matrix);
+                }
+
+                if (blurFilter != null && colorFilter != null)
+                    node._cachedFilterImageFilter = SKImageFilter.CreateCompose(blurFilter, SKImageFilter.CreateColorFilter(colorFilter));
+                else if (blurFilter != null)
+                    node._cachedFilterImageFilter = blurFilter;
+                else if (colorFilter != null)
+                    node._cachedFilterColorFilterOnly = colorFilter;
+
+                node._lastFilterBlur = node.Filters.Blur;
+                node._lastFilterGrayscale = node.Filters.Grayscale;
+                node._lastFilterBrightness = node.Filters.Brightness;
+                node._lastFilterContrast = node.Filters.Contrast;
             }
 
-            if (node.Filters.Grayscale > 0 || node.Filters.Brightness != 1f || node.Filters.Contrast != 1f)
-            {
-                float b = node.Filters.Brightness;
-                float c = node.Filters.Contrast;
-                float t = (1.0f - c) / 2.0f;
-                float g = node.Filters.Grayscale;
-                float invG = 1f - g;
-
-                float lumR = 0.2126f * g;
-                float lumG = 0.7152f * g;
-                float lumB = 0.0722f * g;
-
-                float[] matrix = new float[] {
-                    (lumR + invG) * c * b, (lumG) * c * b,        (lumB) * c * b,        0, t * 255,
-                    (lumR) * c * b,        (lumG + invG) * c * b, (lumB) * c * b,        0, t * 255,
-                    (lumR) * c * b,        (lumG) * c * b,        (lumB + invG) * c * b, 0, t * 255,
-                    0,                     0,                     0,                     1, 0
-                };
-                colorFilter = SKColorFilter.CreateColorMatrix(matrix);
-            }
-
-            if (blurFilter != null && colorFilter != null)
-                _sharedPaint.ImageFilter = SKImageFilter.CreateCompose(blurFilter, SKImageFilter.CreateColorFilter(colorFilter));
-            else if (blurFilter != null)
-                _sharedPaint.ImageFilter = blurFilter;
-            else if (colorFilter != null)
-                _sharedPaint.ColorFilter = colorFilter;
+            _sharedPaint.ImageFilter = node._cachedFilterImageFilter;
+            _sharedPaint.ColorFilter = node._cachedFilterColorFilterOnly;
 
             if (bg.Color1.A > 0 || bg.Color2.A > 0)
             {
@@ -503,9 +534,8 @@ namespace FluentWinForms.Core
                 _sharedPaint.Shader = null;
             }
 
-            _sharedPaint.ImageFilter?.Dispose();
+            // 🔥 IMPORTANTE: NO se disponen aquí — pertenecen al cache del nodo, se liberan en ReleaseNativeResources()
             _sharedPaint.ImageFilter = null;
-            _sharedPaint.ColorFilter?.Dispose();
             _sharedPaint.ColorFilter = null;
 
             // 8. RIPPLE EFFECT EN NODO
@@ -552,7 +582,7 @@ namespace FluentWinForms.Core
                 }
             }
 
-            // 🔥 9.5  IMÁGENES DEL NODO
+            // 🔥 9.5  IMÁGENES DEL NODO — ZERO-ALLOC: decodifica una sola vez por referencia de Image
             if (node.Content.Image != null && node.Content.ImageOpacity > 0)
             {
                 _sharedPaint.Reset();
@@ -564,16 +594,22 @@ namespace FluentWinForms.Core
                         SKColors.White.WithAlpha((byte)(node.Content.ImageOpacity * 255)), SKBlendMode.DstIn);
                 }
 
-                using (var ms = new System.IO.MemoryStream())
+                if (node._cachedContentImage == null || !ReferenceEquals(node._lastContentImageRef, node.Content.Image))
                 {
-                    node.Content.Image.Save(ms, System.Drawing.Imaging.ImageFormat.Png);
-                    ms.Position = 0;
-                    using (var skImage = SKImage.FromEncodedData(ms))
+                    node._cachedContentImage?.Dispose();
+                    node._cachedContentImage = null;
+                    using (var ms = new System.IO.MemoryStream())
                     {
-                        var destRect = rect;
-                        canvas.DrawImage(skImage, destRect, _sharedPaint);
+                        node.Content.Image.Save(ms, System.Drawing.Imaging.ImageFormat.Png);
+                        ms.Position = 0;
+                        node._cachedContentImage = SKImage.FromEncodedData(ms);
                     }
+                    node._lastContentImageRef = node.Content.Image;
                 }
+
+                if (node._cachedContentImage != null)
+                    canvas.DrawImage(node._cachedContentImage, rect, _sharedPaint);
+
                 _sharedPaint.ColorFilter?.Dispose();
                 _sharedPaint.ColorFilter = null;
             }
