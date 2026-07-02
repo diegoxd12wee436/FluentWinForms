@@ -258,7 +258,11 @@ namespace FluentWinForms.Core
 
             if (_visualNode != null)
             {
-                FluentWinForms.Core.LayoutEngine.ComputeLayout(_visualNode, new RectangleF(0, 0, Width, Height));
+                // 🔥 FIX: durante expansión del motor, el árbol se layoutea con el tamaño LÓGICO,
+                // no el físico ya inflado — evita que el pivote de scale/translate se descentre.
+                float lw = (_isEngineExpanding && !_logicalBounds.IsEmpty) ? _logicalBounds.Width : Width;
+                float lh = (_isEngineExpanding && !_logicalBounds.IsEmpty) ? _logicalBounds.Height : Height;
+                FluentWinForms.Core.LayoutEngine.ComputeLayout(_visualNode, new RectangleF(0, 0, lw, lh));
             }
 
             RebuildCanvas();

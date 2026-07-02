@@ -317,6 +317,8 @@ namespace FluentWinForms.Core
         }
 
         protected virtual bool CustomAnimationLoop(float dt, float step) => false;
+        // 🔥 Convierte coords físicas del HWND (ya expandido) a coords lógicas del árbol visual
+        protected PointF ToLocalPoint(Point p) => new PointF(p.X - EngineOffset.X - TranslateX, p.Y - EngineOffset.Y - TranslateY);
 
 
         // 🔥 FIX 1: BOUNDING BOX CULLING (Optimización extrema de CPU == Menos consumo RAM)
@@ -346,7 +348,8 @@ namespace FluentWinForms.Core
 
             if (_visualNode != null)
             {
-                var hit = HitTest(_visualNode, e.Location);
+                var localPt = new PointF(e.Location.X - EngineOffset.X - this.TranslateX, e.Location.Y - EngineOffset.Y - this.TranslateY);
+                var hit = HitTest(_visualNode, localPt);
                 if (hit != _currentHoveredNode)
                 {
                     if (_currentHoveredNode != null)
@@ -409,9 +412,11 @@ namespace FluentWinForms.Core
                 Focus();
                 _isMouseDownInternal = true;
 
+                var localPt = ToLocalPoint(e.Location);
+
                 if (_visualNode != null)
                 {
-                    var hit = HitTest(_visualNode, e.Location);
+                    var hit = HitTest(_visualNode, localPt);
                     if (hit != null)
                     {
                         _currentPressedNode = hit;
@@ -421,7 +426,7 @@ namespace FluentWinForms.Core
 
                 if (UseRipple)
                 {
-                    _rippleCenter = e.Location;
+                    _rippleCenter = localPt;
                     _rippleRadius = S(10f);
                     _rippleOpacity = 1f;
                     _isRippling = true;
@@ -440,7 +445,7 @@ namespace FluentWinForms.Core
                 if (_currentPressedNode != null)
                 {
                     _currentPressedNode.IsPressed = false;
-                    if (_currentPressedNode.Layout.Contains(e.Location))
+                    if (_currentPressedNode.Layout.Contains(ToLocalPoint(e.Location)))
                     {
                         _currentPressedNode.OnClickAction?.Invoke(_currentPressedNode);
                     }

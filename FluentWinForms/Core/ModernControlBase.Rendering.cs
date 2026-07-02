@@ -129,6 +129,7 @@ namespace FluentWinForms.Core
                                         _skCanvas.ClipPath(_cachedClipPath, SKClipOperation.Intersect, true);
                                         PaintSkia(_skCanvas, contentRectSK, paddedRectSK);
                                         _skCanvas.Restore();
+
                                     }
                                     break;
                             }
@@ -136,6 +137,8 @@ namespace FluentWinForms.Core
                     }
 
                     _skCanvas.Restore();
+
+
 
                     // 🔥 CRUCIAL: Obligar a Skia a mandar sus pixeles a la memoria RAM
                     _skCanvas.Flush();
@@ -897,33 +900,29 @@ namespace FluentWinForms.Core
                     Point screenPoint = GetLParamPoint(m.LParam);
                     Point clientPoint = this.PointToClient(screenPoint);
 
-                    // 🎯 Buscamos la escala máxima activa en este momento
+                    // 🎯 Misma fuente de verdad que UpdatePhysicalBounds: reutilizamos maxLeft/Right/Top/Bottom
+                    // en vez de descartarlos, para que hit-test y expansión de HWND coincidan siempre.
                     float currentScaleX = this.ScaleX;
                     float currentScaleY = this.ScaleY;
+                    float maxLeft = 0f, maxRight = 0f, maxTop = 0f, maxBottom = 0f;
 
                     if (_visualNode != null && (_isAnimating || _isHoveringInternal || _isMouseDownInternal))
                     {
-                        float _dum1 = 0f, _dum2 = 0f, _dum3 = 0f, _dum4 = 0f;
                         CalculateMaxOverflow(_visualNode, ref currentScaleX, ref currentScaleY,
-                            ref _dum1, ref _dum2, ref _dum3, ref _dum4);
+                            ref maxLeft, ref maxRight, ref maxTop, ref maxBottom);
                     }
 
-                    // Calculamos el tamaño exacto visual ya escalado
-                    int visualW = (int)(_logicalBounds.IsEmpty ? this.Width : _logicalBounds.Width * currentScaleX);
-                    int visualH = (int)(_logicalBounds.IsEmpty ? this.Height : _logicalBounds.Height * currentScaleY);
+                    float logicalW = _logicalBounds.IsEmpty ? this.Width : _logicalBounds.Width;
+                    float logicalH = _logicalBounds.IsEmpty ? this.Height : _logicalBounds.Height;
+                    float scaleExW = logicalW * (currentScaleX - 1f) / 2f;
+                    float scaleExH = logicalH * (currentScaleY - 1f) / 2f;
 
-                    // Calculamos la caja final usando Offset, Traslación y Escala
-                    // Compensamos el shift que genera el scale centrado en Skia
-                    float halfShiftX = _logicalBounds.IsEmpty ? 0f : _logicalBounds.Width * (currentScaleX - 1f) / 2f;
-                    float halfShiftY = _logicalBounds.IsEmpty ? 0f : _logicalBounds.Height * (currentScaleY - 1f) / 2f;
-
-                    // Calculamos la caja final usando Offset, Traslación y Escala
-                    // 🚀 FIX: Usamos RectangleF (float) para no perder precisión en la física
-                    RectangleF drawnArea = new RectangleF(
-                        EngineOffset.X + this.TranslateX - halfShiftX,
-                        EngineOffset.Y + this.TranslateY - halfShiftY,
-                        visualW,
-                        visualH
+                    // 🚀 FIX: LTRB idéntico al de UpdatePhysicalBounds (exLeft/exRight/exTop/exBottom)
+                    RectangleF drawnArea = RectangleF.FromLTRB(
+                        EngineOffset.X + this.TranslateX - (scaleExW + maxLeft),
+                        EngineOffset.Y + this.TranslateY - (scaleExH + maxTop),
+                        EngineOffset.X + this.TranslateX + logicalW + (scaleExW + maxRight),
+                        EngineOffset.Y + this.TranslateY + logicalH + (scaleExH + maxBottom)
                     );
 
                     // Damos 1px de margen de seguridad (Inflate) para absorber errores de redondeo nativo de Windows
