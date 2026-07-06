@@ -111,6 +111,7 @@ namespace FluentWinForms.Core
             base.OnHandleCreated(e);
             using (Graphics g = CreateGraphics()) { _dpiScale = g.DpiX / 96f; }
             RebuildCanvas();
+            UpdatePhysicalBounds(); // 🔥 Reserva margen de sombra/glow ANTES del primer paint
 
             if (!AnimationManager.IsRunning) AnimationManager.Start();
 

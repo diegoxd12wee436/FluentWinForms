@@ -107,6 +107,9 @@ namespace FluentWinForms.Core
             // Overflow por badge — SIEMPRE (visible en reposo también)
             CalculateBadgeOverflow(_visualNode, ref maxRight, ref maxTop);
 
+            // Overflow por sombra/glow — SIEMPRE, estático (no depende de animación ni lerp)
+            CalculateShadowOverflow(_visualNode, ref maxLeft, ref maxRight, ref maxTop, ref maxBottom);
+
             float scaleExW = _logicalBounds.Width * (maxScaleX - 1f) / 2f;
             float scaleExH = _logicalBounds.Height * (maxScaleY - 1f) / 2f;
 
@@ -182,7 +185,27 @@ namespace FluentWinForms.Core
             for (int i = 0; i < node.Children.Count; i++)
                 CalculateBadgeOverflow(node.Children[i], ref maxRight, ref maxTop);
         }
+        // Escanea la sombra/glow de cada nodo (Normal + Hover + Press + Disabled) SIEMPRE — no depende de animación
+        private void CalculateShadowOverflow(RenderNode node, ref float maxLeft, ref float maxRight, ref float maxTop, ref float maxBottom)
+        {
+            AccumulateShadowReach(node.Shadow, ref maxLeft, ref maxRight, ref maxTop, ref maxBottom);
+            if (node.HoverState.Shadow.HasValue) AccumulateShadowReach(node.HoverState.Shadow.Value, ref maxLeft, ref maxRight, ref maxTop, ref maxBottom);
+            if (node.PressState.Shadow.HasValue) AccumulateShadowReach(node.PressState.Shadow.Value, ref maxLeft, ref maxRight, ref maxTop, ref maxBottom);
+            if (node.DisabledState.Shadow.HasValue) AccumulateShadowReach(node.DisabledState.Shadow.Value, ref maxLeft, ref maxRight, ref maxTop, ref maxBottom);
 
+            for (int i = 0; i < node.Children.Count; i++)
+                CalculateShadowOverflow(node.Children[i], ref maxLeft, ref maxRight, ref maxTop, ref maxBottom);
+        }
+
+        private static void AccumulateShadowReach(ShadowData sh, ref float maxLeft, ref float maxRight, ref float maxTop, ref float maxBottom)
+        {
+            if (sh.Radius <= 0 || sh.Color.A <= 0) return;
+
+            maxLeft = Math.Max(maxLeft, sh.Radius + Math.Max(0f, -sh.OffsetX));
+            maxRight = Math.Max(maxRight, sh.Radius + Math.Max(0f, sh.OffsetX));
+            maxTop = Math.Max(maxTop, sh.Radius + Math.Max(0f, -sh.OffsetY));
+            maxBottom = Math.Max(maxBottom, sh.Radius + Math.Max(0f, sh.OffsetY));
+        }
         private void StartAnimation()
         {
             if (!_isAnimating && !DesignMode)
