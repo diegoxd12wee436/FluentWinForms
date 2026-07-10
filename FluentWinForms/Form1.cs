@@ -51,7 +51,7 @@ namespace FluentWinForms
                 .Shadow(2)
                 .Hover(bg: "#c62828", scale: 1.02)
                 .Press(scale: 0.95)
-                .HandCursor().AnimateSpring(160)
+                .HandCursor().AnimateEase(200)
                 .Tooltip("Esta acción no se puede deshacer")
                 
                 .Apply(this);
@@ -82,6 +82,12 @@ namespace FluentWinForms
                 .Badge("5").BadgeOffset(-4, -6)
                 .Tooltip("5 notificaciones nuevas")
                 .AnimateSpring(180)
+                .Apply(this);
+                var btnEstatico = FluentElement.Design("btnEstatico")
+                .Layout(50, 412, 180, 48)
+                .Content("Estático", "#fff", 12)
+                .Background("#333")
+                .Shadow(2)
                 .Apply(this);
 
 
