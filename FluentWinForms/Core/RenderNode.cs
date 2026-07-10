@@ -86,6 +86,10 @@ namespace FluentWinForms.Core
         [Browsable(false)] public float PressProgress { get; set; } = 0f;
         [Browsable(false)] public float AnimatedScale { get; set; } = 1.0f;
         [Browsable(false)] internal SKImageFilter? _cachedShadowFilter;
+        [Browsable(false)] internal Color _lastShadowColor = Color.Empty;
+        [Browsable(false)] internal float _lastShadowRadius = -1f;
+        [Browsable(false)] internal float _lastShadowOffsetX = float.MinValue;
+        [Browsable(false)] internal float _lastShadowOffsetY = float.MinValue;
         [Browsable(false)] internal SKImage? _cachedContentImage;
         [Browsable(false)] internal Image? _lastContentImageRef;
         [Browsable(false)] internal SKPaint? _cachedAcrylicTintPaint;

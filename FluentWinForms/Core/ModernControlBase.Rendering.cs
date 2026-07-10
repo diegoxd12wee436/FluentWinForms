@@ -372,26 +372,39 @@ namespace FluentWinForms.Core
             var rect = new SKRect(node.Layout.Left, node.Layout.Top, node.Layout.Right, node.Layout.Bottom);
             _sharedPaint ??= new SKPaint();
 
-            // 6. SOMBRA
+            // 6. SOMBRA — color en escalón (Hover/PressProgress >= 0.5f), inmune a AnimateSpring
             if (sh.Radius > 0 && sh.Color.A > 0)
             {
+                Color stepColor = node.Shadow.Color;
+                if (node.HoverState.Shadow.HasValue && node.HoverProgress >= 0.5f) stepColor = node.HoverState.Shadow.Value.Color;
+                if (node.PressState.Shadow.HasValue && node.PressProgress >= 0.5f) stepColor = node.PressState.Shadow.Value.Color;
+                if (!node.Enabled && node.DisabledState.Shadow.HasValue) stepColor = node.DisabledState.Shadow.Value.Color;
+
+                if (node._cachedShadowFilter == null ||
+                    node._lastShadowColor != stepColor ||
+                    node._lastShadowRadius != sh.Radius ||
+                    node._lastShadowOffsetX != sh.OffsetX ||
+                    node._lastShadowOffsetY != sh.OffsetY)
+                {
+                    node._cachedShadowFilter?.Dispose();
+                    node._cachedShadowFilter = SKImageFilter.CreateDropShadow(
+                        S(sh.OffsetX), S(sh.OffsetY), S(sh.Radius) / 2f, S(sh.Radius) / 2f, stepColor.ToSKColor());
+                    node._lastShadowColor = stepColor;
+                    node._lastShadowRadius = sh.Radius;
+                    node._lastShadowOffsetX = sh.OffsetX;
+                    node._lastShadowOffsetY = sh.OffsetY;
+                }
+
                 _sharedPaint.Reset();
                 _sharedPaint.IsAntialias = true;
                 _sharedPaint.Style = SKPaintStyle.Fill;
                 _sharedPaint.Color = bg.Color1.A > 0 ? bg.Color1.ToSKColor() : SKColors.White;
-
-                if (node._cachedShadowFilter == null)
-                {
-                    node._cachedShadowFilter = SKImageFilter.CreateDropShadow(
-                        S(sh.OffsetX), S(sh.OffsetY), S(sh.Radius) / 2f, S(sh.Radius) / 2f, sh.Color.ToSKColor());
-                }
                 _sharedPaint.ImageFilter = node._cachedShadowFilter;
 
                 if (node.Corners.TopLeft > 0) canvas.DrawRoundRect(rect, node.Corners.TopLeft, node.Corners.TopLeft, _sharedPaint);
                 else canvas.DrawRect(rect, _sharedPaint);
 
-                _sharedPaint.ImageFilter?.Dispose();
-                _sharedPaint.ImageFilter = null;
+                _sharedPaint.ImageFilter = null; // 👈 sin Dispose() — es la misma instancia que node._cachedShadowFilter
             }
             // 🔥 INYECCIÓN 2: CRISTAL ÓPTICO — ZERO-ALLOC: paints/clip cacheados por nodo
             if (node.Acrylic.IsEnabled)

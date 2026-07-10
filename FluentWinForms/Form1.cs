@@ -89,10 +89,10 @@ namespace FluentWinForms
 
         private void Form1_Load(object sender, EventArgs e)
         {
-            //AnimationManager.FrameTicked += dt =>
-            //{
-            //    Debug.WriteLine(AnimationManager.DumpDiagnostics());
-            //};
+            AnimationManager.FrameTicked += dt =>
+            {
+                Debug.WriteLine(AnimationManager.DumpDiagnostics());
+            };
             //var btnPrueba = FluentElement.Design("btnTest")
             //    .Layout(50, 50, 150, 45)
             //    .Content("¡Motor Listo!", "#fff", 12)
@@ -104,8 +104,8 @@ namespace FluentWinForms
             //    .Apply(this); // ¡Magia! Se dibuja solo.
 
             //btnPrueba.Click += (s, e) => MessageBox.Show("¡Sintaxis Dev-Friendly funcionando al 100%!");
-        }       
+        }
 
-        
+
     }
 }
