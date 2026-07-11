@@ -111,7 +111,7 @@ namespace FluentWinForms.Core
         [ThreadStatic]
         private static System.Text.StringBuilder? _textWrapperBuilder;
 
-        protected List<string> WrapTextSkia(string text, SKPaint paint, float maxWidth)
+        protected List<string> WrapTextSkia(string text, SKFont font, float maxWidth)
         {
             var lines = new List<string>();
             if (string.IsNullOrEmpty(text)) return lines;
@@ -131,7 +131,7 @@ namespace FluentWinForms.Core
                 _textWrapperBuilder.Append(c);
 
                 // Si lo que llevamos excede el ancho máximo...
-                if (paint.MeasureText(_textWrapperBuilder.ToString()) > maxWidth && _textWrapperBuilder.Length > 1)
+                if (font.MeasureText(_textWrapperBuilder.ToString()) > maxWidth && _textWrapperBuilder.Length > 1)
                 {
                     if (lastSpaceIndex > lineStartIndex)
                     {

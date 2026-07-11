@@ -251,6 +251,7 @@ namespace FluentWinForms.Custom_Buttons
         private int _isInvalidating = 0;           // 🔥 INYECCIÓN 4: Candado debounce BeginInvoke
 
         private readonly SKPaint _skPaint = new SKPaint { IsAntialias = true };
+        private readonly SKFont _skFont = new SKFont();
         private readonly SKPath _skPath = new SKPath();
 
         private SKPaint? _skThumbShadowPaint;
@@ -735,12 +736,11 @@ namespace FluentWinForms.Custom_Buttons
                     if (UseAcrylic) DrawAcrylicPlugAndPlay(canvas, rect);
                     else canvas.DrawRoundRect(rect, S(6f), S(6f), _skPaint);
                     _skPaint.Color = SKColors.White.WithAlpha(180);
-                    _skPaint.TextSize = h * 0.4f;
-                    _skPaint.TextAlign = SKTextAlign.Center;
+                    _skFont.Size = h * 0.4f;
                     if (_segoeTypeface == null) _segoeTypeface = SKTypeface.FromFamilyName("Segoe UI", SKFontStyleWeight.Bold, SKFontStyleWidth.Normal, SKFontStyleSlant.Upright);
-                    _skPaint.Typeface = _segoeTypeface;
-                    if (t > 0.5f) canvas.DrawText("ON", rect.Left + (rect.Width / 4f), rect.MidY - (_skPaint.FontMetrics.Ascent / 2f), _skPaint);
-                    else canvas.DrawText("OFF", rect.Right - (rect.Width / 4f), rect.MidY - (_skPaint.FontMetrics.Ascent / 2f), _skPaint);
+                    _skFont.Typeface = _segoeTypeface;
+                    if (t > 0.5f) canvas.DrawText("ON", rect.Left + (rect.Width / 4f), rect.MidY - (_skFont.Metrics.Ascent / 2f), SKTextAlign.Center, _skFont, _skPaint);
+                    else canvas.DrawText("OFF", rect.Right - (rect.Width / 4f), rect.MidY - (_skFont.Metrics.Ascent / 2f), SKTextAlign.Center, _skFont, _skPaint);
                     if (UseShadow) DrawThumbShadowSkia(canvas, thumbX, rect.Top + padding, thumbSize, thumbSize, S(4f));
                     _skPaint.Color = currentThumbColor.ToSKColor();
                     canvas.DrawRoundRect(new SKRect(thumbX, rect.Top + padding, thumbX + thumbSize, rect.Top + padding + thumbSize), S(4f), S(4f), _skPaint);
@@ -1003,6 +1003,7 @@ namespace FluentWinForms.Custom_Buttons
             try { _skAcrylicTintPaint?.Dispose(); _skAcrylicTintPaint = null; } catch { }
             try { _skAcrylicFallbackPaint?.Dispose(); _skAcrylicFallbackPaint = null; } catch { }
             try { _segoeTypeface?.Dispose(); _segoeTypeface = null; } catch { }
+            try { _skFont?.Dispose(); } catch { }
             try { _skPaint.Dispose(); } catch { }
             try { _skPath.Dispose(); } catch { }
             try { _gdiBrush?.Dispose(); } catch { }

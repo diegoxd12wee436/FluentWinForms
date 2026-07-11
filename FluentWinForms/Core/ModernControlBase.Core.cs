@@ -237,6 +237,7 @@ namespace FluentWinForms.Core
 
         protected SKPath? _sharedPath;
         protected SKPaint? _sharedPaint;
+        protected SKFont? _sharedFont;
 
         protected bool _isRenderable = false;
 
@@ -353,6 +354,7 @@ namespace FluentWinForms.Core
                 ClearCaches();
                 _visualNode?.ReleaseNativeResources();
                 SafeDispose(ref _sharedPaint);
+                SafeDispose(ref _sharedFont);
                 SafeDispose(ref _sharedPath);
                 SafeDispose(ref _gdiWrapper);
                 SafeDispose(ref _skCanvas);

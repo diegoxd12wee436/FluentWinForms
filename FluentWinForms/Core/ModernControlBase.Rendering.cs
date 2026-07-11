@@ -643,42 +643,44 @@ namespace FluentWinForms.Core
             {
                 _sharedPaint.Reset();
                 _sharedPaint.IsAntialias = true;
-                _sharedPaint.LcdRenderText = true;
-                _sharedPaint.SubpixelText = true;
-                _sharedPaint.HintingLevel = SKPaintHinting.Full;
+                _sharedFont ??= new SKFont();
+                _sharedFont.Edging = SKFontEdging.SubpixelAntialias;
+                _sharedFont.Subpixel = true;
+                _sharedFont.Hinting = SKFontHinting.Full;
                 _sharedPaint.Color = currentTextColor.ToSKColor();
-                _sharedPaint.TextSize = S(node.Content.FontSize);
-                _sharedPaint.Typeface = GetOrCreateTypeface(node.Content.FontFamily, node.Content.IsBold, node.Content.IsItalic);
+                _sharedFont.Size = S(node.Content.FontSize);
+                _sharedFont.Typeface = GetOrCreateTypeface(node.Content.FontFamily, node.Content.IsBold, node.Content.IsItalic);
 
                 float tx = textRect.Left;
-                if (node.Content.HorizontalAlignment == StringAlignment.Center) { _sharedPaint.TextAlign = SKTextAlign.Center; tx = textRect.MidX; }
-                else if (node.Content.HorizontalAlignment == StringAlignment.Far) { _sharedPaint.TextAlign = SKTextAlign.Right; tx = textRect.Right; }
-                else { _sharedPaint.TextAlign = SKTextAlign.Left; }
+                SKTextAlign hAlign;
+                if (node.Content.HorizontalAlignment == StringAlignment.Center) { hAlign = SKTextAlign.Center; tx = textRect.MidX; }
+                else if (node.Content.HorizontalAlignment == StringAlignment.Far) { hAlign = SKTextAlign.Right; tx = textRect.Right; }
+                else { hAlign = SKTextAlign.Left; }
 
                 if (node.Content.WordWrap)
                 {
-                    var lines = WrapTextSkia(node.Content.Text, _sharedPaint, textRect.Width);
-                    float lineHeight = _sharedPaint.FontMetrics.Descent - _sharedPaint.FontMetrics.Ascent;
+                    var lines = WrapTextSkia(node.Content.Text, _sharedFont, textRect.Width);
+                    float lineHeight = _sharedFont.Metrics.Descent - _sharedFont.Metrics.Ascent;
                     float totalHeight = lines.Count * lineHeight;
 
-                    float ty = textRect.Top - _sharedPaint.FontMetrics.Ascent;
-                    if (node.Content.VerticalAlignment == StringAlignment.Center) ty = textRect.MidY - (totalHeight / 2f) - _sharedPaint.FontMetrics.Ascent;
-                    else if (node.Content.VerticalAlignment == StringAlignment.Far) ty = textRect.Bottom - totalHeight - _sharedPaint.FontMetrics.Ascent;
+                    float ty = textRect.Top - _sharedFont.Metrics.Ascent;
+                    if (node.Content.VerticalAlignment == StringAlignment.Center) ty = textRect.MidY - (totalHeight / 2f) - _sharedFont.Metrics.Ascent;
+                    else if (node.Content.VerticalAlignment == StringAlignment.Far) ty = textRect.Bottom - totalHeight - _sharedFont.Metrics.Ascent;
 
                     foreach (var line in lines)
                     {
-                        canvas.DrawText(line, tx, ty, _sharedPaint);
+                        canvas.DrawText(line, tx, ty, hAlign, _sharedFont, _sharedPaint);
                         if (node.Content.Decoration == TextDecoration.Underline)
                         {
                             SKRect lb = new SKRect();
-                            _sharedPaint.MeasureText(line, ref lb);
+                            _sharedFont.MeasureText(line, out lb);
                             float underlineY = ty + S(2f);
                             canvas.DrawLine(lb.Left + tx, underlineY, lb.Right + tx, underlineY, _sharedPaint);
                         }
                         else if (node.Content.Decoration == TextDecoration.Strikethrough)
                         {
                             SKRect lb = new SKRect();
-                            _sharedPaint.MeasureText(line, ref lb);
+                            _sharedFont.MeasureText(line, out lb);
                             float strikeY = ty - (lb.Height / 2f);
                             canvas.DrawLine(lb.Left + tx, strikeY, lb.Right + tx, strikeY, _sharedPaint);
                         }
@@ -687,8 +689,7 @@ namespace FluentWinForms.Core
                 }
                 else
                 {
-                    SKRect textBounds = new SKRect();
-                    _sharedPaint.MeasureText(node.Content.Text, ref textBounds);
+                    _sharedFont.MeasureText(node.Content.Text, out SKRect textBounds);
 
                     float ty = textRect.Top;
                     if (node.Content.VerticalAlignment == StringAlignment.Center) ty = textRect.MidY - textBounds.MidY;
@@ -706,7 +707,7 @@ namespace FluentWinForms.Core
                         canvas.DrawLine(textBounds.Left + tx, strikeY, textBounds.Right + tx, strikeY, _sharedPaint);
                     }
 
-                    canvas.DrawText(node.Content.Text, tx, ty, _sharedPaint);
+                    canvas.DrawText(node.Content.Text, tx, ty, hAlign, _sharedFont, _sharedPaint);
                 }
             }
             // 10.5. SVG ICON — vectorial, escala sin pixelar
@@ -785,10 +786,10 @@ namespace FluentWinForms.Core
                 if (!string.IsNullOrEmpty(node.Badge.Text))
                 {
                     _sharedPaint.Color = node.Badge.TextColor.ToSKColor();
-                    _sharedPaint.TextSize = (float)(node.Badge.Size * 0.55);
-                    _sharedPaint.TextAlign = SKTextAlign.Center;
-                    _sharedPaint.FakeBoldText = true;
-                    canvas.DrawText(node.Badge.Text, bX, bY + _sharedPaint.TextSize * 0.35f, _sharedPaint);
+                    _sharedFont ??= new SKFont();
+                    _sharedFont.Size = (float)(node.Badge.Size * 0.55);
+                    _sharedFont.Embolden = true;
+                    canvas.DrawText(node.Badge.Text, bX, bY + _sharedFont.Size * 0.35f, SKTextAlign.Center, _sharedFont, _sharedPaint);
                 }
 
                 _sharedPaint.Reset();
