@@ -39,12 +39,12 @@ namespace FluentWinForms.Panel_Controls
 
         private float _borderRadius = 15f;
         [Category("Modern Appearance")]
-        public float BorderRadius { get => _borderRadius; set { _borderRadius = Math.Max(0f, value); InvalidateCaches(); } }
+        public new float BorderRadius { get => _borderRadius; set { _borderRadius = Math.Max(0f, value); InvalidateCaches(); } }
 
         // 🔥 Borde blanquito premium por defecto (120 de opacidad)
         private Color _borderColor = Color.FromArgb(120, 255, 255, 255);
         [Category("Modern Appearance")]
-        public Color BorderColor { get => _borderColor; set { _borderColor = value; InvalidateCaches(); } }
+        public new Color BorderColor { get => _borderColor; set { _borderColor = value; InvalidateCaches(); } }
 
         private float _gradientAngle = 45f;
         [Category("Modern Appearance")]
@@ -76,10 +76,7 @@ namespace FluentWinForms.Panel_Controls
             BorderThickness = 0;
             FocusThickness = 0;
 
-        }
-
-        private static float S(float v) => v;
-
+        }       
         // 🛑 SILENCIADOS PARA CERO RIPPLE 🛑
         protected override void OnMouseDown(MouseEventArgs e) { /* SILENCIADO */ }
         protected override void OnMouseUp(MouseEventArgs e) { /* SILENCIADO */ }
@@ -181,14 +178,14 @@ namespace FluentWinForms.Panel_Controls
                                     {
                                         pc.Clear(SKColors.Transparent);
                                         using (var rawSkiaImg = SKImage.FromBitmap(rawSkia))
-                                            pc.DrawImage(rawSkiaImg, pad, pad);
+                                            pc.DrawImage(rawSkiaImg, pad, pad, SKSamplingOptions.Default);
 
                                         using (var blurred = new SKBitmap(pw, ph))
                                         using (var bc = new SKCanvas(blurred))
                                         using (var bp = new SKPaint { ImageFilter = SKImageFilter.CreateBlur(S(_blurAmount), S(_blurAmount), SKShaderTileMode.Clamp) })
                                         {
                                             using (var paddedImg = SKImage.FromBitmap(padded))
-                                                bc.DrawImage(paddedImg, 0, 0, bp);
+                                                bc.DrawImage(paddedImg, 0, 0, SKSamplingOptions.Default, bp);
 
                                             using (var fc = new SKCanvas(_blurredCache))
                                             using (var blurredImg = SKImage.FromBitmap(blurred))
@@ -203,7 +200,7 @@ namespace FluentWinForms.Panel_Controls
                                 {
                                     using (var fc = new SKCanvas(_blurredCache))
                                     using (var rawSkiaImg = SKImage.FromBitmap(rawSkia))
-                                        fc.DrawImage(rawSkiaImg, 0, 0);
+                                        fc.DrawImage(rawSkiaImg, 0, 0, SKSamplingOptions.Default);
                                 }
                             }
                         }
@@ -299,12 +296,12 @@ namespace FluentWinForms.Panel_Controls
                 if (BackdropStyle == PanelBackdropStyle.Glass)
                 {
                     // Esquinas — sharp bitmap fuera del clip (rellena las esquinas con el fondo real)
-                    if (_sharpCacheImage != null) canvas.DrawImage(_sharpCacheImage, 0, 0);
+                    if (_sharpCacheImage != null) canvas.DrawImage(_sharpCacheImage, 0, 0, SKSamplingOptions.Default);
 
                     canvas.Save();
                     canvas.ClipPath(path, SKClipOperation.Intersect, true);
 
-                    if (_blurredCacheImage != null) canvas.DrawImage(_blurredCacheImage, 0, 0);
+                    if (_blurredCacheImage != null) canvas.DrawImage(_blurredCacheImage, 0, 0, SKSamplingOptions.Default);
                     using (var tint = new SKPaint { Color = GlassTint.ToSKColor(), Style = SKPaintStyle.Fill, IsAntialias = true })
                         canvas.DrawRect(contentRect, tint);
 

@@ -576,7 +576,7 @@ namespace FluentWinForms.Core
                 }
 
                 if (node._cachedContentImage != null)
-                    canvas.DrawImage(node._cachedContentImage, rect, _sharedPaint);
+                    canvas.DrawImage(node._cachedContentImage, rect, SKSamplingOptions.Default, _sharedPaint);
 
                 _sharedPaint.ColorFilter?.Dispose();
                 _sharedPaint.ColorFilter = null;
@@ -703,7 +703,7 @@ namespace FluentWinForms.Core
                 var matrix = SKMatrix.CreateScaleTranslation(scaleX, scaleY, px - cull.Left * scaleX, py - cull.Top * scaleY);
 
                 canvas.Save();
-                canvas.Concat(ref matrix);
+                canvas.Concat(in matrix);
                 canvas.DrawPicture(node.SvgPicture, _sharedPaint);
                 canvas.Restore();
 

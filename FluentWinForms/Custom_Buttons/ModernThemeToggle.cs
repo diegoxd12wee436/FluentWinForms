@@ -203,7 +203,7 @@ namespace FluentWinForms.Custom_Buttons
         private bool _useShadow = true;
         [Category("Modern Appearance")]
         [Description("Activa o desactiva la sombra del indicador (thumb) para máximo rendimiento.\nEnables or disables the thumb shadow for maximum performance.")]
-        public bool UseShadow
+        public new bool UseShadow
         {
             get => _useShadow;
             set { _useShadow = value; Invalidate(); }
@@ -245,6 +245,7 @@ namespace FluentWinForms.Custom_Buttons
         // 🔥 POOL DE MEMORIA ZERO-ALLOCATION
         private Bitmap? _bgCache;
         private SKBitmap? _acrylicCache;
+        private SKImage? _acrylicCacheImage;
         private SKBitmap? _acrylicStagingBitmap; // 🔥 INYECCIÓN 3: Buffer Ping-Pong (elimina SKBitmap.Copy())
         private bool _cacheDirty = true;
         private bool _isCapturingBackdrop = false; // Control de asincronía para Acrylic
@@ -455,7 +456,7 @@ namespace FluentWinForms.Custom_Buttons
             try
             {
                 Rectangle bounds = new Rectangle(this.Left, this.Top, this.Width, this.Height);
-                IntPtr hwnd = Parent.IsHandleCreated ? Parent.Handle : IntPtr.Zero;
+                IntPtr hwnd = Parent!.IsHandleCreated ? Parent.Handle : IntPtr.Zero;
 
                 if (hwnd != IntPtr.Zero)
                 {
@@ -489,10 +490,13 @@ namespace FluentWinForms.Custom_Buttons
                                     _acrylicStagingBitmap.GetPixels(),
                                     bmpData.Scan0,
                                     new UIntPtr((uint)_acrylicStagingBitmap.ByteCount)
-                                );
-
+                                );                                
                                 // 🔥 INYECCIÓN 3: Swap Ping-Pong atómico — cero bloqueos
                                 _acrylicStagingBitmap = Interlocked.Exchange(ref _acrylicCache, _acrylicStagingBitmap);
+
+                                // Imagen compañera para DrawImage — se reconstruye solo cuando el capture async completa (no por frame)
+                                var newAcrylicImage = _acrylicCache != null ? SKImage.FromBitmap(_acrylicCache) : null;
+                                Interlocked.Exchange(ref _acrylicCacheImage, newAcrylicImage)?.Dispose();
                             }
                             finally
                             {
@@ -563,7 +567,8 @@ namespace FluentWinForms.Custom_Buttons
                 canvas.ClipPath(_skPath, SKClipOperation.Intersect, true);
 
                 // Ya no necesitamos aplicar Skia ImageFilter Blur. CaptureBackdropAsync lo hizo gratis
-                canvas.DrawBitmap(_acrylicCache, new SKRect(0, 0, this.Width, this.Height));
+                if (_acrylicCacheImage != null)
+                    canvas.DrawImage(_acrylicCacheImage, new SKRect(0, 0, this.Width, this.Height), SKSamplingOptions.Default);
 
                 _skAcrylicTintPaint ??= new SKPaint { Style = SKPaintStyle.Fill, Color = SKColors.White.WithAlpha(40), IsAntialias = true };
                 canvas.DrawRect(rect, _skAcrylicTintPaint);
@@ -1001,10 +1006,11 @@ namespace FluentWinForms.Custom_Buttons
             }
         }
 
-        private void ClearCaches()
+        private new void ClearCaches()
         {
             try { if (_bgCache != null) { try { AcrylicHelper.BitmapPool.Return(_bgCache); } catch { _bgCache.Dispose(); } _bgCache = null; } } catch { }
             try { _acrylicCache?.Dispose(); _acrylicCache = null; } catch { }
+            try { _acrylicCacheImage?.Dispose(); _acrylicCacheImage = null; } catch { }
             try { _acrylicStagingBitmap?.Dispose(); _acrylicStagingBitmap = null; } catch { } // 🔥 INYECCIÓN 3: Limpiar staging buffer
             try { _skThumbShadowPaint?.Dispose(); _skThumbShadowPaint = null; } catch { }
             try { _skThumbMaskFilter?.Dispose(); _skThumbMaskFilter = null; } catch { }

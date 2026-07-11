@@ -31,7 +31,7 @@ namespace FluentWinForms.Custom_Controls
             return element.Design();
         }
 
-        public ControlBuilder<FluentElement> Design()
+        public new ControlBuilder<FluentElement> Design()
         {
             if (VisualNode == null)
                 VisualNode = new RenderNode
