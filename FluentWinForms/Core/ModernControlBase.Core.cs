@@ -26,13 +26,6 @@ namespace FluentWinForms.Core
         // 🔥 INYECCIÓN PRO: Retorno al DllImport infalible (evita el error de Partial Method en el diseñador)
         [DllImport("kernel32.dll", EntryPoint = "RtlMoveMemory", SetLastError = false)]
         private static extern void RtlMoveMemory(IntPtr dest, IntPtr src, uint count);
-
-#if NETFRAMEWORK
-        // 🔥 VARIABLES PARA EL "AIR-GAP" ZERO-ALLOCATION EN .NET 4.8
-        private byte[]? _netFxSafeBuffer;         // Buffer reutilizable para copia segura
-        private Bitmap? _netFxSafeBitmap;         // Bitmap GDI+ reutilizable
-#endif
-
        
         // 🔥 INYECCIÓN CACHÉ PRO: Mata la fuga de memoria y soporta Cursiva (Italic)
         private static readonly ConcurrentDictionary<(string family, bool bold, bool italic), SKTypeface> _typefaceCache = new();
@@ -299,25 +292,13 @@ namespace FluentWinForms.Core
                 return;
             }
 
-#if NETFRAMEWORK
-            // 🔥 INYECCIÓN PRO: Compactar el LOH (Large Object Heap) en .NET 4.8 
-            // Evita el falso OOM por fragmentación de memoria al redimensionar mucho la ventana
-            System.Runtime.GCSettings.LargeObjectHeapCompactionMode = System.Runtime.GCLargeObjectHeapCompactionMode.CompactOnce;
-            GC.Collect();
-#endif
-
             try
             {
                 _skBitmap = new SKBitmap(new SKImageInfo(Width, Height, SKColorType.Bgra8888, SKAlphaType.Premul));
                 _skCanvas = new SKCanvas(_skBitmap);
 
-#if NETFRAMEWORK
-                // 🔥 MÉTODO BLINDADO .NET 4.8: Instanciamos el Bitmap normal (Constructor seguro) sin punteros cruzados.
-                _gdiWrapper = new Bitmap(Width, Height, PixelFormat.Format32bppPArgb);
-#else
                 // 🔥 MAGIA DE ARQUITECTO: Mapeo de memoria directo (Zero-Copy)
                 _gdiWrapper = new Bitmap(Width, Height, _skBitmap.RowBytes, PixelFormat.Format32bppPArgb, _skBitmap.GetPixels());
-#endif
 
                 _isRenderable = true;
             }
@@ -360,13 +341,6 @@ namespace FluentWinForms.Core
                 SafeDispose(ref _skCanvas);
                 SafeDispose(ref _skBitmap);
                 SafeDispose(ref _cachedClipPath);
-
-#if NETFRAMEWORK
-                // 🔥 LIMPIEZA AIR-GAP .NET 4.8
-                _netFxSafeBitmap?.Dispose();
-                _netFxSafeBitmap = null;
-                _netFxSafeBuffer = null;
-#endif
             }
             base.Dispose(disposing);
         }

@@ -14,12 +14,8 @@
 		<NoWarn>$(NoWarn);MSB3825;NU1701</NoWarn>
 	</PropertyGroup>
 
-	<PropertyGroup Condition="'$(TargetFramework)' != 'net48'">
+	<PropertyGroup>
 		<ImplicitUsings>enable</ImplicitUsings>
-	</PropertyGroup>
-
-	<PropertyGroup Condition="'$(TargetFramework)' == 'net48'">
-		<ImplicitUsings>disable</ImplicitUsings>
 	</PropertyGroup>
 
 	<ItemGroup>
@@ -29,15 +25,6 @@
 		<PackageReference Include="Svg.Skia" Version="5.1.1" />
 		<PackageReference Include="Vortice.Direct2D1" Version="3.8.3" />
 		<PackageReference Include="Vortice.Direct3D11" Version="3.8.3" />
-	</ItemGroup>
-
-	<ItemGroup Condition="'$(TargetFramework)' == 'net48'">
-		<Reference Include="System" />
-		<Reference Include="System.Core" />
-		<Reference Include="System.Design" />
-		<Reference Include="System.Drawing" />
-		<Reference Include="System.Windows.Forms" />
-		<PackageReference Include="System.Memory" Version="4.5.5" />
 	</ItemGroup>
 
 	<ItemGroup>

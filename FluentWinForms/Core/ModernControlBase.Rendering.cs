@@ -26,12 +26,7 @@ namespace FluentWinForms.Core
         {
             if (Width <= 0 || Height <= 0) return;
 
-            // 🔥 BLINDAJE MULTI-TARGET: En .NET 4.8 _gdiWrapper se descarta intencionalmente para evitar AccessViolation
-#if NETFRAMEWORK
-            if (!_isRenderable || (_useSkiaGraphics && (_skCanvas == null || _skBitmap == null)))
-#else
             if (!_isRenderable || (_useSkiaGraphics && (_gdiWrapper == null || _skCanvas == null || _skBitmap == null)))
-#endif
             {
                 e.Graphics.Clear(Color.FromArgb(240, 240, 240));
                 using (var pen = new Pen(Color.Red, 2)) e.Graphics.DrawRectangle(pen, 1, 1, Width - 3, Height - 3);
@@ -147,54 +142,11 @@ namespace FluentWinForms.Core
                     e.Graphics.CompositingQuality = CompositingQuality.HighSpeed;
                     e.Graphics.InterpolationMode = InterpolationMode.Low;
 
-#if NETFRAMEWORK
-                    // 🔥 SOLUCIÓN DEFINITIVA AIR-GAP: Copia cruda de memoria (Zero-Allocation)
-                    IntPtr skiaPtr = _skBitmap!.GetPixels();
-                    if (skiaPtr != IntPtr.Zero)
-                    {
-                        int width = _skBitmap.Width;
-                        int height = _skBitmap.Height;
-                        int skiaStride = _skBitmap.RowBytes;
-                        int totalBytes = skiaStride * height;
-
-                        if (_netFxSafeBuffer == null || _netFxSafeBuffer.Length < totalBytes)
-                            _netFxSafeBuffer = new byte[totalBytes];
-
-                        Marshal.Copy(skiaPtr, _netFxSafeBuffer, 0, totalBytes);
-
-                        if (_netFxSafeBitmap == null || _netFxSafeBitmap.Width != width || _netFxSafeBitmap.Height != height)
-                        {
-                            _netFxSafeBitmap?.Dispose();
-                            // El constructor limpio que no le duele a GDI+
-                            _netFxSafeBitmap = new Bitmap(width, height, PixelFormat.Format32bppPArgb);
-                        }
-
-                        var bmpData = _netFxSafeBitmap.LockBits(new Rectangle(0, 0, width, height), ImageLockMode.WriteOnly, PixelFormat.Format32bppPArgb);
-                        int bmpStride = Math.Abs(bmpData.Stride);
-
-                        if (bmpStride == skiaStride)
-                        {
-                            Marshal.Copy(_netFxSafeBuffer, 0, bmpData.Scan0, totalBytes);
-                        }
-                        else
-                        {
-                            for (int y = 0; y < height; y++)
-                            {
-                                Marshal.Copy(_netFxSafeBuffer, y * skiaStride, bmpData.Scan0 + (y * bmpStride), width * 4);
-                            }
-                        }
-
-                        _netFxSafeBitmap.UnlockBits(bmpData);
-
-                        e.Graphics.DrawImageUnscaled(_netFxSafeBitmap, 0, 0);
-                    }
-#else
                     // 🔥 MÉTODO ZERO-COPY (.NET 8/10): Al dibujar el GDI Wrapper, ya contiene los pixeles mágicos de Skia.
                     if (_gdiWrapper != null)
                     {
                         e.Graphics.DrawImageUnscaled(_gdiWrapper, 0, 0);
                     }
-#endif
                 }
                 catch (Exception ex)
                 {

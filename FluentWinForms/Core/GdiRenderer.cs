@@ -119,13 +119,8 @@ namespace FluentWinForms.Core
 
             public static double CurrentCacheMB => _currentCacheBytes / 1048576.0;
 
-#if NETFRAMEWORK
             public static string DumpCacheStats() =>
-                $"Hits: {CacheHits} | Misses: {CacheMisses} | Errors: {Errors} | GenAct: {_currentGenerating} | Mem: {CurrentCacheMB:0.00} MB / 30.00 MB | AvgGenMs: {(CacheMisses == 0 ? 0 : TotalGenTimeMs / CacheMisses)} | Timeouts: {SemaphoreTimeouts} | Evictions: {Evictions} | BucketDrops: {BucketDrops}";
-#else
-            public static string DumpCacheStats() =>
-                $"Hits: {CacheHits} | Misses: {CacheMisses} | Errors: {Errors} | GenAct: {_currentGenerating} | Mem: {CurrentCacheMB:0.00} MB / 50.00 MB | AvgGenMs: {(CacheMisses == 0 ? 0 : TotalGenTimeMs / CacheMisses)} | Timeouts: {SemaphoreTimeouts} | Evictions: {Evictions} | BucketDrops: {BucketDrops}";
-#endif
+                            $"Hits: {CacheHits} | Misses: {CacheMisses} | Errors: {Errors} | GenAct: {_currentGenerating} | Mem: {CurrentCacheMB:0.00} MB / 50.00 MB | AvgGenMs: {(CacheMisses == 0 ? 0 : TotalGenTimeMs / CacheMisses)} | Timeouts: {SemaphoreTimeouts} | Evictions: {Evictions} | BucketDrops: {BucketDrops}";
 
             // New metrics
             public static int SemaphoreTimeouts = 0;
@@ -136,12 +131,7 @@ namespace FluentWinForms.Core
 
         #region Cache and concurrency
 
-        // 🔥 FIX PRO: Límite estricto de LOH para .NET 4.8.
-#if NETFRAMEWORK
-        private const long MAX_CACHE_BYTES = 30L * 1024 * 1024; // 30 MB en .NET 4.8
-#else
-        private const long MAX_CACHE_BYTES = 50L * 1024 * 1024; // 50 MB en .NET 8/9
-#endif
+        private const long MAX_CACHE_BYTES = 50L * 1024 * 1024; // 50 MB
         private static long _currentCacheBytes = 0;
 
         private static readonly Dictionary<ShadowKey, CachedShadowRef> _shadowCache = new Dictionary<ShadowKey, CachedShadowRef>();

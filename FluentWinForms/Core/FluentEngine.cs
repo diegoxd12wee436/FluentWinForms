@@ -2,17 +2,6 @@
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 
-// 🔥 FIX DE COMPATIBILIDAD MULTI-TARGET (Resuelve la advertencia CS0436)
-// Solo inyectamos este atributo si el framework es más viejo que .NET 5 (ej. .NET 4.8). 
-// .NET 8 ya lo trae de fábrica, así que lo ignora mágicamente.
-#if !NET5_0_OR_GREATER
-namespace System.Runtime.CompilerServices
-{
-    [AttributeUsage(AttributeTargets.Method, Inherited = false)]
-    internal sealed class ModuleInitializerAttribute : Attribute { }
-}
-#endif
-
 namespace FluentWinForms.Core
 {
     /// <summary>
