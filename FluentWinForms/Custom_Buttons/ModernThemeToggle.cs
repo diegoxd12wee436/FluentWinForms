@@ -252,7 +252,7 @@ namespace FluentWinForms.Custom_Buttons
 
         private readonly SKPaint _skPaint = new SKPaint { IsAntialias = true };
         private readonly SKFont _skFont = new SKFont();
-        private readonly SKPath _skPath = new SKPath();
+        private SKPath _skPath = new SKPath();
 
         private SKPaint? _skThumbShadowPaint;
         private SKMaskFilter? _skThumbMaskFilter;
@@ -556,8 +556,10 @@ namespace FluentWinForms.Custom_Buttons
             {
                 canvas.Save();
 
-                _skPath.Reset();
-                _skPath.AddRoundRect(rect, rect.Height / 2f, rect.Height / 2f);
+                using var builder2 = new SKPathBuilder();
+                builder2.AddRoundRect(rect, rect.Height / 2f, rect.Height / 2f);
+                _skPath.Dispose();
+                _skPath = builder2.Detach();
                 canvas.ClipPath(_skPath, SKClipOperation.Intersect, true);
 
                 // Ya no necesitamos aplicar Skia ImageFilter Blur. CaptureBackdropAsync lo hizo gratis
@@ -648,8 +650,10 @@ namespace FluentWinForms.Custom_Buttons
             var thumbRect = new SKRect(currentX, contentRect.Top + thumbPadding, currentX + thumbSize, contentRect.Top + thumbPadding + thumbSize);
 
             canvas.Save();
-            _skPath.Reset();
-            _skPath.AddOval(thumbRect);
+            using var builder5 = new SKPathBuilder();
+            builder5.AddOval(thumbRect);
+            _skPath.Dispose();
+            _skPath = builder5.Detach();
             canvas.ClipPath(_skPath, SKClipOperation.Intersect, true);
 
             _skPaint.Color = _sunColorSK;
@@ -780,29 +784,33 @@ namespace FluentWinForms.Custom_Buttons
                     canvas.DrawOval(thumbX + thumbSize / 2f, rect.MidY, innerRad, innerRad, _skPaint);
                     break;
                 case ToggleStyle.Style9_MinimalDayNight:
-                    Color darkBg = Color.FromArgb(40, 41, 44);
-                    Color lightBg = Color.FromArgb(216, 219, 224);
-                    Color trackC = LerpColor(darkBg, lightBg, t);
-                    _skPaint.Color = trackC.ToSKColor();
-                    if (UseAcrylic) DrawAcrylicPlugAndPlay(canvas, rect);
-                    else canvas.DrawRoundRect(rect, h / 2f, h / 2f, _skPaint);
-                    float thumbR9 = h * 0.35f;
-                    float padding9 = (h - (thumbR9 * 2)) / 2f;
-                    float minX9 = rect.Left + padding9 + thumbR9;
-                    float maxX9 = rect.Right - padding9 - thumbR9;
-                    float thumbX9 = minX9 + (maxX9 - minX9) * t;
-                    if (UseShadow) DrawThumbShadowSkia(canvas, thumbX9 - thumbR9, rect.MidY - thumbR9, thumbR9 * 2, thumbR9 * 2, thumbR9);
-                    canvas.Save();
-                    _skPath.Reset();
-                    _skPath.AddCircle(thumbX9, rect.MidY, thumbR9);
-                    canvas.ClipPath(_skPath, SKClipOperation.Intersect, true);
-                    _skPaint.Color = lightBg.ToSKColor();
-                    canvas.DrawRect(new SKRect(thumbX9 - thumbR9, rect.MidY - thumbR9, thumbX9 + thumbR9, rect.MidY + thumbR9), _skPaint);
-                    float offset9 = thumbR9 * 0.9f * (1f - t);
-                    _skPaint.Color = darkBg.ToSKColor();
-                    canvas.DrawCircle(thumbX9 - offset9, rect.MidY - (offset9 * 0.2f), thumbR9, _skPaint);
-                    canvas.Restore();
-                    break;
+                {
+                        Color darkBg = Color.FromArgb(40, 41, 44);
+                        Color lightBg = Color.FromArgb(216, 219, 224);
+                        Color trackC = LerpColor(darkBg, lightBg, t);
+                        _skPaint.Color = trackC.ToSKColor();
+                        if (UseAcrylic) DrawAcrylicPlugAndPlay(canvas, rect);
+                        else canvas.DrawRoundRect(rect, h / 2f, h / 2f, _skPaint);
+                        float thumbR9 = h * 0.35f;
+                        float padding9 = (h - (thumbR9 * 2)) / 2f;
+                        float minX9 = rect.Left + padding9 + thumbR9;
+                        float maxX9 = rect.Right - padding9 - thumbR9;
+                        float thumbX9 = minX9 + (maxX9 - minX9) * t;
+                        if (UseShadow) DrawThumbShadowSkia(canvas, thumbX9 - thumbR9, rect.MidY - thumbR9, thumbR9 * 2, thumbR9 * 2, thumbR9);
+                        canvas.Save();
+                        using var builder9 = new SKPathBuilder();
+                        builder9.AddCircle(thumbX9, rect.MidY, thumbR9);
+                        _skPath.Dispose();
+                        _skPath = builder9.Detach();
+                        canvas.ClipPath(_skPath, SKClipOperation.Intersect, true);
+                        _skPaint.Color = lightBg.ToSKColor();
+                        canvas.DrawRect(new SKRect(thumbX9 - thumbR9, rect.MidY - thumbR9, thumbX9 + thumbR9, rect.MidY + thumbR9), _skPaint);
+                        float offset9 = thumbR9 * 0.9f * (1f - t);
+                        _skPaint.Color = darkBg.ToSKColor();
+                        canvas.DrawCircle(thumbX9 - offset9, rect.MidY - (offset9 * 0.2f), thumbR9, _skPaint);
+                        canvas.Restore();
+                        break;
+                }
             }
         }
 

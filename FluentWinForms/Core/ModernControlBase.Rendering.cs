@@ -293,8 +293,9 @@ namespace FluentWinForms.Core
                 float currY = startY + (endY - startY) * node.HoverProgress;
 
                 // CSS: overflow: hidden (Clip)
-                using var clipPath = new SKPath();
-                clipPath.AddRoundRect(new SKRect(0, 0, node.Layout.Width, node.Layout.Height), node.Corners.TopLeft, node.Corners.TopLeft);
+                using var clipPathBuilder = new SKPathBuilder();
+                clipPathBuilder.AddRoundRect(new SKRect(0, 0, node.Layout.Width, node.Layout.Height), node.Corners.TopLeft, node.Corners.TopLeft);
+                using var clipPath = clipPathBuilder.Detach();
 
                 canvas.Save();
                 canvas.ClipPath(clipPath, SKClipOperation.Intersect, true);
@@ -369,8 +370,9 @@ namespace FluentWinForms.Core
                     if (node._cachedAcrylicClipPath == null || node._lastAcrylicRect != rect || node._lastAcrylicCorner != node.Corners.TopLeft)
                     {
                         node._cachedAcrylicClipPath?.Dispose();
-                        node._cachedAcrylicClipPath = new SKPath();
-                        node._cachedAcrylicClipPath.AddRoundRect(rect, node.Corners.TopLeft, node.Corners.TopLeft);
+                        using var acrylicClipBuilder = new SKPathBuilder();
+                        acrylicClipBuilder.AddRoundRect(rect, node.Corners.TopLeft, node.Corners.TopLeft);
+                        node._cachedAcrylicClipPath = acrylicClipBuilder.Detach();
                         node._lastAcrylicRect = rect;
                         node._lastAcrylicCorner = node.Corners.TopLeft;
                     }
@@ -509,8 +511,9 @@ namespace FluentWinForms.Core
                 canvas.Save();
                 if (node.Corners.TopLeft > 0)
                 {
-                    using var rClip = new SKPath(); // 🔥 FIX LEAK: Cierre hermético de memoria C++
-                    rClip.AddRoundRect(rect, node.Corners.TopLeft, node.Corners.TopLeft);
+                    using var rClipBuilder = new SKPathBuilder(); // 🔥 FIX LEAK: Cierre hermético de memoria C++
+                    rClipBuilder.AddRoundRect(rect, node.Corners.TopLeft, node.Corners.TopLeft);
+                    using var rClip = rClipBuilder.Detach();
                     canvas.ClipPath(rClip, SKClipOperation.Intersect, true);
                 }
                 else canvas.ClipRect(rect, SKClipOperation.Intersect, true);
@@ -713,8 +716,9 @@ namespace FluentWinForms.Core
                 canvas.Save();
                 if (node.Corners.TopLeft > 0)
                 {
-                    using var clipPath = new SKPath();
-                    clipPath.AddRoundRect(rect, node.Corners.TopLeft, node.Corners.TopLeft);
+                    using var clipPathBuilder = new SKPathBuilder();
+                    clipPathBuilder.AddRoundRect(rect, node.Corners.TopLeft, node.Corners.TopLeft);
+                    using var clipPath = clipPathBuilder.Detach();
                     canvas.ClipPath(clipPath, SKClipOperation.Intersect, true);
                 }
                 else canvas.ClipRect(rect, SKClipOperation.Intersect, true);
@@ -780,16 +784,19 @@ namespace FluentWinForms.Core
             _sharedPaint.Shader?.Dispose();
             _sharedPaint.Shader = null;
 
-            _sharedPath.Reset();
             float rad = Math.Max(0, S(BorderRadius));
-            _sharedPath.AddRoundRect(shadowRect, rad, rad);
+            using var sharedPathBuilder = new SKPathBuilder();
+            sharedPathBuilder.AddRoundRect(shadowRect, rad, rad);
+            _sharedPath.Dispose();
+            _sharedPath = sharedPathBuilder.Detach();
 
             var fillRect = new SKRect(shadowRect.Left + activeBorder / 2f, shadowRect.Top + activeBorder / 2f,
                                       shadowRect.Right - activeBorder / 2f, shadowRect.Bottom - activeBorder / 2f);
 
-            using var fillPath = new SKPath(); // Ya estaba protegido, se mantiene.
+            using var fillPathBuilder = new SKPathBuilder(); // Ya estaba protegido, se mantiene.
             float innerRad = Math.Max(0, rad - (activeBorder / 2f));
-            fillPath.AddRoundRect(fillRect, innerRad, innerRad);
+            fillPathBuilder.AddRoundRect(fillRect, innerRad, innerRad);
+            using var fillPath = fillPathBuilder.Detach();
 
             CalculateStateColors(out Color bgColor1, out Color bgColor2, out Color borderColorTarget);
 
@@ -853,11 +860,11 @@ namespace FluentWinForms.Core
                 var contentRectSK = shadowRectSK;
                 contentRectSK.Inflate(-(activeBorder / 2f), -(activeBorder / 2f));
 
-                _cachedClipPath = new SKPath();
-
                 // Curva matemática perfecta restando la mitad del borde
                 float innerRadius = Math.Max(0, S(BorderRadius) - (activeBorder / 2f));
-                _cachedClipPath.AddRoundRect(contentRectSK, innerRadius, innerRadius);
+                using var clipPathBuilder2 = new SKPathBuilder();
+                clipPathBuilder2.AddRoundRect(contentRectSK, innerRadius, innerRadius);
+                _cachedClipPath = clipPathBuilder2.Detach();
             }
             catch { /* no crash on update */ }
         }

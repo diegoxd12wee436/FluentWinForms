@@ -241,9 +241,10 @@ namespace FluentWinForms.Panel_Controls
 
             // 🛠️ EL FIX: Usamos contentRect en lugar de paddedRect. 
             // Así el fondo y el cristal ignoran el grosor del borde y llenan el 100% del panel.
-            using (var path = new SKPath())
+            using var pathBuilder = new SKPathBuilder();
+            pathBuilder.AddRoundRect(contentRect, rad, rad);
+            using (var path = pathBuilder.Detach())
             {
-                path.AddRoundRect(contentRect, rad, rad);
 
                 // 🛠️ MODO DISEÑADOR
                 if (DesignMode)
