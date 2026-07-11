@@ -63,6 +63,8 @@ namespace FluentWinForms.Panel_Controls
         // =========================================================
         private SKBitmap? _blurredCache;
         private SKBitmap? _sharpCache;
+        private SKImage? _blurredCacheImage;
+        private SKImage? _sharpCacheImage;
         private bool _cacheDirty = true;
 
         public ModernGlassPanel()
@@ -178,25 +180,30 @@ namespace FluentWinForms.Panel_Controls
                                     using (var pc = new SKCanvas(padded))
                                     {
                                         pc.Clear(SKColors.Transparent);
-                                        pc.DrawBitmap(rawSkia, pad, pad);
+                                        using (var rawSkiaImg = SKImage.FromBitmap(rawSkia))
+                                            pc.DrawImage(rawSkiaImg, pad, pad);
 
                                         using (var blurred = new SKBitmap(pw, ph))
                                         using (var bc = new SKCanvas(blurred))
                                         using (var bp = new SKPaint { ImageFilter = SKImageFilter.CreateBlur(S(_blurAmount), S(_blurAmount), SKShaderTileMode.Clamp) })
                                         {
-                                            bc.DrawBitmap(padded, 0, 0, bp);
+                                            using (var paddedImg = SKImage.FromBitmap(padded))
+                                                bc.DrawImage(paddedImg, 0, 0, bp);
 
                                             using (var fc = new SKCanvas(_blurredCache))
-                                                fc.DrawBitmap(blurred,
+                                            using (var blurredImg = SKImage.FromBitmap(blurred))
+                                                fc.DrawImage(blurredImg,
                                                     new SKRect(pad, pad, pad + rawSkia.Width, pad + rawSkia.Height),
-                                                    new SKRect(0, 0, rawSkia.Width, rawSkia.Height));
+                                                    new SKRect(0, 0, rawSkia.Width, rawSkia.Height),
+                                                    new SKSamplingOptions(SKFilterMode.Linear, SKMipmapMode.None));
                                         }
                                     }
                                 }
                                 else
                                 {
                                     using (var fc = new SKCanvas(_blurredCache))
-                                        fc.DrawBitmap(rawSkia, 0, 0);
+                                    using (var rawSkiaImg = SKImage.FromBitmap(rawSkia))
+                                        fc.DrawImage(rawSkiaImg, 0, 0);
                                 }
                             }
                         }
@@ -206,6 +213,10 @@ namespace FluentWinForms.Panel_Controls
             catch { }
             finally
             {
+                _blurredCacheImage?.Dispose();
+                _blurredCacheImage = _blurredCache != null ? SKImage.FromBitmap(_blurredCache) : null;
+                _sharpCacheImage?.Dispose();
+                _sharpCacheImage = _sharpCache != null ? SKImage.FromBitmap(_sharpCache) : null;
                 _cacheDirty = false;
             }
         }
@@ -288,13 +299,12 @@ namespace FluentWinForms.Panel_Controls
                 if (BackdropStyle == PanelBackdropStyle.Glass)
                 {
                     // Esquinas — sharp bitmap fuera del clip (rellena las esquinas con el fondo real)
-                    if (_sharpCache != null) canvas.DrawBitmap(_sharpCache, 0, 0);
+                    if (_sharpCacheImage != null) canvas.DrawImage(_sharpCacheImage, 0, 0);
 
                     canvas.Save();
                     canvas.ClipPath(path, SKClipOperation.Intersect, true);
 
-                    if (_blurredCache != null) canvas.DrawBitmap(_blurredCache, 0, 0);
-
+                    if (_blurredCacheImage != null) canvas.DrawImage(_blurredCacheImage, 0, 0);
                     using (var tint = new SKPaint { Color = GlassTint.ToSKColor(), Style = SKPaintStyle.Fill, IsAntialias = true })
                         canvas.DrawRect(contentRect, tint);
 
@@ -337,6 +347,10 @@ namespace FluentWinForms.Panel_Controls
                 _blurredCache = null;
                 _sharpCache?.Dispose();
                 _sharpCache = null;
+                _blurredCacheImage?.Dispose();
+                _blurredCacheImage = null;
+                _sharpCacheImage?.Dispose();
+                _sharpCacheImage = null;
             }
             base.Dispose(disposing);
         }
