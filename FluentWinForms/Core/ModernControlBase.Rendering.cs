@@ -325,7 +325,7 @@ namespace FluentWinForms.Core
             var rect = new SKRect(node.Layout.Left, node.Layout.Top, node.Layout.Right, node.Layout.Bottom);
             _sharedPaint ??= new SKPaint();
 
-            // 6. SOMBRA — color en escalón (Hover/PressProgress >= 0.5f), inmune a AnimateSpring
+            // 6. SOMBRA — horneada UNA VEZ a una imagen cacheada. Por frame solo se blitea (sin recomponer el blur)
             if (sh.Radius > 0 && sh.Color.A > 0)
             {
                 Color stepColor = node.Shadow.Color;
@@ -333,11 +333,13 @@ namespace FluentWinForms.Core
                 if (node.PressState.Shadow.HasValue && node.PressProgress >= 0.5f) stepColor = node.PressState.Shadow.Value.Color;
                 if (!node.Enabled && node.DisabledState.Shadow.HasValue) stepColor = node.DisabledState.Shadow.Value.Color;
 
-                if (node._cachedShadowFilter == null ||
+                bool filterDirty = node._cachedShadowFilter == null ||
                     node._lastShadowColor != stepColor ||
                     node._lastShadowRadius != sh.Radius ||
                     node._lastShadowOffsetX != sh.OffsetX ||
-                    node._lastShadowOffsetY != sh.OffsetY)
+                    node._lastShadowOffsetY != sh.OffsetY;
+
+                if (filterDirty)
                 {
                     node._cachedShadowFilter?.Dispose();
                     node._cachedShadowFilter = SKImageFilter.CreateDropShadow(
@@ -348,16 +350,46 @@ namespace FluentWinForms.Core
                     node._lastShadowOffsetY = sh.OffsetY;
                 }
 
-                _sharedPaint.Reset();
-                _sharedPaint.IsAntialias = true;
-                _sharedPaint.Style = SKPaintStyle.Fill;
-                _sharedPaint.Color = bg.Color1.A > 0 ? bg.Color1.ToSKColor() : SKColors.White;
-                _sharedPaint.ImageFilter = node._cachedShadowFilter;
+                // El bake se repite si el filtro cambió O si cambió tamaño/esquina del botón (raro, no por frame)
+                if (filterDirty || node._cachedShadowImage == null ||
+                    node._lastShadowRectWidth != rect.Width ||
+                    node._lastShadowRectHeight != rect.Height ||
+                    node._lastShadowCorner != node.Corners.TopLeft)
+                {
+                    float shadowSpread = S(sh.Radius) * 2f; // margen generoso: cubre los ~3 sigma reales del blur (sigma = S(Radius)/2)
+                    float padLeft = shadowSpread + Math.Max(0f, -S(sh.OffsetX));
+                    float padRight = shadowSpread + Math.Max(0f, S(sh.OffsetX));
+                    float padTop = shadowSpread + Math.Max(0f, -S(sh.OffsetY));
+                    float padBottom = shadowSpread + Math.Max(0f, S(sh.OffsetY));
 
-                if (node.Corners.TopLeft > 0) canvas.DrawRoundRect(rect, node.Corners.TopLeft, node.Corners.TopLeft, _sharedPaint);
-                else canvas.DrawRect(rect, _sharedPaint);
+                    int imgW = Math.Max(1, (int)Math.Ceiling(rect.Width + padLeft + padRight));
+                    int imgH = Math.Max(1, (int)Math.Ceiling(rect.Height + padTop + padBottom));
 
-                _sharedPaint.ImageFilter = null; // 👈 sin Dispose() — es la misma instancia que node._cachedShadowFilter
+                    using (var bakeSurface = SKSurface.Create(new SKImageInfo(imgW, imgH, SKColorType.Bgra8888, SKAlphaType.Premul)))
+                    {
+                        var bakeCanvas = bakeSurface.Canvas;
+                        bakeCanvas.Clear(SKColors.Transparent);
+
+                        using (var bakePaint = new SKPaint { IsAntialias = true, Style = SKPaintStyle.Fill, Color = SKColors.Black, ImageFilter = node._cachedShadowFilter })
+                        {
+                            var bakeRect = new SKRect(padLeft, padTop, padLeft + rect.Width, padTop + rect.Height);
+                            if (node.Corners.TopLeft > 0) bakeCanvas.DrawRoundRect(bakeRect, node.Corners.TopLeft, node.Corners.TopLeft, bakePaint);
+                            else bakeCanvas.DrawRect(bakeRect, bakePaint);
+                        }
+
+                        node._cachedShadowImage?.Dispose();
+                        node._cachedShadowImage = bakeSurface.Snapshot();
+                    }
+
+                    node._lastShadowRectWidth = rect.Width;
+                    node._lastShadowRectHeight = rect.Height;
+                    node._lastShadowCorner = node.Corners.TopLeft;
+                    node._lastShadowImagePadLeft = padLeft;
+                    node._lastShadowImagePadTop = padTop;
+                }
+
+                if (node._cachedShadowImage != null)
+                    canvas.DrawImage(node._cachedShadowImage, rect.Left - node._lastShadowImagePadLeft, rect.Top - node._lastShadowImagePadTop, SKSamplingOptions.Default);
             }
             // 🔥 INYECCIÓN 2: CRISTAL ÓPTICO — ZERO-ALLOC: paints/clip cacheados por nodo
             if (node.Acrylic.IsEnabled)
@@ -664,8 +696,7 @@ namespace FluentWinForms.Core
 
                     canvas.DrawText(node.Content.Text, tx, ty, hAlign, _sharedFont, _sharedPaint);
                 }
-            }
-            // 10.5. SVG ICON — vectorial, escala sin pixelar
+            }            
             // 10.5. SVG ICON — vectorial, escala sin pixelar (🔥 FIX: Matriz corregida)
             if (node.SvgPicture != null)
             {
