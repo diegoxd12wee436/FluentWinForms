@@ -342,8 +342,8 @@ namespace FluentWinForms.Core
                 if (filterDirty)
                 {
                     node._cachedShadowFilter?.Dispose();
-                    node._cachedShadowFilter = SKImageFilter.CreateDropShadow(
-                        S(sh.OffsetX), S(sh.OffsetY), S(sh.Radius) / 2f, S(sh.Radius) / 2f, stepColor.ToSKColor());
+                    node._cachedShadowFilter = SKImageFilter.CreateDropShadowOnly(
+                            S(sh.OffsetX), S(sh.OffsetY), S(sh.Radius) / 2f, S(sh.Radius) / 2f, stepColor.ToSKColor());
                     node._lastShadowColor = stepColor;
                     node._lastShadowRadius = sh.Radius;
                     node._lastShadowOffsetX = sh.OffsetX;
@@ -387,9 +387,8 @@ namespace FluentWinForms.Core
                     node._lastShadowImagePadLeft = padLeft;
                     node._lastShadowImagePadTop = padTop;
                 }
-
                 if (node._cachedShadowImage != null)
-                    canvas.DrawImage(node._cachedShadowImage, rect.Left - node._lastShadowImagePadLeft, rect.Top - node._lastShadowImagePadTop, SKSamplingOptions.Default);
+                    canvas.DrawImage(node._cachedShadowImage, rect.Left - node._lastShadowImagePadLeft, rect.Top - node._lastShadowImagePadTop, new SKSamplingOptions(SKFilterMode.Linear));
             }
             // 🔥 INYECCIÓN 2: CRISTAL ÓPTICO — ZERO-ALLOC: paints/clip cacheados por nodo
             if (node.Acrylic.IsEnabled)
