@@ -231,6 +231,12 @@ namespace FluentWinForms.Core
         protected SKPath? _sharedPath;
         protected SKPaint? _sharedPaint;
         protected SKFont? _sharedFont;
+        private SKRect _lastBasePathRect;
+        private float _lastBasePathRadius = -1f;
+        private SKShader? _cachedBaseGradientShader;
+        private Color _lastBaseGradientColor1 = Color.Empty;
+        private Color _lastBaseGradientColor2 = Color.Empty;
+        private SKRect _lastBaseGradientRect;
 
         protected bool _isRenderable = false;
 
@@ -337,6 +343,7 @@ namespace FluentWinForms.Core
                 SafeDispose(ref _sharedPaint);
                 SafeDispose(ref _sharedFont);
                 SafeDispose(ref _sharedPath);
+                SafeDispose(ref _cachedBaseGradientShader);
                 SafeDispose(ref _gdiWrapper);
                 SafeDispose(ref _skCanvas);
                 SafeDispose(ref _skBitmap);

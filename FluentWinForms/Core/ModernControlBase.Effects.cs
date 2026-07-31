@@ -69,8 +69,8 @@ namespace FluentWinForms.Core
         #endregion
 
         // Debounce purge
-        private bool _isPurgePending = false;
-        private readonly object _purgeLock = new object();
+        private static readonly object _purgeLock = new object();
+        private static System.Threading.Timer? _purgeTimer;
 
         protected void ClearCaches()
         {
@@ -80,18 +80,12 @@ namespace FluentWinForms.Core
             ClearImageCache();
             ClearTextCache();
 
+            // Timer único compartido por TODOS los controles — reprograma en vez de crear una Task nueva por cada Focus/LostFocus
             lock (_purgeLock)
             {
-                if (_isPurgePending) return;
-                _isPurgePending = true;
+                _purgeTimer ??= new System.Threading.Timer(_ => GdiRenderer.ClearCache(), null, System.Threading.Timeout.Infinite, System.Threading.Timeout.Infinite);
+                _purgeTimer.Change(50, System.Threading.Timeout.Infinite);
             }
-
-            Task.Run(async () =>
-            {
-                await Task.Delay(50);
-                lock (_purgeLock) { _isPurgePending = false; }
-                GdiRenderer.ClearCache();
-            });
         }
 
         // Crear o devolver filtro de sombra cacheado
