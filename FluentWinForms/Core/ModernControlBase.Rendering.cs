@@ -300,26 +300,21 @@ namespace FluentWinForms.Core
                 canvas.Save();
                 canvas.ClipPath(clipPath, SKClipOperation.Intersect, true);
 
-                // Dibujar el pseudo-elemento ::before (Sweep)
-                using var sweepPaint = new SKPaint
-                {
-                    Color = node.Sweep.ThemeColor.ToSKColor(),
-                    IsAntialias = true,
-                    Style = SKPaintStyle.Fill
-                };
-                canvas.DrawCircle(currX, currY, maxRadius, sweepPaint);
+                // Dibujar el pseudo-elemento ::before (Sweep) — paint reusado, solo se actualiza el color (sin alloc)
+                node._cachedSweepPaint ??= new SKPaint { IsAntialias = true, Style = SKPaintStyle.Fill };
+                node._cachedSweepPaint.Color = node.Sweep.ThemeColor.ToSKColor();
+                canvas.DrawCircle(currX, currY, maxRadius, node._cachedSweepPaint);
 
                 canvas.Restore();
             }
 
-            // 5. OPACIDAD
+            // 5. OPACIDAD — paint reusado, solo se actualiza el alpha (sin alloc por frame)
             if (currentOpacity < 1.0f)
             {
                 byte alpha = (byte)Math.Max(0, Math.Min(255, currentOpacity * 255f));
-                using (var alphaPaint = new SKPaint { Color = SKColors.White.WithAlpha(alpha) })
-                {
-                    canvas.SaveLayer(alphaPaint);
-                }
+                node._cachedOpacityPaint ??= new SKPaint();
+                node._cachedOpacityPaint.Color = SKColors.White.WithAlpha(alpha);
+                canvas.SaveLayer(node._cachedOpacityPaint);
             }
 
             var rect = new SKRect(node.Layout.Left, node.Layout.Top, node.Layout.Right, node.Layout.Bottom);
@@ -516,9 +511,20 @@ namespace FluentWinForms.Core
                 _sharedPaint.Style = SKPaintStyle.Fill;
                 if (bg.IsGradient)
                 {
-                    _sharedPaint.Shader = SKShader.CreateLinearGradient(
-                        new SKPoint(rect.Left, rect.Top), new SKPoint(rect.Right, rect.Bottom),
-                        new SKColor[] { bg.Color1.ToSKColor(), bg.Color2.ToSKColor() }, null, SKShaderTileMode.Clamp);
+                    if (node._cachedGradientShader == null ||
+                        node._lastGradientColor1 != bg.Color1 ||
+                        node._lastGradientColor2 != bg.Color2 ||
+                        node._lastGradientRect != rect)
+                    {
+                        node._cachedGradientShader?.Dispose();
+                        node._cachedGradientShader = SKShader.CreateLinearGradient(
+                            new SKPoint(rect.Left, rect.Top), new SKPoint(rect.Right, rect.Bottom),
+                            new SKColor[] { bg.Color1.ToSKColor(), bg.Color2.ToSKColor() }, null, SKShaderTileMode.Clamp);
+                        node._lastGradientColor1 = bg.Color1;
+                        node._lastGradientColor2 = bg.Color2;
+                        node._lastGradientRect = rect;
+                    }
+                    _sharedPaint.Shader = node._cachedGradientShader;
                 }
                 else
                 {
@@ -528,8 +534,7 @@ namespace FluentWinForms.Core
                 if (node.Corners.TopLeft > 0) canvas.DrawRoundRect(rect, node.Corners.TopLeft, node.Corners.TopLeft, _sharedPaint);
                 else canvas.DrawRect(rect, _sharedPaint);
 
-                _sharedPaint.Shader?.Dispose();
-                _sharedPaint.Shader = null;
+                _sharedPaint.Shader = null; // 👈 sin Dispose() — pertenece al cache del nodo (mismo patrón que ImageFilter)
             }
 
             // 🔥 IMPORTANTE: NO se disponen aquí — pertenecen al cache del nodo, se liberan en ReleaseNativeResources()
@@ -815,10 +820,15 @@ namespace FluentWinForms.Core
             _sharedPaint.Shader = null;
 
             float rad = Math.Max(0, S(BorderRadius));
-            using var sharedPathBuilder = new SKPathBuilder();
-            sharedPathBuilder.AddRoundRect(shadowRect, rad, rad);
-            _sharedPath.Dispose();
-            _sharedPath = sharedPathBuilder.Detach();
+            if (_lastBasePathRect != shadowRect || _lastBasePathRadius != rad)
+            {
+                using var sharedPathBuilder = new SKPathBuilder();
+                sharedPathBuilder.AddRoundRect(shadowRect, rad, rad);
+                _sharedPath.Dispose();
+                _sharedPath = sharedPathBuilder.Detach();
+                _lastBasePathRect = shadowRect;
+                _lastBasePathRadius = rad;
+            }
 
             var fillRect = new SKRect(shadowRect.Left + activeBorder / 2f, shadowRect.Top + activeBorder / 2f,
                                       shadowRect.Right - activeBorder / 2f, shadowRect.Bottom - activeBorder / 2f);
@@ -836,14 +846,24 @@ namespace FluentWinForms.Core
 
             if (UseGradient)
             {
-                using var shader = SKShader.CreateLinearGradient(
-                    new SKPoint(fillRect.Left, fillRect.Top),
-                    new SKPoint(fillRect.Right, fillRect.Bottom),
-                    new SKColor[] { bgColor1.ToSKColor(), bgColor2.ToSKColor() },
-                    null, SKShaderTileMode.Clamp);
-                _sharedPaint.Shader = shader;
+                if (_cachedBaseGradientShader == null ||
+                    _lastBaseGradientColor1 != bgColor1 ||
+                    _lastBaseGradientColor2 != bgColor2 ||
+                    _lastBaseGradientRect != fillRect)
+                {
+                    _cachedBaseGradientShader?.Dispose();
+                    _cachedBaseGradientShader = SKShader.CreateLinearGradient(
+                        new SKPoint(fillRect.Left, fillRect.Top),
+                        new SKPoint(fillRect.Right, fillRect.Bottom),
+                        new SKColor[] { bgColor1.ToSKColor(), bgColor2.ToSKColor() },
+                        null, SKShaderTileMode.Clamp);
+                    _lastBaseGradientColor1 = bgColor1;
+                    _lastBaseGradientColor2 = bgColor2;
+                    _lastBaseGradientRect = fillRect;
+                }
+                _sharedPaint.Shader = _cachedBaseGradientShader;
                 canvas.DrawPath(fillPath, _sharedPaint);
-                // 🔥 FIX LEAK 2: Doble Dispose eliminado para evitar corrupción en la memoria de Skia
+                _sharedPaint.Shader = null; // 👈 sin Dispose() — pertenece al cache del control
             }
             else
             {

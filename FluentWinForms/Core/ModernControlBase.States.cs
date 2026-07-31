@@ -80,8 +80,8 @@ namespace FluentWinForms.Core
         #endregion
 
         // Gestión de Foco
-        protected override void OnGotFocus(EventArgs e) { IsFocusedControl = true; OnFocusChanged(EventArgs.Empty); ClearCaches(); RefreshVisuals(); base.OnGotFocus(e); }
-        protected override void OnLostFocus(EventArgs e) { IsFocusedControl = false; OnFocusChanged(EventArgs.Empty); ClearCaches(); RefreshVisuals(); base.OnLostFocus(e); }
+        protected override void OnGotFocus(EventArgs e) { IsFocusedControl = true; OnFocusChanged(EventArgs.Empty); SafeDispose(ref _cachedShadowFilter); RefreshVisuals(); base.OnGotFocus(e); }
+        protected override void OnLostFocus(EventArgs e) { IsFocusedControl = false; OnFocusChanged(EventArgs.Empty); SafeDispose(ref _cachedShadowFilter); RefreshVisuals(); base.OnLostFocus(e); }
 
         #region 🔵 Pipeline de Colores (Interpolación)
         // 🔥 CORRECCIÓN: 3 parámetros out (Fondo 1, Fondo 2 y Borde)

@@ -99,6 +99,12 @@ namespace FluentWinForms.Core
         [Browsable(false)] internal SKImage? _cachedContentImage;
         [Browsable(false)] internal Image? _lastContentImageRef;
         [Browsable(false)] internal SKPaint? _cachedAcrylicTintPaint;
+        [Browsable(false)] internal SKShader? _cachedGradientShader;
+        [Browsable(false)] internal SKPaint? _cachedSweepPaint;
+        [Browsable(false)] internal SKPaint? _cachedOpacityPaint;
+        [Browsable(false)] internal Color _lastGradientColor1 = Color.Empty;
+        [Browsable(false)] internal Color _lastGradientColor2 = Color.Empty;
+        [Browsable(false)] internal SKRect _lastGradientRect;
         [Browsable(false)] internal SKPaint? _cachedAcrylicGlowPaint;
         [Browsable(false)] internal Color _lastAcrylicTintColor = Color.Empty;
         [Browsable(false)] internal SKPath? _cachedAcrylicClipPath;
@@ -121,6 +127,12 @@ namespace FluentWinForms.Core
             _cachedContentImage?.Dispose();
             _cachedContentImage = null;
             _lastContentImageRef = null;
+            _cachedGradientShader?.Dispose();
+            _cachedGradientShader = null;
+            _cachedSweepPaint?.Dispose();
+            _cachedSweepPaint = null;
+            _cachedOpacityPaint?.Dispose();
+            _cachedOpacityPaint = null;
             _cachedAcrylicTintPaint?.Dispose();
             _cachedAcrylicTintPaint = null;
             _cachedAcrylicGlowPaint?.Dispose();
