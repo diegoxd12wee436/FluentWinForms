@@ -21,7 +21,7 @@
 
 **Por eso me hice este motor:** para que podamos seguir codificando en C# puro, usando una API súper directa, fácil de leer (como si fuera CSS), y al mismo tiempo tener efectos bestiales (glass, blur de verdad, sombras dinámicas) controlando el renderizado al máximo con **SkiaSharp** y **GDI+**.
 
-> **Nota:** Este proyecto no está en contra de WinUI ni WPF. Son frameworks poderosos, pero mi objetivo es ofrecer un camino alternativo para estudiantes y desarrolladores que quieran diseño moderno sin dejar WinForms.
+> **Nota:** Este proyecto no está en contra de WinUI ni WPF. Son frameworks poderosos, pero mi objetivo es ofrecer un camino alternativo para estudiantes y desarrolladores que quieran diseño moderno sin dejar WinForms :')
 
 > ¡Este es un proyecto para la comunidad, hecho por la comunidad! Necesito de su ayuda para llevar FluentWinForms al siguiente nivel. ¿Encontraste un bug? ¿Tienes una idea? ¡Tu contribución es bienvenida y profundamente apreciada :')
 
