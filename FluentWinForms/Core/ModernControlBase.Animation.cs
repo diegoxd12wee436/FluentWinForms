@@ -22,6 +22,7 @@ namespace FluentWinForms.Core
         // 🔥 ESCUDO WINFORMS: Intercepta el tamaño real del programador
         protected override void SetBoundsCore(int x, int y, int width, int height, BoundsSpecified specified)
         {
+            DpiTrace.Log($"SetBoundsCore {Name} in=({x},{y},{width},{height}) engineExpanding={_isEngineExpanding} cur={Bounds} logical={_logicalBounds} dpi={DeviceDpi} callers={DpiTrace.Callers()}");
             if (!_isEngineExpanding)
             {
                 _logicalBounds = new Rectangle(x, y, width, height);

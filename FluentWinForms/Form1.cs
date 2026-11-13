@@ -17,6 +17,16 @@ namespace FluentWinForms
         public Form1()
         {
             InitializeComponent();
+
+            Text = $"DeviceDpi={DeviceDpi}  Mode={Application.HighDpiMode}";
+
+            Label lbl = new Label();
+            lbl.Text = Text;
+            lbl.Location = new Point(300, 10);
+            lbl.AutoSize = true;
+            Controls.Add(lbl);
+
+
             // ── Botón 1: Primario clásico con glow ──
             var btn1 = FluentElement.Design("btn-primary")
                 .Layout(40, 40, 180, 48)
@@ -90,7 +100,25 @@ namespace FluentWinForms
                 .Shadow(2)
                 .Apply(this);
 
+            Dump("INICIO");
 
+
+        }
+        void Dump(string tag)
+        {
+            var sb = new System.Text.StringBuilder();
+            sb.AppendLine($"== {tag} DeviceDpi={DeviceDpi} controles={Controls.Count}");
+            foreach (Control c in Controls)
+                if (c is ModernControlBase m)
+                    sb.AppendLine($"{c.Name}: Bounds={m.Bounds} Logical={m.LogicalBounds}");
+            File.AppendAllText(Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.Desktop), "dpi-log.txt"), sb.ToString());
+        }
+        protected override void OnDpiChanged(DpiChangedEventArgs e)
+        {
+            base.OnDpiChanged(e);
+            DpiTrace.Log($"FORM OnDpiChanged old={e.DeviceDpiOld} new={e.DeviceDpiNew}");
+            Dump("DPI-CAMBIO");
         }
 
         private void Form1_Load(object sender, EventArgs e)

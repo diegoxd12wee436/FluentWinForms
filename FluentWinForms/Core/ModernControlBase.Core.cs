@@ -122,10 +122,25 @@ namespace FluentWinForms.Core
 
         protected override void OnDpiChangedAfterParent(EventArgs e)
         {
-            base.OnDpiChangedAfterParent(e);
-            using (Graphics g = CreateGraphics()) { _dpiScale = g.DpiX / 96f; }
+            DpiTrace.Log($"OnDpiChangedAfterParent {Name} dpiScaleAntes={_dpiScale * 96f:0} dpiControl={DeviceDpi} bounds={Bounds} logical={_logicalBounds}");
+            _dpiScale = DeviceDpi / 96f;   // FASE 1b
             ClearCaches();
+            UpdatePhysicalBounds();        // FASE 1: recalcula el margen desde el tamaño LÓGICO
             RebuildCanvas();
+        }
+
+        // FASE 1: WinForms debe escalar el rectángulo LÓGICO (el del botón), no el inflado con margen.
+        protected override Rectangle GetScaledBounds(Rectangle bounds, SizeF factor, BoundsSpecified specified)
+        {
+            Rectangle source = _logicalBounds.IsEmpty ? bounds : _logicalBounds;
+            Rectangle scaled = base.GetScaledBounds(source, factor, specified);
+            DpiTrace.Log($"GetScaledBounds {Name} in={bounds} logical={_logicalBounds} factor=({factor.Width:0.###},{factor.Height:0.###}) out={scaled}");
+            return scaled;
+        }
+        protected override void ScaleControl(SizeF factor, BoundsSpecified specified)
+        {
+            DpiTrace.Log($"ScaleControl {Name} factor=({factor.Width:0.###},{factor.Height:0.###}) specified={specified} bounds={Bounds} logical={_logicalBounds}");
+            base.ScaleControl(factor, specified);
         }
         #endregion
 

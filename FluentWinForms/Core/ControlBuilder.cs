@@ -718,6 +718,9 @@ namespace FluentWinForms.Core
                 _node.Layout = new RectangleF(0, 0, _node.Layout.Width, _node.Layout.Height);
             }
 
+            DpiTrace.Log($"Apply {_hostControl.Name} layout=({_node.Layout.X},{_node.Layout.Y},{_node.Layout.Width},{_node.Layout.Height}) parent={parent?.GetType().Name} parentDpi={parent?.DeviceDpi} parentHandle={parent?.IsHandleCreated}");
+            DpiTrace.Log($"Apply {_hostControl.Name} hostBounds={_hostControl.Bounds}");
+
             OnApplied?.Invoke(_node);
 
             if (parent != null && !parent.Controls.Contains(_hostControl))
