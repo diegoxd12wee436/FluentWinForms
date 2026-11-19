@@ -104,15 +104,31 @@ namespace FluentWinForms
 
 
         }
+        private Action<double>? _frameTickedHandler;
+
+        private void UnsubscribeFrameTicked()
+        {
+            if (_frameTickedHandler == null) return;
+            AnimationManager.FrameTicked -= _frameTickedHandler;
+            _frameTickedHandler = null;
+        }
+
         void Dump(string tag)
         {
-            var sb = new System.Text.StringBuilder();
-            sb.AppendLine($"== {tag} DeviceDpi={DeviceDpi} controles={Controls.Count}");
-            foreach (Control c in Controls)
-                if (c is ModernControlBase m)
-                    sb.AppendLine($"{c.Name}: Bounds={m.Bounds} Logical={m.LogicalBounds}");
-            File.AppendAllText(Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.Desktop), "dpi-log.txt"), sb.ToString());
+            // Diagnóstico opcional: no escribir en el Escritorio en cada
+            // construcción (el harness crea cientos de Form1).
+            if (Environment.GetEnvironmentVariable("FWF_DIAG_LOG") != "1") return;
+            try
+            {
+                var sb = new System.Text.StringBuilder();
+                sb.AppendLine($"== {tag} DeviceDpi={DeviceDpi} controles={Controls.Count}");
+                foreach (Control c in Controls)
+                    if (c is ModernControlBase m)
+                        sb.AppendLine($"{c.Name}: Bounds={m.Bounds} Logical={m.LogicalBounds}");
+                File.AppendAllText(Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.Desktop), "dpi-log.txt"), sb.ToString());
+            }
+            catch { }
         }
         protected override void OnDpiChanged(DpiChangedEventArgs e)
         {
@@ -123,10 +139,14 @@ namespace FluentWinForms
 
         private void Form1_Load(object sender, EventArgs e)
         {
-            AnimationManager.FrameTicked += dt =>
-            {
-                Debug.WriteLine(AnimationManager.DumpDiagnostics());
-            };
+            // Se guarda el delegado para poder darlo de baja: el evento es
+            // estático y cada Form1 dejaba un handler permanente.
+            _frameTickedHandler = dt => Debug.WriteLine(AnimationManager.DumpDiagnostics());
+            AnimationManager.FrameTicked += _frameTickedHandler;
+
+            // `Dispose()` NO dispara FormClosed: hay que cubrir ambos caminos.
+            FormClosed += (s, args) => UnsubscribeFrameTicked();
+            Disposed += (s, args) => UnsubscribeFrameTicked();
             //var btnPrueba = FluentElement.Design("btnTest")
             //    .Layout(50, 50, 150, 45)
             //    .Content("¡Motor Listo!", "#fff", 12)
