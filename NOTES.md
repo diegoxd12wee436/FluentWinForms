@@ -1,0 +1,273 @@
+# NOTES.md — Bitácora de trabajo autónomo
+
+> Documento de continuidad. Se actualiza después de cada commit.
+> Si se perdió el contexto: leer "ESTADO ACTUAL", `git log -10 --oneline`, `git status` y las REGLAS.
+
+---
+
+## ESTADO ACTUAL
+
+- **Rama:** `feature/estabilizacion` (nunca se cambia; nunca se hace push).
+- **Motor del backdrop:** `@revisor` **APROBADO** (3 rondas). `@rompedor`: *"No por el motor
+  (pasó todo lo sustancial)"* — sin fuga, `rPx` 1/4/6, DPI sin crash. **Commit 1.**
+- **`Form1.cs` (handlers + logging):** verificado por `@revisor`. **Commit 2.**
+- **`StressTests/`:** funcional y estable (500 ciclos, 0 fallos), pero **sin los dos APROBADO
+  formales** (los revisores tropezaron con su propio sandbox y con métricas ruidosas).
+  Queda **sin commitear**, documentado abajo con los TODOs de cobertura. **Decisión del usuario.**
+- **`Form1.Designer.cs`, `opencode.json`, `.opencode/`:** del usuario; **no se commitean**.
+
+### Resultados finales (500 ciclos, build actual)
+
+```
+[assert] OK blur live (mover): hash 86F5B61B... -> 26B633FC...
+[assert] OK blur live (quieto, fondo cambia): hash 26B633FC... -> B5C3E337...
+[assert] OK WorkingSet: 159 -> 94 (0.59x)
+[assert] OK Private:    117 -> 37 (0.32x)
+[assert] OK GDI: 24 -> 24   USER: 13 -> 13
+[assert] pendiente Private = negativa
+[stress] fallos=0  (110 s)
+```
+
+Ambos rompedores coincidieron: Private/GDI/USER/Threads/Handles **estables o a la baja**;
+WorkingSet oscila por recorte del SO (por eso el gate de tendencia ahora usa Private, no WS).
+
+### TODOs del harness (anotados por los revisores, no bloquean)
+
+1. Click real con `WM_LBUTTONDOWN/UP` y hit-testing (hoy via `OnMouseDown` por reflexión).
+2. Ripple: `ControlBuilder.Ripple()` no activa `UseRipple` (bug de producto detectado); probar
+   `btn-danger` y afirmar `_isRippling`.
+3. Alternar Blur→None→Blur ×50 y afirmar `BackColor` restaurado por control.
+4. `BlurAmount` 1→10→20 con pantalla quieta (hash + `_bdLastRadius`).
+5. Bloquear el hilo UI >1.5 s para ejercitar el watchdog de slots.
+6. Medir retención de `_bdWork`/handoffs tras un resize 4K (hoy se cierra el form).
+
+### Nota de procedimiento
+
+Los revisores corren con sandbox restringido (solo `dotnet`/`git`): no pueden lanzar la app ni
+matar procesos. Sus veredictos sobre RAM de la app real se basan en logs de esta sesión.
+
+### Hallazgo pendiente del rompedor (fuera del harness)
+
+- `FluentWinForms/Form1.cs:126` suscribe `AnimationManager.FrameTicked` y **nunca** se daba de baja;
+  cada Form1 dejaba un handler estático. También `Dump()` escribía en el Escritorio en cada
+  construcción. **Corregido** (ver "Cambio C" abajo): delegado guardado y `-=` en `FormClosed`;
+  `Dump` solo escribe con `FWF_DIAG_LOG=1`.
+
+---
+
+## Cambio C — Form1: fuga de handlers y logging en el constructor
+
+- **Antes:** cada `new Form1()` añadía un handler permanente a `AnimationManager.FrameTicked`
+  (evento estático) y escribía `dpi-log.txt` en el Escritorio.
+- **Ahora:** el delegado se guarda en `_frameTickedHandler` y se da de baja en `FormClosed`;
+  `Dump()` solo escribe si `FWF_DIAG_LOG=1`, dentro de try/catch.
+- Motivo: el harness crea 500+ Form1 y el coste por frame/IO contaminaba las mediciones.
+- Estado: build 0/0. Pendiente de `@revisor` + `@rompedor`.
+
+## Harness v3 (ronda tras el 2.º rechazo)
+
+- `Set()` ya no traga excepciones: lanza con el mensaje y el stack del setter.
+- `AssertGrowth` falla si la medición es inválida (baseline/final ≤ 0) en vez de pasar en silencio.
+- Pendiente: solo se evalúa con ≥6 muestras y ≥150 ciclos (evita falsos positivos).
+- Blur LIVE: además de mover, se prueba con la ventana **quieta** y una ventana opaca encima
+  (distingue "live" de "recapturar solo al mover"). Verificado OK.
+- DPI: se verifica que el form siga vivo tras `HandleDpiChange`.
+- El catch del blur imprime el stack completo.
+- Doc del harness: el criterio es 50 % (no 25 %).
+
+## Cambio D — Correcciones del rompedor (backdrop)
+
+- `BlurAmount=1` volvía a no difuminar (umbral 2.5 px). Umbral bajado a 1 px: el modo Blur
+  siempre difumina (`rPx=1` con el diseñador actual).
+- `NotifyDpiChanged` ya no resetea `_bdInFlight` (podía permitir 4 frames sobre 2 slots).
+- `ReleaseBackdropBuffer` identifica el slot por referencia (`_bdSlotInFlight`): un doble
+  release ya no rompe el backpressure.
+- Buffers de trabajo y handoffs **se reutilizan** y se encogen si sobran (>4×): el pico de un
+  resize a 4000×3000 (139 MB) vuelve a 94 MB al terminar.
+- Verificado: 200 ciclos del harness, 0 fallos, blur live (mover + quieto) OK,
+  WS 139→94 (0.68x), Private 89→39, GDI/USER planos, pendiente −0.32 MB/ciclo.
+
+### Problemas abiertos (registrados por el usuario)
+
+1. Hit-test (`WM_NCHITTEST`, `ModernControlBase.Rendering.cs` ~895-924) no coincide con lo dibujado.
+2. Sombra/glow se recortan en el borde del HWND expandido (`EngineOffset`).
+
+### Decisiones pendientes del usuario (no tocar)
+
+- ¿Se elimina código muerto (`GlassBackdropCache`, `GlassPainter`, `GlassTypes`)? **No** por ahora.
+- Cualquier cambio de API pública de `FluentElement.Design(...)`.
+
+---
+
+## REGLAS INQUEBRANTABLES (recordatorio)
+
+1. Prohibido eliminar/simplificar/reemplazar funciones existentes. Lo que sobre → aquí.
+2. **El blur debe seguir siendo LIVE.** Nada de congelar el backdrop.
+3. Leer el archivo COMPLETO antes de tocarlo.
+4. Un cambio pequeño a la vez; nada de reescribir archivos.
+5. No bajar calidad visual ni comportamiento para ganar rendimiento.
+6. Mantener .NET 5+ y el target actual (`net8.0-windows10.0.19041.0`).
+7. Pruebas SOLO en `StressTests/` (proyecto aparte).
+8. Commit únicamente con `@revisor` **y** `@rompedor` en APROBADO. Un commit por cambio.
+9. Si un cambio falla 2 veces: revertir ese cambio (solo mis archivos), anotar y seguir.
+
+---
+
+## Línea base — cambios pendientes de la sesión anterior (C + D)
+
+### Comportamiento ANTES (HEAD `42fc8be`)
+
+- Backdrop CPU a resolución reducida (1/2), `StackBlurUltra` + tinte +5%, emitido a tamaño real
+  con `StretchBlt`, cadencia calibrada `clamp(paint*2, 50, 250)` ms.
+- Overlay del borde sin doble escalado (commit anterior).
+- Sin manejo de `WM_DPICHANGED`.
+- RAM con Blur: ~218 MB. fps al arrastrar: 14–17.
+
+### Comportamiento DESPUÉS (working tree, sin commit)
+
+- `BackdropPerformanceMode` (nuevo, default `false`): normal = refresco del monitor (VREFRESH),
+  rendimiento = cadencia calibrada.
+- Blur sin Skia en el backdrop: 2 pasadas de `StackBlurUltra` (σ en DIPs) + tinte blanco A=40;
+  sin blur si σ < 2.5 px (entrega nativa nítida).
+- Doble buffer (`_bdHandoffs[2]`), sin `Invoke` al hilo UI desde el worker, backpressure con `form.Update()`.
+- Manejo de DPI en caliente (`Form.DpiChanged` → `HandleDpiChange`, `NotifyDpiChanged`).
+- Medido: RAM 88 MB, fps 29–31, `apply+paint` 19–22 ms.
+
+### Verificación ya realizada
+
+- Build: 0 errores, 0 warnings.
+- RAM: 218 → 88 MB (medida con `Get-Process`).
+- Backdrop vivo: dump `1116x512`; fps 29–31 en arrastre programático.
+- `Form1.Designer.cs` intacto (hash del usuario).
+
+### Riesgos conocidos de ese cambio
+
+- El worker ya no hace `Invoke`; depende de `LocationChanged`/`SizeChanged` para los bounds.
+- El camino Direct2D original sigue existiendo (solo se usa cuando el backdrop CPU está desactivado).
+- Se eliminaron funciones **introducidas en la misma sesión** (no en HEAD): `BlurWithSkia`,
+  `EmitFullSizeBackdrop`, `EnsureFullBackdrop`, `CleanupFullBackdrop`. No había API pública afectada.
+
+---
+
+## Tareas del usuario
+
+- [ ] 0. Crear `StressTests/` con el harness completo (500+ ciclos, hover/click, resize, tema,
+      valores extremos, doble Dispose; imprimir WorkingSet64/PrivateMemorySize64/GC.GetTotalMemory).
+- [ ] 1. Auditoría SOLO LECTURA: leaks, nativos sin Dispose, allocations por frame.
+- [ ] 2. Corregir hallazgos (cache con dirty-check, mutar en sitio, `ReleaseNativeResources`).
+- [ ] 3. Ripple: `SKPath`/`SKPaint` por frame durante el click.
+- [ ] 4. `RenderNode`: evaluar `IDisposable`.
+- [ ] 5. Evaluar si el `GC.Collect()` periódico sigue siendo necesario (medir antes/después).
+- [ ] 6. Bug hit-test (`WM_NCHITTEST`).
+- [ ] 7. Bug sombra/glow recortados en `EngineOffset`.
+
+---
+
+## Auditoría SOLO LECTURA (Tarea 1) — sin cambios de código
+
+Método: lectura de `ModernControlBase.Rendering.cs`, `.Core.cs`, `.Animation.cs`, `RenderNode.cs`
+y búsqueda dirigida de allocations por frame y recursos nativos.
+
+### Allocations por frame confirmadas (candidatas a la Tarea 2/3)
+
+| # | Ubicación | Qué se crea por frame | Nota |
+|---|---|---|---|
+| A1 | `Rendering.cs:836-839` (`DrawBaseEngine`) | `SKPathBuilder` + `Detach()` → `SKPath` del relleno interior | Se puede cachear con dirty-check igual que `_sharedPath` (ya existe `_lastBasePathRect/_lastBasePathRadius`) |
+| A2 | `Rendering.cs:296-298` (sweep) | `SKPathBuilder` + `SKPath` del clip redondeado | Solo cuando el nodo tiene sweep visible |
+| A3 | `Rendering.cs:550-560` (ripple) | `SKPathBuilder` + `SKPath` + `SKPaint` | **Tarea 3 explícita**. El paint puede ser un campo reutilizado |
+| A4 | `Rendering.cs:754-756` (hijos) | `SKPathBuilder` + `SKPath` del clip del nodo con hijos | Solo con `Corners.TopLeft > 0` |
+| A5 | `Rendering.cs:320` | `SKRect` (struct) | No cuenta como allocation de heap |
+
+### Riesgos / deuda (no tocar sin repro)
+
+| # | Ubicación | Observación |
+|---|---|---|
+| R1 | `Rendering.cs:819` | `_sharedPaint.Shader?.Dispose()` podría disponer `_cachedBaseGradientShader` si una rama deja el shader asignado. Hoy las ramas lo anulan (866) pero es frágil. **No se toca sin reproducir.** |
+| R2 | `Animation.cs:323-326` | `GC.Collect()` por control cada 600 frames globales (`AnimationManager.Frames`): con N controles animando se ejecutan N recolecciones en el mismo frame. **Tarea 5**: medir RAM antes/después antes de tocar. |
+| R3 | `RenderNode` | Ya tiene caches por nodo y `ReleaseNativeResources()`; **no implementa `IDisposable`** formal (Tarea 4: evaluar, no obligatorio). |
+| R4 | `ModernControlBase.Dispose` | Correcto: desuscribe tema, `DisposeAnimations`, `ClearCaches`, `ReleaseNativeResources` y dispone paint/font/path/shader/gdiWrapper/canvas/bitmap/clipPath. Sin fugas evidentes. |
+| R5 | `RenderNode` caches | Sombra se hornea solo si `filterDirty`; gradientes/acrylic con dirty-check. Correcto. |
+
+### Lo que NO se pudo verificar
+
+- Fugas nativas reales (handle counts de Skia no visibles desde .NET). El harness mide Handles/Threads
+  del proceso: estables en 500 ciclos.
+- Multi-monitor / DPI distinto al 125% actual.
+- El hit-test y el recorte de sombra/glow (Tareas 6 y 7) requieren inspección específica, aún no hecha.
+
+---
+
+## Cambio "atender revisión del backdrop" (working tree, sin commit)
+
+El `@revisor` RECHAZÓ el draft anterior. Se corrigió:
+
+| # | Hallazgo | Corrección |
+|---|---|---|
+| 1 | Label/nativos congelados (Bug A) | `form.Invalidate(true)` restaurado (todos los hijos) |
+| 2 | Leak: lambdas de bounds + handoffs | Se desuscriben en `Dispose`; `CleanupBackdrop` limpia `_bdHandoffs` |
+| 3 | `_bdInFlight` podía congelar el blur | Watchdog de 1 s + reset en `NotifyDpiChanged` |
+| 4 | UI bloqueada por `ForceImmediateRender` en Resize/DPI | `RequestRender()` no bloqueante en Resize/ResizeEnd/DPI |
+| 5 | `MakeControlsOpaque` con color viejo y permanente | Se ejecuta tras `UpdateFormBackground`; `RestoreControlsTransparency` al salir de Blur |
+| 6 | Modo normal trabajaba con el escritorio quieto | Firma de la **captura** antes del blur → sin trabajo si no cambió |
+| 7 | `ImageLayout.None` rompía forms con borde | Vuelto a `Stretch` |
+| 8 | Churn de LOH | buffers fijos por slot (solo reasigna al cambiar tamaño) |
+| 9 | Carreras benignas en bounds | `Volatile.Read` |
+| 10 | Cambios de comportamiento | documentados en PROGRESS/AUDIT |
+| 11 | Frames tras `Dispose` | guard `_disposed` en `ApplyBlurBackdrop` |
+| 12-15 | menores | `rPx` en el log, `using` muerto eliminado; multi-monitor y floor anotados |
+
+**Medición tras corregir:** idle 5 s → 0.38 s de CPU (7.5 % de un core), WS 83 MB;
+arrastre live 28–29 fps; build Rebuild 0 errores / 0 warnings.
+
+### Segunda ronda de correcciones (tras el 2.º rechazo)
+
+| # | Hallazgo | Corrección |
+|---|---|---|
+| 1 | `BlurAmount` no se aplicaba con pantalla quieta (early-return de captura) | El setter y `RequestRender` resetean `_bdLastCaptureSignature` |
+| 2 | La firma de captura se comprometía antes de emitir | Solo se asigna tras `sink(...)` exitoso |
+| 3 | Watchdog no cubría "nunca hubo release" | Usa `_bdLastEnqueueTicks` (timestamp del encolado) |
+| 4 | `RestoreControlsTransparency` imponía Transparent | Guarda el `BackColor` original por control y lo restaura |
+| 5 | Comentario de backpressure incorrecto | Corregido (el límite es el doble buffer) |
+| 6 | `_blurBackdropBitmap` podía quedar dispuesto si `new Bitmap` fallaba | Se crea el nuevo antes de disponer el viejo |
+
+Pendiente: 3.ª revisión.
+
+---
+
+## Registro de cambios (un commit por cambio)
+
+| # | Cambio | Revisor | Rompedor | Commit | RAM antes/después |
+|---|---|---|---|---|---|
+| 0 | `StressTests/` (proyecto aparte) | pendiente | pendiente | — | 500 ciclos: WS 71–105 MB, threads 16–22 estables, handles ~400 estables |
+
+## Tarea 0 — StressTests (v2, tras rechazo del rompedor)
+
+- Corregido el fallo crítico: ya no se hace clic en el `Label`; se seleccionan los
+  `ModernControlBase` reales y se **verifica** `_isHoveringInternal` (si no se activa, falla).
+- Añadido: aserciones de memoria (WS/Private/GDI/USER vs máximo estable, 1.5x + pendiente),
+  `GC.Collect` antes de cada muestra, `GetGuiResources` (GDI/USER), escenario de masa (200
+  `FluentElement`), cambio de DPI por reflexión, resize 1×1 y 4000×3000, Dispose sin `Close`
+  cada 10 ciclos, manejadores globales de excepción y verificación de **blur LIVE** (hash del
+  `BackgroundImage` antes/después de mover).
+- Resultado 100 ciclos: **0 fallos**, blur live OK, WS 99→94, Private 40→35, GDI/USER 24/13
+  estables, threads 21, handles 405.
+- Pendiente: veredictos de `@revisor` y `@rompedor` sobre esta v2.
+
+### Tarea 0 — StressTests (v1, histórico)
+
+- Creado `StressTests/StressTests.csproj` + `StressTests/Program.cs` (no toca la solución).
+- Escenarios: 500 ciclos crear/mostrar/cerrar/dispose (doble Dispose), hover+click x3 con
+  `WM_MOUSEMOVE`/`WM_LBUTTONDOWN`/`WM_LBUTTONUP`, click interrumpido, resize/minimize/restore,
+  cambio de tema (`AppTheme.ApplyTheme`), valores extremos vía reflexión sobre
+  `modernFormManager1` (radio 9999, borde 100, blur 40, modo rendimiento, opacidad 0/1).
+- Métricas impresas: WorkingSet64, PrivateMemorySize64, GC.GetTotalMemory, Threads, Handles.
+- Resultado 500 ciclos: **0 fallos**, 66.4 s, WS 71–105 MB (final 71), Private 17–49 MB,
+  threads 16–22 (sin crecimiento), handles 394–418 (estables).
+
+---
+
+## Dudas anotadas (no bloquean)
+
+- El `GetDeviceCaps(VREFRESH)` devuelve el refresco del monitor principal; en multi-monitor con
+  refrescos distintos se usa el primario. Anotado, no se toca.
+- El modo "normal" puede saturar el hilo UI en equipos lentos; el modo rendimiento queda como escape.

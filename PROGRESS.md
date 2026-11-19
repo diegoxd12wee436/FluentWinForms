@@ -8,7 +8,7 @@
 |---|---|
 | Rama de trabajo | `feature/estabilizacion` |
 | `main` | **intacta** (`ae1f469`, no se toca) |
-| Commits | 1 commit local autorizado por el usuario (fix A + B). Sin push. |
+| Commits | 1 commit local (fix A+B, `42fc8be`) autorizado por el usuario. C y D **sin commit** hasta auditoría + OK. Sin push. |
 | Último build | 0 errores, 1 warning preexistente (`_isResizing`) |
 | Entorno detectado | `DeviceDpi=120` (125%), `PerMonitorV2`, pantalla 1536×864 |
 
@@ -156,30 +156,273 @@ Con `BorderThickness > 0` y `UseSkia = true` (si no, el overlay es transparente 
 
 ## Bug C — Latencia del blur al mover
 
-**Estado: `OPEN` (medido; causa identificada; fix pendiente).**
+**Estado: `FIXED-UNVERIFIED` — falta tu prueba visual.**
 **ID:** `FWF-BLUR-001`
 
-### Medición real (no estimación)
+### Síntoma
 
-Arrastre programático a 16 ms/paso con `SetWindowPos`:
+Al arrastrar la ventana, el backdrop va visiblemente por detrás.
+
+### Diagnóstico (medido, no estimado)
+
+Instrumenté el repintado por partes. Primera sorpresa: **el caché de Skia no era el problema**:
+
+| Medición | Valor |
+|---|---|
+| Pintar un `FluentElement` | **0.70 ms** (0.42 ms fondo del padre + 0.28 ms Skia) |
+| Form (`TargetForm_Paint_Hybrid`) | 0.9–1.2 ms |
+| `form.Invalidate(true); form.Update()` | 27–43 ms |
+
+Con 6–7 controles, nuestro código de pintura suma ~5 ms. Cachear el `SKBitmap` ahorraría ~2 ms: no valía la pena el riesgo.
+
+**La causa real:** al registrar los rectángulos de clip descubrí que **el form se pinta 8 veces por frame**, una por cada hijo con `BackColor = Transparent` (WinForms repinta el padre debajo de cada hijo "transparente"). Cada repintado vuelve a procesar el `BackgroundImage` de 1116×512 completo (~2.5 ms) → 8 × 2.5 ≈ 20 ms tirados.
 
 ```
-backdrop fps=6.9
-backdrop fps=4.8
-calibracion: paint=32ms -> intervalo backdrop=64ms
+paint clip={X=0,Y=0,Width=1116,Height=512}
+paint clip={X=300,Y=10,Width=259,Height=20}   <- Label
+paint clip={X=25,Y=25,Width=210,Height=78}    <- btn1
+paint clip={X=39,Y=107,Width=182,Height=50}   <- btn2
+... (8 en total)
 ```
 
-El backdrop se produce a ~5–7 fps durante el arrastre porque **cada actualización invalida
-y repinta toda la ventana** (32–43 ms de coste). El blur en sí cuesta ~2.3 ms; el 90% del
-frame es el repintado Skia de los controles.
+Y es trabajo **duplicado**: `ModernControlBase.OnPaint` ya compone el fondo del padre en el buffer del propio hijo. Nada necesita que el padre pinte otra vez debajo.
 
-### Próximo paso propuesto (Fase 4 de AUDIT)
+### Cambio aplicado
 
-- Cachear el `SKBitmap` de cada control y repintarlo solo cuando cambie su estado
-  (hoy `ModernControlBase.OnPaint` re-renderiza todo el árbol Skia en cada paint).
-- Mientras el form se está moviendo, no invalidar hijos en cada frame de backdrop:
-  bastará con repintar el form si los hijos se mueven con la ventana.
-- Es un cambio de rendimiento con riesgo visual: se hace **después** de validar B.
+`MakeControlsOpaque`: los `FluentElement` pasan a `BackColor` opaco (= color del form) cuando hay Blur. Se **excluyen** `ModernGlassPanel` y `ModernThemeToggle`, que sí dependen de `BackColor.Transparent` para su propia composición (`ModernThemeToggle.cs:535`).
+
+### Evidencia
+
+| Métrica | Antes | Después |
+|---|---|---|
+| Paints del form por frame | **8** | **2** (form + Label nativo) |
+| Coste del repintado | 27–43 ms | **15 ms** |
+| Backdrop durante arrastre | 4.8–6.9 fps | **14.8–16.5 fps** |
+| Intervalo calibrado | 54–86 ms | **50 ms** (suelo) |
+
+Log real:
+```
+calibracion: paint=15ms -> intervalo backdrop=50ms
+19:37:11.774 backdrop fps=16.5
+19:37:12.814 backdrop fps=16.2
+19:37:13.829 backdrop fps=14.8
+19:37:14.826 backdrop fps=16.0
+```
+
+**Comprobación visual** (dump de composición con hijos opacos):
+
+| Zona | Luminancia media |
+|---|---|
+| backdrop sobre btn1 | 42.4 |
+| halo superior btn1 | 46.6 |
+| backdrop entre botones | 52.0 |
+| halo superior btn2 | 61.1 |
+| backdrop lateral | 61.4 |
+
+Los halos siguen mostrando el backdrop (nada de negro) y el interior del botón sólido es **pixel-idéntico** (MAD = 0) entre ambas configuraciones.
+
+### Experimentos descartados (medidos, para no repetirlos)
+
+| Prueba | Resultado |
+|---|---|
+| `BackgroundImageLayout = None` en vez de `Stretch` | 24 ms vs 25 ms → sin ganancia real |
+| `BackgroundImageLayout = Tile` | 34 ms → peor |
+| `DoubleBuffered = false` | 41 ms → mucho peor |
+| Caché de `SKBitmap` por control | ahorraría ~2 ms → no justifica el riesgo |
+
+### Iteración 2 (feedback del usuario: "parece que va a 12 fps", "se ve como tomando fotos", "muy borroso incluso con 1")
+
+**Problema 1 — no se siente fluido.** No era (solo) la frecuencia: durante un arrastre seguíamos
+produciendo y aplicando backdrop en cada mensaje de movimiento. `FormMessageHook` llamaba a
+`ForceImmediateRender()` **sincrónicamente** en cada `WM_WINDOWPOSCHANGED`, y cada frame costaba
+~15 ms de hilo UI. El resultado es exactamente lo que describiste: una sucesión de fotos.
+
+**Fix:** mientras `_isResizing` (entre `WM_ENTERSIZEMOVE` y `WM_EXITSIZEMOVE`):
+
+- `FormMessageHook` ya no fuerza renders.
+- `OnBlurBackdrop` / `ApplyBlurBackdrop` descartan los frames pendientes.
+- La ventana se mueve como bitmap (sin repintados) → movimiento fluido a la tasa del compositor.
+- Al soltar (`ResizeEnd`) se fuerza `ForceImmediateRender()` + `Invalidate(true)` y el blur se
+  recoloca en la posición final.
+
+**Evidencia:**
+
+```
+arrastre simulado (WM_ENTERSIZEMOVE + 60 pasos):  SIN líneas de fps  -> 0 frames aplicados
+tras soltar:                                      1 frame aplicado y luego 0.3 fps (estático)
+```
+
+**Problema 2 — se veía borroso incluso con `BlurAmount = 1`.** El pipeline bajaba **siempre** a
+media resolución (`d = 2`): 1116×512 → 558×256 → blur → volver a 1116×512 con HALFTONE. Ese
+reescalado ya suaviza unos 4 px, aunque el radio fuese 1.
+
+**Fix:** con intensidades bajas y ventanas moderadas se trabaja a **resolución nativa**
+(`fineBlur = amount <= 3 && w <= 1600 → d = 1`). Para intensidades altas se mantiene el camino
+rápido a media resolución.
+
+**Evidencia:**
+
+```
+dump 1116x512 sigma=1 boxRadius=2      <- antes: 558x256 sigma=1 boxRadius=1
+calibracion: paint=15ms -> intervalo backdrop=50ms
+backdrop fps=16.0 / 15.5 / 15.3        <- el blur nativo sostiene la cadencia
+```
+
+Energía de borde del backdrop (más = más nítido):
+
+| Backdrop | Resolución | Energía de borde |
+|---|---|---|
+| `BlurAmount=1` (nuevo, nativo) | 1116×512 | **3.425** |
+| `BlurAmount=5` (media res) | 558×256 | 1.283 |
+| `BlurAmount=20` (media res) | 558×256 | 0.415 |
+
+Ahora `1` es realmente sutil y el control tiene rango visible.
+
+### Iteración 3 (feedback: "no es live, solo una screen; el blur se ve feo, mirá el ModernGlassPanel")
+
+**Se revirtió el congelado.** Durar el arrastre sin repintar da fluidez, pero el resultado
+es una imagen quieta y eso se siente peor que 15 fps reales. Ahora el backdrop vuelve a
+actualizarse en vivo durante el movimiento.
+
+**El blur se reescribió copiando la receta de `ModernGlassPanel`** (`GenerateStaticCache`),
+que es la referencia visual que pidió el usuario:
+
+| Paso | Implementación |
+|---|---|
+| Resolución | **Nativa** (1116×512), sin downscale/upscale |
+| Algoritmo | `SKImageFilter.CreateBlur(sigma, sigma, SKShaderTileMode.Clamp)` |
+| Padding | `ceil(sigma) + 2` px por lado en un bitmap aparte |
+| Recorte | Del bitmap difuminado al tamaño real |
+| Tinte | Blanco `A=40` (`GlassTint` por defecto del panel) |
+
+Se eliminó el camino de `StackBlur` a media resolución y el `StretchBlt` de subida (ya no
+hacen falta: el blur sale a tamaño real). `BlurAmount` ahora es **sigma en DIPs**, igual que
+en el panel.
+
+**Evidencia:**
+
+```
+dump 1116x512 sigma=10 sigmaPx=12
+BackgroundImage asignado 1116x512 form=1116x512 dpi=120
+calibracion: paint=30ms -> intervalo backdrop=60ms
+backdrop fps=14.3 / 15.5 / 15.3 / 15.8 / 16.0     <- live otra vez
+```
+
+Esquinas y bordes del backdrop: `A255` en las cuatro esquinas (el padding + Clamp evitó el
+borde oscuro/transparente):
+
+```
+(0,0)     = A255 R45 G46 B50
+(1115,0)  = A255 R45 G45 B50
+(0,511)   = A255 R45 G45 B50
+(1115,511)= A255 R56 G56 B60
+```
+
+### Cómo probarlo
+
+Con `BackdropType = Blur` (tu diseñador ya está así), arrastrá la ventana y compará la textura
+del fondo con la del `ModernGlassPanel` del proyecto.
+
+**Qué mirar:**
+
+1. ¿El fondo se ve como el vidrio del panel (lechoso, suave, con tinte)?
+2. ¿Vuelve a estar "live" al mover (no una foto quieta)?
+3. ¿Los halos de los botones siguen mostrando el blur (no negro)?
+4. `BlurAmount=1` vs `20`: ¿se nota el rango?
+
+### Iteración 4 — modo de refresco + fix de memoria
+
+**1. Propiedad nueva `BackdropPerformanceMode`** (`Modern Form - Blur`, por defecto `false`):
+
+| Modo | Comportamiento | Uso |
+|---|---|---|
+| `false` (normal) | Sigue el refresco del monitor (`GetDeviceCaps VREFRESH`, acá 120 Hz) | Movimiento fluido |
+| `true` (rendimiento) | Cadencia calibrada con el coste real de repintado (~15-20 fps) | Menos CPU/batería |
+
+**2. Bug de memoria (encontrado por el usuario).** La RAM subía a ~200 MB. Causas medidas:
+
+- `SKImage.FromBitmap` **copia** los píxeles y se llamaba 3 veces por frame (Skia retenía ~140 MB).
+- `ArrayPool<byte>.Shared` **no** reutiliza buffers de 2.3 MB (supera el máximo del pool) → LOH nuevo por frame.
+
+**Fix:** el blur del backdrop dejó de usar Skia (2 pasadas de `StackBlurUltra` = gaussiana
+equivalente + tinte blanco 40) y se usan dos buffers fijos en vez de `ArrayPool`.
+
+```
+antes:  WorkingSet 218 MB / Private 172 MB
+ahora:  WorkingSet  88 MB / Private  39 MB
+```
+
+**3. Pipeline menos serializado:**
+
+- El worker ya no hace `_form.Invoke` al hilo UI en cada iteración (los bounds se cachean por
+  `LocationChanged`/`SizeChanged`), que lo bloqueaba detrás de cada repintado.
+- Doble buffer (`_bdHandoffs[2]`) + liberación del slot **después de copiar y antes de pintar**:
+  permite preparar el siguiente frame mientras la UI pinta el actual.
+- `form.Update()` como backpressure: el frame no se libera sin haberse pintado.
+
+**4. Rendimiento medido (Debug, 120 Hz, `BlurAmount=10`):**
+
+| Métrica | Antes (Skia) | Ahora |
+|---|---|---|
+| RAM | 218 MB | **88 MB** |
+| Blur por frame | 3.5 ms | 5.6 ms |
+| Repintado (apply+paint) | 19–26 ms | 19–22 ms |
+| Backdrop fps (live) | 14–17 | **29–31** |
+
+**5. Blur fino sin coste:** si `sigma < 2.5 px` no se difumina: se entrega la captura nativa
+con el tinte. Así `BlurAmount=1` es nítido y gratis.
+
+**Compromiso:** el techo real lo pone el repintado de WinForms (~20 ms): 40–50 fps como máximo
+con esta arquitectura. Para 60 fps estables haría falta composición en una sola superficie
+(Fase 6).
+
+### Limitaciones
+
+- El blur gaussiano nativo cuesta más que el de media resolución, pero corre en su propio hilo: el backdrop sostiene ~15 fps y no bloquea la UI.
+- Sigue habiendo ~15 ms por frame de repintado: la mayor parte es pintar el `BackgroundImage` y componer los HWND hijos. Bajar de ahí requiere composición en una sola superficie (Fase 6).
+- El `Label` nativo sigue transparente (no puede pintar el fondo por sí mismo): 1 repintado extra del form, barato.
+- `MakeControlsOpaque` corre al aplicar los efectos: controles creados después no reciben la optimización.
+
+---
+
+## Bug D — Cambio de DPI en caliente
+
+**Estado: `FIXED-UNVERIFIED` — falta probar en un monitor/escala distinta.**
+**ID:** `FWF-DPI-001`
+
+### Qué faltaba
+
+El borde, el overlay y el backdrop están todos en **píxeles físicos**, pero nadie escuchaba
+`WM_DPICHANGED`. Al cambiar la escala podían quedar cachés con la escala vieja (grosor del
+borde, radio escalado, bitmaps del overlay, recursos Direct2D) y la calibración de cadencia.
+
+### Cambio aplicado
+
+- `ModernFormManager` se suscribe a `Form.DpiChanged` y lo trata en `HandleDpiChange`:
+  invalida el caché del borde (`_lastWidth/_lastHeight/_lastRadius/_lastScale`), marca el
+  overlay para reenviar bitmap, rehace la calibración de cadencia y re-aplica los efectos.
+- `PaintSkiaSmoothing` incluye la **escala** en la clave del caché (`_lastScale`), así que un
+  cambio de DPI reconstruye el borde aunque el tamaño en píxeles coincida.
+- `Direct2DBlurHelper.NotifyDpiChanged()` marca los recursos nativos (DIB, backdrop reducido,
+  render target y bitmaps D2D) para liberarlos y recrearlos en el próximo frame.
+- `ModernFormOverlay` resincroniza bounds con el owner en `DpiChanged` (no se autoescala:
+  `AutoScaleMode.None`).
+
+### Evidencia (cambio simulado con `FWF_FAKE_DPI`)
+
+```
+pre  : overlay 1116x512 at (160,160) | form 1116x512 at (160,160)
+post : overlay 1116x512 at (160,160) | form 1116x512 at (160,160)
+dpi: 120 -> 144 form=1116x512
+calibracion: paint=17ms -> intervalo backdrop=50ms   (recalibrado tras el cambio)
+vivo: True                                            (sin crash)
+```
+
+### Cómo probarlo de verdad
+
+1. Con la app abierta, mové la ventana a un monitor con otra escala (100% ↔ 125% ↔ 150%).
+2. O cambiá la escala en Windows (`Configuración → Pantalla → Escala`) con la app abierta.
+3. Mirá: borde alineado, sin franjas ni píxeles basura, blur recolocado, sin crash.
 
 ---
 
@@ -217,9 +460,21 @@ más nítidos.
 | # | Bug | Qué probar | Estado |
 |---|---|---|---|
 | 1 | A | Halos de botones + label GDI con Blur | ✅ `VERIFIED` |
-| 2 | B | Mover la ventana con `BorderThickness > 0`: nada debe salir del form | ⏳ pendiente |
-| 3 | A/C | Mover la ventana: ¿sigue el lag? ¿aceptable? | ⏳ pendiente |
-| 4 | — | `BlurAmount` 5 vs 20 sobre un fondo con detalle | ⏳ pendiente |
+| 2 | B | Mover la ventana con `BorderThickness > 0`: nada debe salir del form | ✅ `VERIFIED` ("ya no se asoma nada") |
+| 3 | C | Arrastrar: ¿live, fluido y con el aspecto del `ModernGlassPanel`? | ⏳ pendiente (iteración 4) |
+| 4 | C | `BackdropPerformanceMode`: normal (fluido) vs rendimiento (menos CPU) | ⏳ pendiente |
+| 5 | C | RAM estable (<100 MB) tras mover un rato | ✅ medido (88 MB) |
+| 5 | D | Cambiar escala/monitor con la app abierta: borde y blur alineados | ⏳ pendiente |
+
+### Tanda única de pruebas (C iteración 2 + D)
+
+```powershell
+$env:FWF_BACKDROP="Blur"; $env:FWF_BLUR_AMOUNT="1"; $env:FWF_BORDER_THICKNESS="2"; $env:FWF_USE_SKIA="1"
+dotnet run --project FluentWinForms\FluentWinForms.csproj
+# 1) arrastrar: fluidez + halos  2) subir BlurAmount por código/variable y comparar
+# 3) mover a otro monitor o cambiar la escala de Windows
+Remove-Item Env:\FWF_BACKDROP, Env:\FWF_BLUR_AMOUNT, Env:\FWF_BORDER_THICKNESS, Env:\FWF_USE_SKIA
+```
 
 ---
 
@@ -228,8 +483,10 @@ más nítidos.
 | Fecha | Bug | Resultado | Notas |
 |---|---|---|---|
 | 2026-11-18 | A | ✅ PASS | "el blur se ajusta al backdrop y el label lo soportó" |
-| 2026-11-18 | B | reportado | "se sale del form cuando la muevo" → causa medida y corregida |
-| 2026-11-18 | C | reportado | "se ve lag" → medido en 5–7 fps de backdrop |
+| 2026-11-18 | B | ✅ PASS | "al mover ya no se asoma nada, está correcto" |
+| 2026-11-18 | C | ⚠️ parcial | sin parpadeo y halos OK, pero "parece que va a 12 fps", "se ve como tomando fotos", "muy borroso incluso con 1" → iteración 2 |
+| 2026-11-18 | C | ⚠️ parcial | "ni siquiera es live, solo una screen y empeoró"; "el blur se ve feo, mirá el ModernGlassPanel" → iteración 3 (live + receta del panel) |
+| 2026-11-18 | C | ⚠️ parcial | "parece un monitor de captura"; pide modo rendimiento + modo normal vsync; reporta RAM a ~200 MB → iteración 4 (modos + fix de memoria) |
 
 ---
 
@@ -240,6 +497,20 @@ más nítidos.
 | `FWF_DUMP_BACKDROP=1` | Vuelca el primer backdrop a `%TEMP%\fwf-backdrop.png`, registra asignación/calibración/fps en `%TEMP%\fwf-backdrop-log.txt`. |
 | `FWF_DUMP_FORM=1` | Vuelca la composición completa del form a `%TEMP%\fwf-form.png` vía `DrawToBitmap`. |
 | `FWF_BLUR_AMOUNT=<n>` | Fuerza la intensidad del blur en runtime (1–40) sin recompilar. |
+| `FWF_BACKDROP=Blur\|Acrylic\|None` | Fuerza el tipo de backdrop sin editar el diseñador. |
+| `FWF_BORDER_THICKNESS=<n>` | Fuerza el grosor del borde (necesario para ver el overlay). |
+| `FWF_USE_SKIA=1\|0` | Fuerza el motor Skia del borde. |
+| `FWF_FAKE_DPI=<n>` | Simula un cambio de DPI a los 2.5 s (prueba la invalidación de cachés). |
+
+**Receta para probar B y C sin tocar `Form1.Designer.cs`:**
+
+```powershell
+$env:FWF_BACKDROP="Blur"; $env:FWF_BORDER_THICKNESS="2"; $env:FWF_USE_SKIA="1"
+$env:FWF_DUMP_BACKDROP="1"; $env:FWF_BLUR_AMOUNT="20"
+dotnet run --project FluentWinForms\FluentWinForms.csproj
+# al terminar:
+Remove-Item Env:\FWF_BACKDROP, Env:\FWF_BORDER_THICKNESS, Env:\FWF_USE_SKIA, Env:\FWF_DUMP_BACKDROP, Env:\FWF_BLUR_AMOUNT
+```
 
 Todos son solo diagnóstico y no cambian el comportamiento si la variable no está activa.
 

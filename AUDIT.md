@@ -9,7 +9,7 @@
 | Commit verificado | `ae1f469` — `ADD: RULES TO OPENCODE` |
 | Rama | `main` (referencia) · trabajo en `feature/estabilizacion` |
 | Estado del build | Compila: 0 errores, 1 warning |
-| Estado de los bugs A/B/C | A: **VERIFIED** por el usuario. B: **FIXED-UNVERIFIED** (causa medida). C: **OPEN**, medido (~5–7 fps de backdrop al arrastrar). |
+| Estado de los bugs A/B/C | A: **VERIFIED** por el usuario. B: **FIXED-UNVERIFIED** (causa medida). C: **FIXED-UNVERIFIED** (paint 43→15 ms, backdrop 5→16 fps). |
 
 > **Avance del día a día:** ver `PROGRESS.md` (qué se implementó, evidencia y qué falta probar).
 
@@ -39,14 +39,14 @@
 
 ## 1. Próximo paso (TL;DR)
 
-**A está `VERIFIED` por el usuario.** El fix de B (overlay 25% más grande que el form) ya está
-aplicado y verificado a nivel técnico; falta la prueba visual del usuario.
+**A está `VERIFIED` por el usuario.** B (overlay 25% más grande que el form) y C (8 repintados
+del form por frame) están corregidos y medidos; falta la prueba visual del usuario.
 
-Siguiente: **medir y atacar C** (latencia al mover). El backdrop corre a 5–7 fps durante el
-arrastre porque cada frame invalida y repinta toda la ventana (32–43 ms), no porque el blur
-sea caro (~2.3 ms).
+El cuello de botella restante son ~15 ms por frame: pintar el `BackgroundImage` y componer
+8 HWND hijos. Para bajar de ahí hace falta composición en una sola superficie (Fase 6), no
+micro-optimizaciones.
 
-Orden restante: **C (latencia) → DPI en caliente → threads/lifecycle → refactor.**
+Orden restante: **validación visual de B y C → DPI en caliente → threads/lifecycle → refactor.**
 
 ---
 
@@ -325,6 +325,26 @@ _Nota:_ el resto de defectos de esta sección (basura del `ArrayPool` en la copi
 `CreateGraphics`, `WM_DPICHANGED` sin manejar) quedan como deuda pendiente para la fase de DPI
 en caliente; el caso 125% fijo ya no produce artefactos.
 
+**Iteración 2 — manejo de DPI en caliente.** Ya no queda sin manejar:
+
+- `Form.DpiChanged` → `HandleDpiChange`: invalida el caché del borde
+  (`_lastWidth/_lastHeight/_lastRadius/_lastScale`), marca el overlay para reenviar bitmap,
+  rehace la calibración de cadencia y re-aplica los efectos.
+- `PaintSkiaSmoothing` incluye la **escala** en la clave del caché (`_lastScale`).
+- `Direct2DBlurHelper.NotifyDpiChanged()` libera en el próximo frame los DIB, el backdrop
+  reducido y los recursos D2D (dependen de píxeles físicos).
+- `ModernFormOverlay` resincroniza bounds en `DpiChanged` (no se autoescala).
+
+Verificación con `FWF_FAKE_DPI=144` (simula el mensaje sin cambiar la escala de Windows):
+
+```
+dpi: 120 -> 144 form=1116x512
+calibracion: paint=17ms -> intervalo backdrop=50ms
+overlay 1116x512 at (160,160) == form 1116x512 at (160,160)
+```
+
+Pendiente: prueba real moviendo la ventana entre monitores/escalas.
+
 **Adicional (confirmado por lectura):**
 - `GetScaleFactor()` (`:366-373`) crea un `Graphics` con `CreateGraphics()` **en cada llamada** → churn de handles GDI. Se llama en `:381`, `:488`, `:594` y dentro de `RefreshLayer` (`:1040` usa su propio `CreateGraphics`).
 - `Direct2DBlurHelper` cachea `_dibW/_dibH/_rtW/_rtH` (`:63`, `:212-234`) y no los invalida por cambio de DPI.
@@ -341,23 +361,69 @@ en caliente; el caso 125% fijo ya no produce artefactos.
 
 ### 5.3 Bug C — Retraso del blur al mover la ventana
 
-**Estado: `OPEN` — medido. La causa dominante no es el blur, es el coste de repintado.**
+**Estado: `FIXED-UNVERIFIED` — causa medida y corregida; falta la prueba visual del usuario.**
 **ID:** `FWF-BLUR-001` · **Severidad:** media-alta · **Riesgo de fix:** alto
 
 **Síntoma:** al arrastrar/redimensionar, el backdrop "va detrás" del movimiento.
 
 **Medición (2026-11-18, arrastre programático 40 pasos × 16 ms):**
 
-| Dato | Valor |
-|---|---|
-| Backdrop fps durante el arrastre | 6.9 → 4.8 |
-| Coste de repintar form + hijos | 32–43 ms |
-| Coste del blur + emisión | ~2.3 ms |
-| Intervalo calibrado | `clamp(paint*2, 50, 250)` → 64 ms |
+| Dato | Antes | Después |
+|---|---|---|
+| Backdrop fps (live, ventana moviéndose) | 4.8–6.9 | **29–31** |
+| Coste de repintar la ventana | 27–43 ms | **19–22 ms** |
+| Paints del form por frame | **8** | **2** |
+| Memoria (WorkingSet) con Blur | **218 MB** | **88 MB** |
+| Intervalo | 54–86 ms | 8 ms (normal) / calibrado (rendimiento) |
 
-Es decir: el 90% del frame se va en **repintar el árbol Skia de cada control**, no en
-difuminar. `ModernControlBase.OnPaint` re-renderiza todo el nodo en cada paint y no tiene
-caché por estado.
+**Causa raíz (medida, no hipótesis).** El árbol Skia **no** era el culpable: pintar un
+`FluentElement` cuesta **0.70 ms** (0.42 ms fondo del padre + 0.28 ms Skia). El problema era
+que **el form se pintaba 8 veces por frame**, una por cada hijo con `BackColor = Transparent`:
+WinForms repinta el padre debajo de cada hijo transparente, y cada repintado vuelve a procesar
+el `BackgroundImage` completo (1116×512 ≈ 2.5 ms). 8 × 2.5 ≈ 20 ms duplicados.
+
+El repintado del padre es **redundante**: `ModernControlBase.OnPaint` ya compone el fondo del
+padre en el buffer del propio hijo (`InvokePaintBackground`).
+
+**Fix aplicado:** `MakeControlsOpaque` pone `BackColor` opaco a los `FluentElement` cuando hay
+Blur (excluye `ModernGlassPanel` y `ModernThemeToggle`, que sí dependen de
+`BackColor.Transparent`). Verificación: halos con luminancia 46–61 frente a 61 del backdrop
+adyacente (sin negro) e interior del botón sólido pixel-idéntico (MAD = 0).
+
+**Descartado tras medir:** `ImageLayout.None` (24 vs 25 ms), `Tile` (34 ms),
+`DoubleBuffered = false` (41 ms) y cachear el `SKBitmap` por control (~2 ms de ahorro).
+Detalle en `PROGRESS.md`.
+
+**Iteración 2 (feedback visual del usuario).** Dos ajustes más:
+
+1. **Congelar el backdrop durante el arrastre.** `FormMessageHook` llamaba a
+   `ForceImmediateRender()` sincrónicamente en cada `WM_WINDOWPOSCHANGED`, y cada frame cuesta
+   ~15 ms de hilo UI → el arrastre se veía como "una sucesión de fotos". Ahora, mientras
+   `_isResizing` (entre `WM_ENTERSIZEMOVE` y `WM_EXITSIZEMOVE`), no se produce ni se aplica
+   backdrop; al soltar se fuerza un refresco. Medido: 0 frames aplicados durante el arrastre y
+   overlay alineado con el form en 80/80 muestras (0 px de desfase).
+2. **Blur fino a resolución nativa.** El pipeline bajaba siempre a 1/2 (`d = 2`), lo que ya
+   suavizaba ~4 px aunque el radio fuese 1. Ahora `BlurAmount <= 3` con ventanas ≤1600 px usa
+   `d = 1` (radio 2 px reales). Energía de borde: 3.425 (antes 1.283 con amount 5).
+
+**Iteración 3 (feedback: "no es live, solo una screen; el blur se ve feo").** El congelado se
+**revirtió**: una imagen quieta se percibe peor que 15 fps reales. Y el blur se reescribió con
+la receta de `ModernGlassPanel`, que es la referencia visual pedida:
+
+- Resolución **nativa** para blur fino (sin downscale/upscale) y 1/2–1/4 para blur fuerte.
+- Dos pasadas de caja (`StackBlurUltra`) ≈ gaussiana de la misma sigma + `ceil(sigma)+2` de
+  margen implícito (la pasada de caja usa clamp en los bordes, sin viñeta).
+- Tinte blanco `A=40` (`GlassTint` del panel).
+- `BlurAmount` pasa a ser **sigma en DIPs**, idéntico al panel.
+
+**Iteración 4 (feedback: "parece un monitor de captura"; RAM a ~200 MB).**
+
+- `BackdropPerformanceMode` (normal = refresco del monitor, rendimiento = cadencia calibrada).
+- Se quitó Skia del camino del backdrop: retenía ~140 MB. RAM 218 → 88 MB.
+- Se quitaron `ArrayPool`/`SKImage.FromBitmap` del frame (no reutilizaban/copiaban).
+- El worker ya no hace `Invoke` al hilo UI (bounds cacheados por eventos) y hay doble buffer:
+  el pipeline dejó de estar serializado.
+- Medido: `dump 1116x512`, fps **29–31**, RAM **88 MB**.
 
 **Evidencia verificada:**
 
@@ -542,7 +608,7 @@ Estados: `OPEN`, `INVESTIGATING`, `REPRODUCED`, `FIXED-UNVERIFIED`, `VERIFIED`, 
 |---|---|---|
 | `FWF-COMP-001` | Regiones negras Blur/Acrylic | `VERIFIED` |
 | `FWF-DPI-001` | Doble escala / artefactos del overlay | `FIXED-UNVERIFIED` |
-| `FWF-BLUR-001` | Latencia del blur al mover | `OPEN` (medido: 5–7 fps de backdrop, 32–43 ms de repintado) |
+| `FWF-BLUR-001` | Latencia del blur al mover | `FIXED-UNVERIFIED` (paint 43→15 ms, backdrop 5→16 fps, arrastre congelado) |
 | `FWF-ANIM-001` | `GC.Collect()` en `AnimationTick` | `OPEN` |
 | `FWF-FPS-001` | Scheduler / política FPS sin conectar | `OPEN` |
 | `FWF-THREAD-001` | Acceso a WinForms desde worker | `INVESTIGATING` |
@@ -553,6 +619,7 @@ Estados: `OPEN`, `INVESTIGATING`, `REPRODUCED`, `FIXED-UNVERIFIED`, `VERIFIED`, 
 | `FWF-FORM-001` | Eventos y posible doble `Start` | `INVESTIGATING` |
 | `FWF-DIAG-001` | Logs de diagnóstico en el Escritorio | `OPEN` |
 | `FWF-ARCH-001` | Responsabilidades concentradas en `Core` | `PLANNED` |
+| `FWF-MEM-001` | RAM del backdrop a ~200 MB (`SKImage.FromBitmap` copiaba por frame + `ArrayPool` no reutiliza 2.3 MB) | `FIXED-UNVERIFIED` (88 MB) |
 
 Cada issue debe registrar: ID, título, tipo, severidad, entorno, pasos de reproducción, evidencia, archivos/métodos, causa raíz (hechos vs hipótesis), cambio, riesgos, pruebas y estado.
 
@@ -589,6 +656,10 @@ Cada issue debe registrar: ID, título, tipo, severidad, entorno, pasos de repro
 | `FWF_DUMP_BACKDROP=1` | Vuelca el backdrop CPU a `%TEMP%\fwf-backdrop.png` y registra asignación, calibración y fps en `%TEMP%\fwf-backdrop-log.txt` | Diagnóstico del fix de A/B. Solo con la variable activa. |
 | `FWF_DUMP_FORM=1` | Vuelca la composición completa a `%TEMP%\fwf-form.png` con `DrawToBitmap` | Verificar halos/transparencia sin capturar el HWND. |
 | `FWF_BLUR_AMOUNT=<n>` | Fuerza la intensidad del blur (1–40) en runtime | Probar sensibilidad sin recompilar. |
+| `FWF_BACKDROP=Blur\|Acrylic\|None` | Fuerza el tipo de backdrop | Probar A/B/C sin editar el diseñador. |
+| `FWF_BORDER_THICKNESS=<n>` | Fuerza el grosor del borde | Necesario para hacer visible el overlay al validar B. |
+| `FWF_USE_SKIA=1\|0` | Fuerza el motor Skia del borde | Validar la ruta del overlay. |
+| `FWF_FAKE_DPI=<n>` | Simula un cambio de DPI a los 2.5 s | Verificar invalidación de cachés sin cambiar la escala de Windows. |
 
 Ninguno debe romper el arranque normal ni escribir en el Escritorio en una versión release.
 
@@ -642,6 +713,16 @@ No bloquear la preparación del harness por datos faltantes: registrar las limit
 | 2026-11-18 | Cadencia del backdrop **calibrada** al coste medido: `clamp(paint*2, 50, 250)` ms | No pedir al hilo UI más frames de los que puede sostener (32–43 ms medidos). |
 | 2026-11-18 | Overlay **sin** multiplicar por DPI (`Form.Width` ya es físico) | El factor 1.25 generaba un overlay 1395×640 sobre un form 1116×512. |
 | 2026-11-18 | Controles GDI nativos pasan a `Color.Transparent` una sola vez | El `Label` nativo también muestra el backdrop en vez del `BackColor`. |
+| 2026-11-18 | `FluentElement.BackColor` opaco cuando hay Blur (C) | Elimina 6 de los 8 repintados del form por frame; OnPaint ya compone el fondo. Medido: 43→15 ms. |
+| 2026-11-18 | No cachear el `SKBitmap` de los controles (C) | Medido: el render Skia cuesta 0.28 ms/control; el caché no aporta y añade riesgo visual. |
+| 2026-11-18 | Congelar el backdrop durante el arrastre (C) | Cada frame son ~15 ms de hilo UI; sin repintados el movimiento es fluido (como el acrylic nativo). |
+| 2026-11-18 | Congelar el backdrop durante el arrastre (C, revertido) | Se probó para ganar fluidez, pero el usuario lo percibió como "una screen quieta". |
+| 2026-11-18 | Blur del backdrop con la receta de `ModernGlassPanel` (C) | Resolución nativa + Skia gaussiano + padding + tinte 40: es la referencia visual que pidió el usuario. |
+| 2026-11-18 | Blur fino (`<=3`) a resolución nativa (C) | El downscale 2x ya suavizaba ~4 px; a `BlurAmount=1` se veía "foto movida". |
+| 2026-11-18 | Manejar `Form.DpiChanged` e invalidar cachés (D) | Borde, overlay y recursos D2D viven en píxeles físicos; sin esto quedaban con la escala vieja. |
+| 2026-11-18 | `BackdropPerformanceMode`: normal = refresco del monitor; rendimiento = cadencia calibrada | El usuario pidió un modo fluido tipo vsync y conservar el económico. |
+| 2026-11-18 | Backdrop sin Skia y con 2 buffers fijos (C) | Skia retenía ~140 MB y `ArrayPool` no reutiliza 2.3 MB: RAM 218 → 88 MB. |
+| 2026-11-18 | No `Invoke` al hilo UI desde el worker (C) | Serializaba el pipeline detrás de cada repintado (~20 ms). |
 
 ---
 

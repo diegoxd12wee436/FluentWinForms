@@ -1,6 +1,5 @@
-﻿#nullable enable
+#nullable enable
 using System;
-using System.Buffers;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Threading;
@@ -66,6 +65,7 @@ namespace FluentWinForms.Core
         private IntPtr _dibBits = IntPtr.Zero;
         private IntPtr _dibDc = IntPtr.Zero;
         private int _dibW, _dibH, _rtW, _rtH;
+        private volatile bool _dpiDirty;
 
         // ================================================================
         // BACKDROP CPU (Bug A)
@@ -79,15 +79,16 @@ namespace FluentWinForms.Core
         private IntPtr _bdBits = IntPtr.Zero;
         private int _bdW, _bdH;
 
-        private IntPtr _bdFullDc = IntPtr.Zero;
-        private IntPtr _bdFullBitmap = IntPtr.Zero;
-        private IntPtr _bdFullBits = IntPtr.Zero;
-        private int _bdFullW, _bdFullH;
-
         private byte[]? _bdWork;
+        private readonly byte[]?[] _bdHandoffs = new byte[]?[2];
+        private readonly bool[] _bdSlotInFlight = new bool[2];
+        private readonly object _slotLock = new();
+
         private long _bdLastTicks;
         private long _bdLastSignature;
+        private long _bdLastCaptureSignature;
         private int _bdInFlight;
+        private long _bdLastEnqueueTicks;
         private static int _dumpDone;
         private int _bdLastRadius;
         private Action<byte[], int, int>? _backdropSink;
@@ -101,6 +102,7 @@ namespace FluentWinForms.Core
         // 🔥 CACHÉ DE DELEGADO Y COORDENADAS (Para no generar basura en el Invoke)
         private int _currentW, _currentH, _currentX, _currentY;
         private readonly Action _updateBoundsAction;
+        private EventHandler? _boundsChangedHandler;
 
         public BlurRenderState CurrentState { get; set; } = BlurRenderState.HighPerformance;
 
@@ -109,12 +111,19 @@ namespace FluentWinForms.Core
             get => _blurAmount;
             set
             {
-                _blurAmount = Math.Max(1f, Math.Min(40f, value));
-                // Cambiar la intensidad debe verse ya: forzamos el próximo frame.
-                Interlocked.Exchange(ref _bdLastTicks, 0);
-                Interlocked.Exchange(ref _bdLastSignature, 0);
                 lock (_renderLock)
+                {
+                    _blurAmount = Math.Max(1f, Math.Min(40f, value));
+                    // Cambiar la intensidad debe verse ya: forzamos el próximo
+                    // frame. También se invalida la firma de la CAPTURA, porque
+                    // con el escritorio quieto el early-return no dejaría
+                    // re-difuminar. Todo bajo el lock para que el hilo de render
+                    // no reescriba las firmas con el frame viejo.
+                    Interlocked.Exchange(ref _bdLastTicks, 0);
+                    Interlocked.Exchange(ref _bdLastSignature, 0);
+                    Interlocked.Exchange(ref _bdLastCaptureSignature, 0);
                     _blurEffect?.SetValue(0, _blurAmount);
+                }
             }
         }
 
@@ -134,6 +143,15 @@ namespace FluentWinForms.Core
                     _currentY = _form.Top;
                 }
             };
+
+            // El worker NO puede hacer `Invoke` al hilo UI en cada iteración:
+            // si la UI está pintando, el render esperaba ~20 ms y el pipeline
+            // quedaba serializado. Los bounds se cachean desde eventos (hilo UI)
+            // y el worker solo lee la instantánea. Se desuscriben en Dispose.
+            _boundsChangedHandler = (s, e) => _updateBoundsAction();
+            _form.LocationChanged += _boundsChangedHandler;
+            _form.SizeChanged += _boundsChangedHandler;
+            _updateBoundsAction();
         }
 
         public void Start()
@@ -161,7 +179,7 @@ namespace FluentWinForms.Core
 
                 int delay = CurrentState switch
                 {
-                    BlurRenderState.HighPerformance => 8,
+                    BlurRenderState.HighPerformance => 4,
                     BlurRenderState.PowerSaving => 33,
                     BlurRenderState.Idle => 1000,
                     _ => 16
@@ -201,19 +219,17 @@ namespace FluentWinForms.Core
             {
                 if (_form.IsDisposed || !_form.IsHandleCreated) return;
 
-                // 🔥 USAMOS EL DELEGADO CACHEADO (0 Bytes de RAM consumidos)
-                if (_form.InvokeRequired)
-                {
-                    _form.Invoke(_updateBoundsAction);
-                }
-                else
-                {
-                    _updateBoundsAction.Invoke();
-                }
+                // Sin `Invoke` al hilo UI: los bounds llegan por eventos
+                // (LocationChanged/SizeChanged) y aquí solo se leen. Se leen con
+                // Volatile porque los escribe el hilo UI.
+                int w = Volatile.Read(ref _currentW);
+                int h = Volatile.Read(ref _currentH);
+                int x = Volatile.Read(ref _currentX);
+                int y = Volatile.Read(ref _currentY);
 
-                if (_currentW > 0 && _currentH > 0 && _form.Visible)
+                if (w > 0 && h > 0 && _form.Visible)
                 {
-                    RenderFrame(_currentW, _currentH, _currentX, _currentY);
+                    RenderFrame(w, h, x, y);
                 }
             }
             catch (ObjectDisposedException) { _running = false; }
@@ -295,11 +311,46 @@ namespace FluentWinForms.Core
             }
         }
 
+        /// <summary>
+        /// Pide un frame al worker sin bloquear al que llama. Es lo que se usa
+        /// desde el hilo UI (resize, DPI): `ForceImmediateRender` ejecuta
+        /// BitBlt + blur bajo el lock y bloquea la UI.
+        /// </summary>
+        public void RequestRender()
+        {
+            Interlocked.Exchange(ref _bdLastTicks, 0);
+            Interlocked.Exchange(ref _bdLastCaptureSignature, 0);
+        }
+
+        /// <summary>
+        /// El DPI de la ventana cambió. Los DIB, el backdrop reducido y los
+        /// recursos Direct2D están atados a píxeles físicos: se liberan en el
+        /// próximo frame y se recrean con el tamaño/DPI nuevos.
+        /// </summary>
+        public void NotifyDpiChanged()
+        {
+            _dpiDirty = true;
+            Interlocked.Exchange(ref _bdLastTicks, 0);
+            Interlocked.Exchange(ref _bdLastSignature, 0);
+            Interlocked.Exchange(ref _bdLastCaptureSignature, 0);
+            // NO se resetea _bdInFlight: los frames ya encolados siguen vivos y
+            // resetearlo permitiría encolar más de 2 sobre los mismos slots.
+            // El watchdog por encolado se encarga de un contador atascado.
+        }
+
         private void RenderFrame(int w, int h, int x, int y)
         {
             lock (_renderLock)
             {
                 if (_factory == null || _disposed) return;
+
+                if (_dpiDirty)
+                {
+                    _dpiDirty = false;
+                    CleanupDIB();
+                    CleanupBackdrop();
+                    ReleaseDeviceResources();
+                }
 
                 // ============================================================
                 // CAMINO ÚNICO (Bug A): cuando el sink de backdrop está activo,
@@ -364,7 +415,8 @@ namespace FluentWinForms.Core
             _backdropSink = sink;
             _backdropEnabled = sink != null;
             _bdLastSignature = 0;
-            if (sink == null) Interlocked.Exchange(ref _bdInFlight, 0);
+            _bdLastCaptureSignature = 0;
+            if (sink == null) ResetBackdropSlots();
         }
 
         /// <summary>
@@ -376,8 +428,60 @@ namespace FluentWinForms.Core
         /// <summary>Devuelve el buffer entregado al sink. El manager DEBE llamarlo.</summary>
         public void ReleaseBackdropBuffer(byte[]? buffer)
         {
-            if (buffer != null) ArrayPool<byte>.Shared.Return(buffer);
-            Interlocked.Exchange(ref _bdInFlight, 0);
+            // Doble buffer: liberar un slot permite al worker preparar el
+            // siguiente frame mientras la UI pinta el actual. El slot se
+            // identifica por referencia; un doble release se ignora.
+            if (buffer == null) return;
+
+            lock (_slotLock)
+            {
+                for (int i = 0; i < _bdHandoffs.Length; i++)
+                {
+                    if (!ReferenceEquals(_bdHandoffs[i], buffer)) continue;
+                    if (!_bdSlotInFlight[i]) return;
+                    _bdSlotInFlight[i] = false;
+                    if (_bdInFlight > 0) _bdInFlight--;
+                    return;
+                }
+            }
+        }
+
+        /// <summary>Reserva un slot libre (0/1). Devuelve -1 si los dos están en vuelo.</summary>
+        private int AcquireSlot()
+        {
+            lock (_slotLock)
+            {
+                for (int i = 0; i < _bdSlotInFlight.Length; i++)
+                {
+                    if (_bdSlotInFlight[i]) continue;
+                    _bdSlotInFlight[i] = true;
+                    _bdInFlight++;
+                    return i;
+                }
+                return -1;
+            }
+        }
+
+        /// <summary>Libera un slot reservado cuyo frame no llegó a entregarse.</summary>
+        private void AbandonSlot(int slot)
+        {
+            lock (_slotLock)
+            {
+                if (slot < 0 || slot >= _bdSlotInFlight.Length) return;
+                if (!_bdSlotInFlight[slot]) return;
+                _bdSlotInFlight[slot] = false;
+                if (_bdInFlight > 0) _bdInFlight--;
+            }
+        }
+
+        /// <summary>Resetea la contabilidad de slots y el contador juntos.</summary>
+        private void ResetBackdropSlots()
+        {
+            lock (_slotLock)
+            {
+                for (int i = 0; i < _bdSlotInFlight.Length; i++) _bdSlotInFlight[i] = false;
+                _bdInFlight = 0;
+            }
         }
 
         /// <summary>
@@ -388,11 +492,30 @@ namespace FluentWinForms.Core
         private bool BackdropDue()
         {
             if (!_backdropEnabled) return false;
-            if (Volatile.Read(ref _bdInFlight) != 0) return false;
+
+            if (Volatile.Read(ref _bdInFlight) >= 2)
+            {
+                // Watchdog: si un frame quedó encolado y su callback nunca se
+                // ejecutó (handle recreado, form cerrado sin disponer), el
+                // contador no debe congelar el blur para siempre. Se mide desde
+                // el ENCOLADO, no desde la última liberación, para cubrir también
+                // el caso de que nunca haya habido una liberación.
+                long enqueued = Interlocked.Read(ref _bdLastEnqueueTicks);
+                long nowTicks = Stopwatch.GetTimestamp();
+                if (enqueued != 0 &&
+                    (nowTicks - enqueued) * 1000L / Stopwatch.Frequency > 1000)
+                {
+                    ResetBackdropSlots();
+                }
+                else
+                {
+                    return false;
+                }
+            }
 
             long now = Stopwatch.GetTimestamp();
             long last = Interlocked.Read(ref _bdLastTicks);
-            int interval = Math.Max(16, BackdropIntervalMs);
+            int interval = Math.Max(1, BackdropIntervalMs);
             if (last != 0 && (now - last) * 1000L / Stopwatch.Frequency < interval) return false;
 
             Interlocked.Exchange(ref _bdLastTicks, now);
@@ -405,106 +528,105 @@ namespace FluentWinForms.Core
             Action<byte[], int, int>? sink = _backdropSink;
             if (sink == null || _dibDc == IntPtr.Zero) return;
 
-            // Resolución adaptativa: apuntamos a ~640 px de ancho. Un blur es
-            // invariante al detalle, así que bajar resolución no se nota y el
-            // coste de CPU queda acotado en pantallas grandes.
-            int d = Math.Max(2, (int)Math.Ceiling(w / 640.0));
+            // Si la captura no cambió, no hay nada que hacer: ni blur ni
+            // emisión. Es lo que evita martillar la CPU con el escritorio
+            // quieto en el modo normal (antes la firma se calculaba después
+            // de difuminar).
+            int captureBytes = w * h * 4;
+            long captureSignature = ComputeSignaturePtr(_dibBits, captureBytes);
+            if (captureSignature == _bdLastCaptureSignature) return;
+
+            // Intensidad en píxeles físicos. Con sigma < 1 px no se difumina
+            // (sería invisible); a partir de ahí, siempre.
+            float dpiScale = _form.DeviceDpi / 96f;
+            float sigma = _blurAmount * dpiScale;
+            bool blur = sigma >= 1f;
+
+            // Escala de trabajo según la intensidad: a más blur, menos detalle
+            // hace falta y el coste cae (O(1) por píxel, pero menos píxeles).
+            int d = !blur ? 1 : (int)Math.Min(4, Math.Max(2, Math.Round(sigma / 4.0)));
             int sw = Math.Max(1, w / d);
             int sh = Math.Max(1, h / d);
-            EnsureBackdropResources(sw, sh);
-            if (_bdBits == IntPtr.Zero || _bdWork == null) return;
 
-            // Downscale con GDI: HALFTONE promedia el bloque, ideal para un blur.
+            EnsureBackdropResources(sw, sh, w, h);
+            if (_bdBits == IntPtr.Zero || _bdWork == null || _dibBits == IntPtr.Zero) return;
+
+            // Downscale (o copia 1:1) con GDI: HALFTONE promedia el bloque.
             SetStretchBltMode(_bdDc, HALFTONE);
             if (!StretchBlt(_bdDc, 0, 0, sw, sh, _dibDc, 0, 0, w, h, SRCCOPY)) return;
 
-            int bytes = sw * sh * 4;
-            Marshal.Copy(_bdBits, _bdWork, 0, bytes);
+            int smallBytes = sw * sh * 4;
+            Marshal.Copy(_bdBits, _bdWork, 0, smallBytes);
 
-            // El motor D2D usa desviación estándar (sigma) en DIPs. StackBlur usa
-            // radio de caja en píxeles físicos: r ≈ sigma·√3·(dpi/96).
-            // Ambas superficies deben partir del MISMO BlurAmount o la ventana y
-            // los halos vuelven a diferir.
-            double dpiScale = _form.DeviceDpi / 96.0;
-            int radius = (int)Math.Round(_blurAmount * dpiScale * 1.7320508 / d);
-            radius = Math.Max(1, Math.Min(128, radius));
-            _bdLastRadius = radius;
-            StackBlurUltra.BlurInPlace(_bdWork, sw, sh, radius);
-            ApplyBackdropTint(_bdWork, sw * sh);
+            if (blur)
+            {
+                // Dos pasadas de caja ≈ gaussiana (la segunda suaviza las
+                // esquinas del kernel). El radio es O(1) por píxel, así que
+                // subir BlurAmount no encarece el frame.
+                int r = Math.Max(1, (int)Math.Round(sigma / d));
+                StackBlurUltra.BlurInPlace(_bdWork!, sw, sh, r);
+                StackBlurUltra.BlurInPlace(_bdWork!, sw, sh, r);
+                _bdLastRadius = r;
+            }
+
+            int bytes = w * h * 4;
+            if (blur)
+            {
+                // Volver al tamaño real: con blur ancho el remuestreo no se nota.
+                Marshal.Copy(_bdWork, 0, _bdBits, smallBytes);
+                SetStretchBltMode(_dibDc, HALFTONE);
+                if (!StretchBlt(_dibDc, 0, 0, w, h, _bdDc, 0, 0, sw, sh, SRCCOPY)) return;
+                Marshal.Copy(_dibBits, _bdWork, 0, bytes);
+            }
+            else
+            {
+                bytes = smallBytes;
+            }
+
+            // Tinte de vidrio (blanco 40), igual que el ModernGlassPanel.
+            ApplyGlassTint(_bdWork, w * h);
 
             // Si el backdrop no cambió (ventana quieta, escritorio quieto) no hay
-            // nada que repintar: entregar un frame idéntico solo cuesta CPU.
+            // nada que repintar; pero la captura SÍ se procesó, así que se
+            // compromete también aquí (si no, el próximo frame repetiría el
+            // blur completo sin emitir, en bucle).
             long signature = ComputeSignature(_bdWork, bytes);
-            if (signature == _bdLastSignature) return;
+            if (signature == _bdLastSignature)
+            {
+                _bdLastCaptureSignature = captureSignature;
+                return;
+            }
+
+            // Reservar el slot ANTES de comprometer la firma: si no hay slot,
+            // el frame se reintenta en el próximo tick sin perder la señal.
+            int slot = AcquireSlot();
+            if (slot < 0) return;
+
             _bdLastSignature = signature;
 
             // Diagnóstico (solo con FWF_DUMP_BACKDROP=1): volcar el primer backdrop a PNG.
             if (Environment.GetEnvironmentVariable("FWF_DUMP_BACKDROP") == "1")
-                DumpBackdropOnce(sw, sh, bytes);
+                DumpBackdropOnce(w, h, bytes);
 
-            EmitFullSizeBackdrop(_bdWork, sw, sh, w, h, bytes);
-        }
+            try
+            {
+                byte[]? handoff = _bdHandoffs[slot];
+                if (handoff == null || handoff.Length < bytes || handoff.Length > (long)bytes * 4)
+                {
+                    handoff = new byte[bytes];
+                    _bdHandoffs[slot] = handoff;
+                }
+                Buffer.BlockCopy(_bdWork, 0, handoff, 0, bytes);
 
-        /// <summary>
-        /// Sube el blur de baja resolución al tamaño real de la ventana. El
-        /// BackgroundImage a tamaño real se pinta con un blit 1:1 (~2 ms) en
-        /// lugar del reescalado HQ bicúbico de WinForms (~7 ms por repintado).
-        /// </summary>
-        private void EmitFullSizeBackdrop(byte[] small, int sw, int sh, int w, int h, int smallBytes)
-        {
-            Action<byte[], int, int>? sink = _backdropSink;
-            if (sink == null) return;
-
-            EnsureFullBackdrop(w, h);
-            if (_bdFullDc == IntPtr.Zero || _bdFullBits == IntPtr.Zero) return;
-
-            Marshal.Copy(small, 0, _bdBits, smallBytes);
-
-            SetStretchBltMode(_bdFullDc, HALFTONE);
-            if (!StretchBlt(_bdFullDc, 0, 0, w, h, _bdDc, 0, 0, sw, sh, SRCCOPY)) return;
-
-            int fullBytes = w * h * 4;
-            byte[] handoff = ArrayPool<byte>.Shared.Rent(fullBytes);
-            Marshal.Copy(_bdFullBits, handoff, 0, fullBytes);
-
-            Interlocked.Exchange(ref _bdInFlight, 1);
-            try { sink(handoff, w, h); }
+                Interlocked.Exchange(ref _bdLastEnqueueTicks, Stopwatch.GetTimestamp());
+                sink(handoff, w, h);
+                // Solo se "compromete" la captura cuando el frame se entregó.
+                _bdLastCaptureSignature = captureSignature;
+            }
             catch
             {
-                ArrayPool<byte>.Shared.Return(handoff);
-                Interlocked.Exchange(ref _bdInFlight, 0);
+                AbandonSlot(slot);
             }
-        }
-
-        private void EnsureFullBackdrop(int w, int h)
-        {
-            if (_bdFullW == w && _bdFullH == h && _bdFullBits != IntPtr.Zero) return;
-
-            CleanupFullBackdrop();
-            _bdFullW = w; _bdFullH = h;
-
-            IntPtr screenDc = GetDC(IntPtr.Zero);
-            _bdFullDc = CreateCompatibleDC(screenDc);
-
-            BITMAPINFO bmi = default;
-            bmi.bmiHeader.biSize = (uint)Marshal.SizeOf(typeof(BITMAPINFOHEADER));
-            bmi.bmiHeader.biWidth = w;
-            bmi.bmiHeader.biHeight = -h;
-            bmi.bmiHeader.biPlanes = 1;
-            bmi.bmiHeader.biBitCount = 32;
-            bmi.bmiHeader.biCompression = 0;
-
-            _bdFullBitmap = CreateDIBSection(screenDc, ref bmi, 0u, out _bdFullBits, IntPtr.Zero, 0u);
-            if (_bdFullBitmap != IntPtr.Zero) SelectObject(_bdFullDc, _bdFullBitmap);
-            ReleaseDC(IntPtr.Zero, screenDc);
-        }
-
-        private void CleanupFullBackdrop()
-        {
-            if (_bdFullDc != IntPtr.Zero) { DeleteDC(_bdFullDc); _bdFullDc = IntPtr.Zero; }
-            if (_bdFullBitmap != IntPtr.Zero) { DeleteObject(_bdFullBitmap); _bdFullBitmap = IntPtr.Zero; }
-            _bdFullBits = IntPtr.Zero;
-            _bdFullW = _bdFullH = 0;
         }
 
         /// <summary>
@@ -523,41 +645,60 @@ namespace FluentWinForms.Core
             }
         }
 
-        private void EnsureBackdropResources(int sw, int sh)
+        /// <summary>Firma barata sobre memoria nativa (captura de pantalla).</summary>
+        private static long ComputeSignaturePtr(IntPtr ptr, int bytes)
         {
-            if (_bdW == sw && _bdH == sh && _bdBits != IntPtr.Zero) return;
-            CleanupBackdrop();
-            _bdW = sw; _bdH = sh;
-
-            IntPtr screenDc = GetDC(IntPtr.Zero);
-            _bdDc = CreateCompatibleDC(screenDc);
-
-            BITMAPINFO bmi = default;
-            bmi.bmiHeader.biSize = (uint)Marshal.SizeOf(typeof(BITMAPINFOHEADER));
-            bmi.bmiHeader.biWidth = sw;
-            bmi.bmiHeader.biHeight = -sh;
-            bmi.bmiHeader.biPlanes = 1;
-            bmi.bmiHeader.biBitCount = 32;
-            bmi.bmiHeader.biCompression = 0;
-
-            _bdBitmap = CreateDIBSection(screenDc, ref bmi, 0u, out _bdBits, IntPtr.Zero, 0u);
-            if (_bdBitmap != IntPtr.Zero) SelectObject(_bdDc, _bdBitmap);
-            ReleaseDC(IntPtr.Zero, screenDc);
-
-            _bdWork = new byte[sw * sh * 4];
+            unchecked
+            {
+                long hash = bytes;
+                int step = Math.Max(4, bytes / 512) & ~3;
+                for (int i = 0; i < bytes; i += step)
+                    hash = hash * 31 + Marshal.ReadByte(ptr, i);
+                return hash;
+            }
         }
 
-        private static void ApplyBackdropTint(byte[] bgra, int pixels)
+        private void EnsureBackdropResources(int sw, int sh, int fullW, int fullH)
         {
-            const int boost = 13; // ~5% de blanco, igual que el tinte del motor D2D
+            if (_bdW != sw || _bdH != sh || _bdBits == IntPtr.Zero)
+            {
+                CleanupBackdrop();
+                _bdW = sw; _bdH = sh;
+
+                IntPtr screenDc = GetDC(IntPtr.Zero);
+                _bdDc = CreateCompatibleDC(screenDc);
+
+                BITMAPINFO bmi = default;
+                bmi.bmiHeader.biSize = (uint)Marshal.SizeOf(typeof(BITMAPINFOHEADER));
+                bmi.bmiHeader.biWidth = sw;
+                bmi.bmiHeader.biHeight = -sh;
+                bmi.bmiHeader.biPlanes = 1;
+                bmi.bmiHeader.biBitCount = 32;
+                bmi.bmiHeader.biCompression = 0;
+
+                _bdBitmap = CreateDIBSection(screenDc, ref bmi, 0u, out _bdBits, IntPtr.Zero, 0u);
+                if (_bdBitmap != IntPtr.Zero) SelectObject(_bdDc, _bdBitmap);
+                ReleaseDC(IntPtr.Zero, screenDc);
+            }
+
+            // El buffer debe caber también el frame final a tamaño real (el
+            // camino de blur fuerte trabaja a 1/2 y luego sube).
+            int need = Math.Max(sw * sh, fullW * fullH) * 4;
+            if (_bdWork == null || _bdWork.Length < need)
+                _bdWork = new byte[need];
+            else if (_bdWork.Length > (long)need * 4)
+                _bdWork = new byte[need]; // encoger: no retener buffers de un resize 4K
+        }
+
+        /// <summary>Tinte de vidrio: blanco con alpha 40 (GlassTint del panel).</summary>
+        private static void ApplyGlassTint(byte[] bgra, int pixels)
+        {
+            const int alpha = 40;
             for (int i = 0, o = 0; i < pixels; i++, o += 4)
             {
-                int b = bgra[o] + boost;
-                int g = bgra[o + 1] + boost;
-                int r = bgra[o + 2] + boost;
-                bgra[o] = (byte)(b > 255 ? 255 : b);
-                bgra[o + 1] = (byte)(g > 255 ? 255 : g);
-                bgra[o + 2] = (byte)(r > 255 ? 255 : r);
+                bgra[o] = (byte)(bgra[o] + ((255 - bgra[o]) * alpha) / 255);
+                bgra[o + 1] = (byte)(bgra[o + 1] + ((255 - bgra[o + 1]) * alpha) / 255);
+                bgra[o + 2] = (byte)(bgra[o + 2] + ((255 - bgra[o + 2]) * alpha) / 255);
                 bgra[o + 3] = 255;
             }
         }
@@ -578,7 +719,7 @@ namespace FluentWinForms.Core
 
                 System.IO.File.AppendAllText(
                     System.IO.Path.Combine(System.IO.Path.GetTempPath(), "fwf-backdrop-log.txt"),
-                    $"{DateTime.Now:HH:mm:ss.fff} dump {w}x{h} sigma={_blurAmount:0.##} boxRadius={_bdLastRadius}{Environment.NewLine}");
+                    $"{DateTime.Now:HH:mm:ss.fff} dump {w}x{h} sigma={_blurAmount:0.##} rPx={_bdLastRadius}{Environment.NewLine}");
             }
             catch (Exception ex)
             {
@@ -589,11 +730,15 @@ namespace FluentWinForms.Core
         private void CleanupBackdrop()
         {
             _bdLastSignature = 0;
+            _bdLastCaptureSignature = 0;
             if (_bdDc != IntPtr.Zero) { DeleteDC(_bdDc); _bdDc = IntPtr.Zero; }
             if (_bdBitmap != IntPtr.Zero) { DeleteObject(_bdBitmap); _bdBitmap = IntPtr.Zero; }
             _bdBits = IntPtr.Zero;
             _bdW = _bdH = 0;
-            _bdWork = null;
+            // Los buffers de trabajo y los handoffs se conservan para reusarlos:
+            // reasignarlos en cada cambio de tamaño generaba picos de 45 MB
+            // por frame durante un resize grande. Se liberan en Dispose.
+
         }
 
         private void ReleaseDeviceResources()
@@ -619,14 +764,30 @@ namespace FluentWinForms.Core
             if (_disposed) return;
             _disposed = true;
             Stop();
+
+            if (_boundsChangedHandler != null)
+            {
+                try
+                {
+                    _form.LocationChanged -= _boundsChangedHandler;
+                    _form.SizeChanged -= _boundsChangedHandler;
+                }
+                catch { }
+                _boundsChangedHandler = null;
+            }
+
             lock (_renderLock)
             {
                 CleanupDIB();
                 CleanupBackdrop();
-                CleanupFullBackdrop();
                 ReleaseDeviceResources();
                 _factory?.Dispose();
                 _factory = null;
+
+                // Liberar también los buffers que CleanupBackdrop conserva.
+                _bdWork = null;
+                _bdHandoffs[0] = null;
+                _bdHandoffs[1] = null;
             }
         }
     }

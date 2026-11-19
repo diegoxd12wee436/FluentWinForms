@@ -1,4 +1,4 @@
-﻿#nullable enable
+#nullable enable
 #pragma warning disable CA1416
 #pragma warning disable IDE0090
 #pragma warning disable IDE0028
@@ -67,7 +67,34 @@ namespace FluentWinForms.Core
         private double _originalOpacity = 1.0;
 
         private Bitmap? _desktopAcrylicCache;
-        private bool _isResizing = false;
+        private bool _disposed;
+        private bool _fakeDpiScheduled;
+
+        [DllImport("user32.dll")] private static extern IntPtr GetDC(IntPtr hWnd);
+        [DllImport("user32.dll")] private static extern int ReleaseDC(IntPtr hWnd, IntPtr hDC);
+        [DllImport("gdi32.dll")] private static extern int GetDeviceCaps(IntPtr hdc, int index);
+
+        /// <summary>
+        /// Refresco real del monitor principal en Hz (60, 120, 144...). Se usa
+        /// para que el modo normal actualice el backdrop al ritmo de la pantalla
+        /// en vez de a una cadencia fija.
+        /// </summary>
+        private static int GetDisplayRefreshRate()
+        {
+            try
+            {
+                const int VREFRESH = 116;
+                IntPtr dc = GetDC(IntPtr.Zero);
+                if (dc != IntPtr.Zero)
+                {
+                    int hz = GetDeviceCaps(dc, VREFRESH);
+                    ReleaseDC(IntPtr.Zero, dc);
+                    if (hz > 1) return hz;
+                }
+            }
+            catch { }
+            return 60;
+        }
         private readonly object _backdropLock = new object();
         private ModernFormOverlay? _overlayWindow;
 
@@ -105,6 +132,7 @@ namespace FluentWinForms.Core
                 _targetForm.Resize -= TargetForm_Resize;
                 _targetForm.Paint -= TargetForm_Paint_Hybrid;
                 _targetForm.Paint -= TargetForm_PaintDesktopAcrylic;
+                _targetForm.DpiChanged -= TargetForm_DpiChanged;
 
                 // 🔥 INYECCIÓN: Limpieza de motor Blur
                 _targetForm.Activated -= TargetForm_Activated;
@@ -132,6 +160,7 @@ namespace FluentWinForms.Core
                     _targetForm.MouseDown += AutoDrag_MouseDown;
                     _targetForm.Resize += TargetForm_Resize;
                     _targetForm.Paint += TargetForm_Paint_Hybrid;
+                    _targetForm.DpiChanged += TargetForm_DpiChanged;
 
                     // 🔥 INYECCIÓN: Conexión inteligente del motor Blur
                     _targetForm.Activated += TargetForm_Activated;
@@ -318,6 +347,54 @@ namespace FluentWinForms.Core
         [Category("Modern Form - Visuals")]
         public bool UseModernRoundedCorners { get; set; } = true;
 
+        private bool _backdropPerformanceMode;
+        [Category("Modern Form - Blur")]
+        [DefaultValue(false)]
+        [Description("Modo rendimiento: limita el backdrop a la cadencia calibrada (menos CPU, ~15-20 fps). " +
+                     "Desactivado (normal): sigue el refresco del monitor para que el movimiento se vea fluido.")]
+        public bool BackdropPerformanceMode
+        {
+            get => _backdropPerformanceMode;
+            set
+            {
+                if (_backdropPerformanceMode == value) return;
+                _backdropPerformanceMode = value;
+                _backdropCalibrated = false;
+                ApplyBackdropRefreshMode();
+            }
+        }
+
+        /// <summary>
+        /// Aplica la cadencia del backdrop según el modo:
+        /// normal = refresco del monitor (vsync), rendimiento = cadencia medida.
+        /// </summary>
+        private void ApplyBackdropRefreshMode()
+        {
+            if (_d2dBlurHelper == null) return;
+
+            if (_backdropPerformanceMode)
+            {
+                // Se recalcula en el próximo frame con el coste real medido.
+                _backdropCalibrated = false;
+                return;
+            }
+
+            int hz = GetDisplayRefreshRate();
+            int interval = Math.Max(1, (int)Math.Round(1000.0 / hz));
+            _d2dBlurHelper.BackdropIntervalMs = interval;
+
+            if (Environment.GetEnvironmentVariable("FWF_DUMP_BACKDROP") == "1")
+            {
+                try
+                {
+                    System.IO.File.AppendAllText(
+                        System.IO.Path.Combine(System.IO.Path.GetTempPath(), "fwf-backdrop-log.txt"),
+                        $"  modo normal: {hz} Hz -> intervalo backdrop={interval}ms{Environment.NewLine}");
+                }
+                catch { }
+            }
+        }
+
         [Category("Modern Form - Visuals")]
         public bool ForceDarkModeTitleBar { get; set; } = false;
 
@@ -382,6 +459,7 @@ namespace FluentWinForms.Core
         private int _lastWidth, _lastHeight, _lastRadius;
         private Color _lastColor;
         private float _lastThickness;
+        private float _lastScale;
         private bool _overlayBitmapPushed;
 
         private float GetScaleFactor()
@@ -406,7 +484,8 @@ namespace FluentWinForms.Core
             int scaledRadius = (int)Math.Round((double)(_borderRadius * scale));
             bool rebuilt = false;
             if (_skBorderBitmap == null || _gdiBorderBitmap == null || _lastWidth != w || _lastHeight != h ||
-                _lastRadius != _borderRadius || _lastColor != actualColor || Math.Abs(_lastThickness - actualThickness) > 0.01f)
+                _lastRadius != _borderRadius || _lastColor != actualColor || Math.Abs(_lastThickness - actualThickness) > 0.01f ||
+                Math.Abs(_lastScale - scale) > 0.001f)
             {
                 rebuilt = true;
                 SafeDispose(ref _gdiBorderBitmap);
@@ -480,6 +559,7 @@ namespace FluentWinForms.Core
                 _lastWidth = w;
                 _lastHeight = h; _lastRadius = _borderRadius;
                 _lastColor = actualColor; _lastThickness = actualThickness;
+                _lastScale = scale;
             }
 
             if (!DesignMode && _overlayWindow != null && !_overlayWindow.IsDisposed)
@@ -570,7 +650,6 @@ namespace FluentWinForms.Core
 
         private void TargetForm_ResizeBegin(object? sender, EventArgs e)
         {
-            _isResizing = true;
             if (_targetForm != null && EnableDrag && DragOpacity < 1.0)
             {
                 _originalOpacity = _targetForm.Opacity;
@@ -599,7 +678,7 @@ namespace FluentWinForms.Core
                     else
                         _d2dBlurHelper.CurrentState = _targetForm.Focused ? BlurRenderState.HighPerformance : BlurRenderState.PowerSaving;
 
-                    _d2dBlurHelper.ForceImmediateRender();
+                    _d2dBlurHelper.RequestRender();
                 }
             }
             ApplyCustomRegion();
@@ -673,9 +752,60 @@ namespace FluentWinForms.Core
             finally { Marshal.FreeHGlobal(accentPtr); }
         }
 
+        /// <summary>
+        /// Permite probar Blur/Acrylic y el overlay sin editar el diseñador:
+        ///   FWF_BACKDROP=Blur|Acrylic|None
+        ///   FWF_BORDER_THICKNESS=2
+        ///   FWF_USE_SKIA=1|0
+        /// Solo diagnóstico: sin variables activas no cambia nada.
+        /// </summary>
+        private void ApplyDiagnosticOverrides()
+        {
+            try
+            {
+                string? backdrop = Environment.GetEnvironmentVariable("FWF_BACKDROP");
+                if (!string.IsNullOrWhiteSpace(backdrop) &&
+                    Enum.TryParse(backdrop, true, out FormBackdropType parsedBackdrop))
+                {
+                    _backdropType = parsedBackdrop;
+                }
+
+                string? thickness = Environment.GetEnvironmentVariable("FWF_BORDER_THICKNESS");
+                if (!string.IsNullOrWhiteSpace(thickness) &&
+                    float.TryParse(thickness, System.Globalization.NumberStyles.Float,
+                                   System.Globalization.CultureInfo.InvariantCulture, out float parsedThickness))
+                {
+                    _borderThickness = parsedThickness;
+                }
+
+                string? useSkia = Environment.GetEnvironmentVariable("FWF_USE_SKIA");
+                if (useSkia == "1") _useSkia = true;
+                else if (useSkia == "0") _useSkia = false;
+
+                // Simula un cambio de DPI a los 2.5 s para poder verificar la
+                // invalidación de cachés sin cambiar la escala de Windows.
+                if (!_fakeDpiScheduled &&
+                    int.TryParse(Environment.GetEnvironmentVariable("FWF_FAKE_DPI"), out int fakeDpi) &&
+                    fakeDpi >= 96)
+                {
+                    _fakeDpiScheduled = true;
+                    var timer = new System.Windows.Forms.Timer { Interval = 2500 };
+                    timer.Tick += (s, e) =>
+                    {
+                        timer.Stop();
+                        timer.Dispose();
+                        HandleDpiChange(_targetForm?.DeviceDpi ?? 96, fakeDpi);
+                    };
+                    timer.Start();
+                }
+            }
+            catch { }
+        }
+
         public void ApplyModernEffects()
         {
             if (_targetForm == null || !_targetForm.IsHandleCreated || DesignMode) return;
+            ApplyDiagnosticOverrides();
             bool isWin11 = WindowsVersionHelper.IsWindows11OrGreater();
             bool isWin10 = WindowsVersionHelper.IsWindows10OrGreater();
 
@@ -755,8 +885,10 @@ namespace FluentWinForms.Core
                 }
                 EnableDoubleBuffering(_targetForm);
                 AdaptNativeControlsToBackdrop(_targetForm, _targetForm.BackColor);
+
                 _d2dBlurHelper.SetBackdropSink(OnBlurBackdrop);
                 _d2dBlurHelper.BlurAmount = _blurAmount;
+                ApplyBackdropRefreshMode();
 
                 // Diagnóstico: permite probar intensidades sin editar el diseñador.
                 if (int.TryParse(Environment.GetEnvironmentVariable("FWF_BLUR_AMOUNT"), out int dbgAmount) && dbgAmount > 0)
@@ -769,21 +901,74 @@ namespace FluentWinForms.Core
             }
 
             UpdateFormBackground();
+
+            // Debe ir DESPUÉS de UpdateFormBackground: es quien fija el
+            // BackColor negro del modo Blur. Si se hace antes, los FluentElement
+            // se quedan con el color del diseñador (p. ej. Teal).
+            // Los FluentElement tienen BackColor=Transparent, lo que hace que
+            // WinForms repinte el form entero una vez por hijo. Como OnPaint ya
+            // compone el fondo del padre en el buffer del hijo, ese repintado
+            // era trabajo duplicado: 8 paints del form por frame.
+            if (_backdropType == FormBackdropType.Blur)
+                MakeControlsOpaque(_targetForm, _targetForm.BackColor);
         }
 
         private void TargetForm_ResizeEnd(object? sender, EventArgs e)
         {
-            _isResizing = false;
             if (_targetForm != null && EnableDrag && DragOpacity < 1.0)
                 _targetForm.Opacity = _originalOpacity;
             if (_backdropType == FormBackdropType.Blur)
             {
                 ApplyCustomRegion();
+
+                // Refresco al soltar. RequestRender no bloquea el hilo UI
+                // (ForceImmediateRender hacía BitBlt + blur bajo el lock).
+                _d2dBlurHelper?.RequestRender();
+                _targetForm?.Invalidate(true);
             }
             else if (_backdropType == FormBackdropType.Acrylic && !WindowsVersionHelper.IsWindows10OrGreater())
             {
                 _ = CaptureDesktopBackgroundAsync();
             }
+        }
+
+        /// <summary>
+        /// Cambio de DPI en caliente (WM_DPICHANGED). El borde, el overlay y el
+        /// backdrop viven en píxeles físicos: se invalidan sus cachés y se
+        /// re-aplican los efectos. La calibración de cadencia también se rehace
+        /// porque el coste de repintado depende de la escala.
+        /// </summary>
+        private void TargetForm_DpiChanged(object? sender, DpiChangedEventArgs e)
+            => HandleDpiChange(e.DeviceDpiOld, e.DeviceDpiNew);
+
+        /// <summary>
+        /// Lógica común de cambio de DPI (real o simulado por diagnóstico).
+        /// </summary>
+        internal void HandleDpiChange(int oldDpi, int newDpi)
+        {
+            try
+            {
+                _lastWidth = 0;
+                _lastHeight = 0;
+                _lastRadius = -1;
+                _lastScale = 0f;
+                _overlayBitmapPushed = false;
+                _backdropCalibrated = false;
+
+                _d2dBlurHelper?.NotifyDpiChanged();
+                ApplyModernEffects();
+                _targetForm?.Invalidate(true);
+                _d2dBlurHelper?.RequestRender();
+
+                if (Environment.GetEnvironmentVariable("FWF_DUMP_BACKDROP") == "1")
+                {
+                    System.IO.File.AppendAllText(
+                        System.IO.Path.Combine(System.IO.Path.GetTempPath(), "fwf-backdrop-log.txt"),
+                        $"  dpi: {oldDpi} -> {newDpi} " +
+                        $"form={_targetForm?.Width}x{_targetForm?.Height}{Environment.NewLine}");
+                }
+            }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"HandleDpiChange: {ex.Message}"); }
         }
 
         // ====================================================================
@@ -891,15 +1076,20 @@ namespace FluentWinForms.Core
 
         private void ApplyBlurBackdrop(byte[] pixels, int w, int h)
         {
+            bool released = false;
             try
             {
                 Form? form = _targetForm;
-                if (form == null || form.IsDisposed || _backdropType != FormBackdropType.Blur) return;
+                if (form == null || form.IsDisposed || _backdropType != FormBackdropType.Blur || _disposed) return;
 
                 if (_blurBackdropBitmap == null || _blurBackdropBitmap.Width != w || _blurBackdropBitmap.Height != h)
                 {
+                    // Crear el nuevo ANTES de liberar el viejo: si la reserva
+                    // falla, el BackgroundImage no queda apuntando a un bitmap
+                    // ya dispuesto.
+                    var replacement = new Bitmap(w, h, PixelFormat.Format32bppRgb);
                     SafeDispose(ref _blurBackdropBitmap);
-                    _blurBackdropBitmap = new Bitmap(w, h, PixelFormat.Format32bppRgb);
+                    _blurBackdropBitmap = replacement;
                 }
 
                 BitmapData data = _blurBackdropBitmap.LockBits(
@@ -919,8 +1109,15 @@ namespace FluentWinForms.Core
                 }
                 finally { _blurBackdropBitmap.UnlockBits(data); }
 
+                // El frame ya está copiado al Bitmap: liberamos el slot antes de
+                // pintar para que el worker prepare el siguiente en paralelo.
+                _d2dBlurHelper?.ReleaseBackdropBuffer(pixels);
+                released = true;
+
                 if (!ReferenceEquals(form.BackgroundImage, _blurBackdropBitmap))
                 {
+                    // Stretch es seguro también en forms con borde: la imagen
+                    // mide el rect de ventana, no el área cliente.
                     form.BackgroundImageLayout = ImageLayout.Stretch;
                     form.BackgroundImage = _blurBackdropBitmap;
 
@@ -942,7 +1139,16 @@ namespace FluentWinForms.Core
                 // bitmap. `Invalidate(true)` propaga a los hijos: su
                 // InvokePaintBackground(Parent) vuelve a leer el
                 // BackgroundImage y el halo queda idéntico al resto del fondo.
+                // El backdrop es ahora la ÚNICA superficie de vidrio de la
+                // ventana, así que form y hijos deben repintar con el mismo
+                // bitmap. `Invalidate(true)` propaga a TODOS los hijos (incluidos
+                // los nativos transparentes y los ModernControlBase que no son
+                // FluentElement): su InvokePaintBackground(Parent) vuelve a leer
+                // el BackgroundImage y el halo queda idéntico al resto del fondo.
+                // `Update()` pinta el HWND del form de forma síncrona; el límite
+                // real de frames en vuelo lo pone el doble buffer (_bdInFlight).
                 form.Invalidate(true);
+                form.Update();
 
                 // Primera vez: ajustar la cadencia de producción al coste real
                 // de repintado de esta máquina (evita saturar el hilo UI).
@@ -970,14 +1176,15 @@ namespace FluentWinForms.Core
                 {
                     _compositionDumped = true;
                     try { form.BeginInvoke(new Action(() => DumpComposition(form))); } catch { }
-                }            }
+                }
+            }
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"ApplyBlurBackdrop: {ex.Message}");
             }
             finally
             {
-                _d2dBlurHelper?.ReleaseBackdropBuffer(pixels);
+                if (!released) _d2dBlurHelper?.ReleaseBackdropBuffer(pixels);
             }
         }
 
@@ -988,6 +1195,11 @@ namespace FluentWinForms.Core
             {
                 if (form != null && !form.IsDisposed && ReferenceEquals(form.BackgroundImage, _blurBackdropBitmap))
                     form.BackgroundImage = null;
+
+                // Al salir de Blur, los FluentElement recuperan su color original.
+                // Se hace aunque el form ya esté dispuesto: RestoreControlsTransparency
+                // ignora los controles desechados y limpia la lista.
+                RestoreControlsTransparency();
             }
             catch { }
 
@@ -1056,6 +1268,50 @@ namespace FluentWinForms.Core
             }
         }
 
+        /// <summary>Controles a los que se cambió el `BackColor` y su color original.</summary>
+        private readonly List<(Control Control, Color Original)> _opaqueControls = new();
+
+        /// <summary>
+        /// Pone `BackColor` opaco a los `FluentElement` para que WinForms no
+        /// repinte el form entero debajo de cada hijo "transparente". El control
+        /// ya compone el fondo del padre en su propio buffer (`OnPaint` →
+        /// `InvokePaintBackground`), así que ese repintado del padre era
+        /// trabajo duplicado: 8 paints del form por frame → 2 (medido).
+        /// Se excluyen `ModernGlassPanel` y `ModernThemeToggle`, que sí
+        /// dependen de `BackColor.Transparent` para su propia composición.
+        /// </summary>
+        private void MakeControlsOpaque(Control parent, Color color)
+        {
+            foreach (Control child in parent.Controls)
+            {
+                try
+                {
+                    if (child is Custom_Controls.FluentElement)
+                    {
+                        if (!_opaqueControls.Any(x => ReferenceEquals(x.Control, child)))
+                            _opaqueControls.Add((child, child.BackColor));
+                        child.BackColor = color;
+                    }
+                }
+                catch { }
+                if (child.Controls.Count > 0) MakeControlsOpaque(child, color);
+            }
+        }
+
+        /// <summary>Restaura el `BackColor` original de los controles que se hicieron opacos.</summary>
+        private void RestoreControlsTransparency()
+        {
+            foreach (var (control, original) in _opaqueControls)
+            {
+                try
+                {
+                    if (!control.IsDisposed) control.BackColor = original;
+                }
+                catch { }
+            }
+            _opaqueControls.Clear();
+        }
+
         /// <summary>
         /// Diagnóstico: lista los controles hijos con bounds y color de fondo,
         /// para identificar quién no está tomando el backdrop (controles nativos).
@@ -1079,8 +1335,8 @@ namespace FluentWinForms.Core
         /// <summary>
         /// Calibra la cadencia del backdrop con el coste REAL de repintar la
         /// ventana en esta máquina. Repintar más rápido de lo que da el hilo UI
-        /// solo produce lag: el intervalo se fija en ~3x el coste medido, con
-        /// suelo de 60 ms y techo de 400 ms.
+        /// solo produce lag: el intervalo se fija en ~2x el coste medido, con
+        /// suelo de 50 ms y techo de 250 ms.
         /// </summary>
         private void CalibrateBackdropInterval(Form form)
         {
@@ -1089,6 +1345,14 @@ namespace FluentWinForms.Core
 
             try
             {
+                // Modo normal (por defecto): el backdrop sigue el refresco del
+                // monitor, así el movimiento se ve continuo y no como capturas.
+                if (!_backdropPerformanceMode)
+                {
+                    ApplyBackdropRefreshMode();
+                    return;
+                }
+
                 int best = int.MaxValue;
                 for (int i = 0; i < 4; i++)
                 {
@@ -1135,6 +1399,7 @@ namespace FluentWinForms.Core
 
         protected override void Dispose(bool disposing)
         {
+            _disposed = true;
             if (disposing)
             {
                 UnsubscribeTargetForm();
@@ -1184,10 +1449,10 @@ namespace FluentWinForms.Core
 
             protected override void WndProc(ref Message m)
             {
-                if (m.Msg == WM_WINDOWPOSCHANGED || m.Msg == WM_SIZING)
-                {
-                    _manager._d2dBlurHelper?.ForceImmediateRender();
-                }
+                // No forzamos un render sincrónico aquí: ExecuteRender toma el
+                // lock del motor y bloqueaba el hilo UI detrás del blur en cada
+                // mensaje de movimiento. El hilo de render ya corre a 8 ms y su
+                // cadencia la marca `BackdropIntervalMs` + el backpressure real.
                 base.WndProc(ref m);
             }
         }
@@ -1276,6 +1541,10 @@ namespace FluentWinForms.Core
             this.AutoScaleMode = AutoScaleMode.None;
             _owner.LocationChanged += (s, e) => UpdateLocation();
             _owner.SizeChanged += (s, e) => UpdateSize();
+            // Cambio de DPI: el overlay no se autoescala (AutoScaleMode.None),
+            // así que hay que resincronizar bounds con el owner. El bitmap nuevo
+            // lo empuja el manager al reconstruir el borde.
+            _owner.DpiChanged += (s, e) => { UpdateLocation(); UpdateSize(); };
             _owner.VisibleChanged += (s, e) => { if (!_owner.IsDisposed) this.Visible = _owner.Visible; };
             // 🔥 FIX FANTASMA: destruir el overlay cuando el owner muere
             _owner.FormClosed += (s, e) => { if (!this.IsDisposed) this.Dispose(); };
