@@ -144,7 +144,18 @@ botones y se ven recortados").
   tendrá que validarlo; si prefiere el blur CPU, `FWF_BLUR_CPU=1` lo fuerza.
 - **Pendiente:** validación visual del usuario y revisión de los agentes.
 
-### Revisión: RECHAZADO → revertido (bloqueo documentado)
+## Limitaciones conocidas del backdrop CPU (confirmadas por el usuario)
+
+1. **Ventanas POR ENCIMA del form aparecen en el backdrop.** El backdrop CPU usa BitBlt de la
+   pantalla; WDA excluye solo NUESTRA ventana, así que cualquier ventana que esté encima se
+   captura y se ve como si estuviera detrás. Es una limitación del diseño (captura de pantalla),
+   no un bug puntual. El compositor (Acrylic) sí respeta el z-order.
+2. **El rosado/púrpura de las corridas del rompedor** era una **sonda del propio harness**
+   (RunLiveBlurCheck): un form TopMost de color Magenta que tapa la ventana 1.2 s para
+   comprobar que el backdrop se actualiza. Ya se cambió a un color neutro (24,24,32) y quedó
+   comentado en el código.
+
+### Revisión: RECHAZADO → revertido (bloqueo documentado) → revertido (bloqueo documentado)
 
 `@revisor` bloqueó el atajo de reescribir `_backdropType`:
 
