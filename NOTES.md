@@ -146,7 +146,39 @@ botones y se ven recortados").
 - **Trade-off:** con separación de 20 px el margen de glow queda en ~9 px; para glows grandes hay
   que separar más los controles (es geometría, no un bug).
 
-## Tarea C3 — Backend del compositor para Blur (RECHAZADO y revertido)
+## Tarea C4 — Backend de compositor para Blur: 3.ª iteración (RECHAZADA)
+
+Se implementó la checklist completa de 11 puntos y **midió bien** (System: 0.00 s CPU, 62.9 MB,
+0 frames; Cpu: 18.8 %, 82.3 MB, 4 frames), pero el `@revisor` la rechazó con hallazgos nuevos.
+**Revertida.** Los bloqueos definitivos para una sesión dedicada:
+
+1. **Windows 10 roto**: `useSystemBlur` exige Win11, pero los filtros de frames comparan con el
+   backend *configurado* (default System) → en Win10 el motor CPU trabaja y los frames se
+   descartan (form negro). Usar el backend efectivo `Cpu || !isWin11` en los filtros.
+2. **`TransparentStyle` desde Blur/Cpu**: la rama None no llama `StopCpuBackdrop()` →
+   `BackgroundImage` estático + hilo capturando. El setter de `BackdropType` sí limpia.
+3. **Cambio de `TargetForm` en Cpu**: `UnsubscribeTargetForm` no hace `Stop/SetBackdropSink(null)`
+   ni incrementa la generación; el worker sigue capturando el form viejo y pinta en el nuevo.
+4. **Acrylic→None/Blur(System)**: `DisableSystemBlur` solo actúa si `_systemBlurHwnd != 0`, pero
+   el modo Acrylic aplica accent/frame sin registrarlo → tinte/frame residual.
+5. **Carrera en `StopCpuBackdrop`**: `SetBackdropSink(null)` antes de `Stop()` deja que el worker
+   entre en el camino GPU y pinte un snapshot estático sobre el material. `Stop()` no hace join.
+6. **`_systemBlurHwnd` obsoleto**: falta `HandleDestroyed`/validación `IsWindow`.
+7. **Memoria**: al pasar Cpu→System no se dispone el helper (DIBs + buffers + 2 handoffs) y
+   `Start/Stop` filtra un `CancellationTokenSource` por ciclo.
+8. **Harness**: sus checks exigen `BackgroundImage`; hay que forzar `BlurBackend=Cpu` y añadir un
+   check de que System produce 0 frames.
+9. **`TargetForm`**: el overlay viejo no se dispone ni se desuscriben sus lambdas/hook.
+10. **Estado visual del form viejo**: no se restaura `BackColor/TransparencyKey/Region/corners`.
+11. **Docs**: el enum `Blur` sigue diciendo "100% GPU Direct2D"; `FWF_BLUR_CPU` no está en
+    `PROGRESS.md`/`AUDIT.md`.
+
+**Conclusión:** el material del compositor funciona y es la vía correcta, pero enchufarlo a `Blur`
+toca el ciclo de vida completo (motor CPU, overlay, handle, TargetForm). No es seguro hacerlo al
+final de una sesión. **Recomendación vigente: usar `BackdropType = Acrylic`** (mismo material,
+0 % CPU, ya validado por el usuario; sin tocar).
+
+## Tarea C3 — Backend del compositor para Blur (2.ª iteración, histórica)
 
 **Estado: revertido.** Se implementó el diseño (propiedad `BlurBackend`, `ApplySystemBlur`,
 `DisableSystemBlur`, sin mutar `BackdropType`) y **funcionó**: `System` = 0.00 s CPU (0 %), 63 MB,
