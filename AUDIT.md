@@ -5,11 +5,14 @@
 
 | Metadato | Valor |
 |---|---|
-| Última verificación | 2026-11-18 (post-fix A + B) |
-| Commit verificado | `ae1f469` — `ADD: RULES TO OPENCODE` |
+| Última verificación | **2026-11-19** |
+| Commit verificado | `5dc14cb` (docs) — código en `feature/estabilizacion` |
 | Rama | `main` (referencia) · trabajo en `feature/estabilizacion` |
-| Estado del build | Compila: 0 errores, 1 warning |
-| Estado de los bugs A/B/C | A: **VERIFIED** por el usuario. B: **FIXED-UNVERIFIED** (causa medida). C: **FIXED-UNVERIFIED** (paint 43→15 ms, backdrop 5→16 fps). |
+| Estado del build | **Compila: 0 errores, 0 warnings** |
+| Estado de los bugs A/B/C | A: **VERIFIED** por el usuario. B: corregido. C: límite de arquitectura aceptado (CPU 15–17 fps; Acrylic sigue disponible). |
+
+> **Estado actual:** ver `NOTES.md` → "ESTADO ACTUAL (2026-11-19)". Tareas 2/4/5 aprobadas
+> (sin commitear); glow CSS en capa GDI+ **revertido**; decisión **Skia-only**.
 
 > **Avance del día a día:** ver `PROGRESS.md` (qué se implementó, evidencia y qué falta probar).
 

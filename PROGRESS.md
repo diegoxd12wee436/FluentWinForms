@@ -8,9 +8,14 @@
 |---|---|
 | Rama de trabajo | `feature/estabilizacion` |
 | `main` | **intacta** (`ae1f469`, no se toca) |
-| Commits | 1 commit local (fix A+B, `42fc8be`) autorizado por el usuario. C y D **sin commit** hasta auditoría + OK. Sin push. |
-| Último build | 0 errores, 1 warning preexistente (`_isResizing`) |
+| Última verificación | **2026-11-19** |
+| Commits | A+B `42fc8be`, handler `d67f15c`, ripple `7854f7f`; docs `5dc14cb`. **2/4/5 sin commitear**; glow CSS revertido. Sin push. |
+| Último build | **0 errores, 0 warnings** |
 | Entorno detectado | `DeviceDpi=120` (125%), `PerMonitorV2`, pantalla 1536×864 |
+
+> **Estado detallado y decisiones nuevas:** ver `NOTES.md` → "ESTADO ACTUAL (2026-11-19)".
+> Resumen: tareas 2/4/5 aprobadas y listas para commit; glow CSS en la capa del padre
+> **revertido** por artefactos GDI+/Skia; decisión **Skia-only**; backdrop CPU aceptado.
 
 ---
 

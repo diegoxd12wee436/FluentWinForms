@@ -5,46 +5,45 @@
 
 ---
 
-## ESTADO ACTUAL
+## ESTADO ACTUAL (2026-11-19)
 
-- **Rama:** `feature/estabilizacion` (nunca se cambia; nunca se hace push).
-- **Motor del backdrop:** `@revisor` **APROBADO** (3 rondas). `@rompedor`: *"No por el motor
-  (pasó todo lo sustancial)"* — sin fuga, `rPx` 1/4/6, DPI sin crash. **Commit 1.**
-- **`Form1.cs` (handlers + logging):** verificado por `@revisor`. **Commit 2.**
-- **`StressTests/`:** funcional y estable (500 ciclos, 0 fallos), pero **sin los dos APROBADO
-  formales** (los revisores tropezaron con su propio sandbox y con métricas ruidosas).
-  Queda **sin commitear**, documentado abajo con los TODOs de cobertura. **Decisión del usuario.**
-- **`Form1.Designer.cs`, `opencode.json`, `.opencode/`:** del usuario; **no se commitean**.
+- **Rama:** `feature/estabilizacion` (sin push); HEAD `5dc14cb` (docs). `main` intacta.
+- **Tareas 2/4/5: implementadas y aprobadas** por `@revisor` y `@rompedor`; **sin commitear**.
+  - Cachés A1/A2/A4, `RenderNode : IDisposable`, `GC.Collect` global (1 por frame), NaN-safe
+    (incluido el clip del ripple).
+  - Evidencia: build 0/0; 3 ciclos `fallos=0`; 150/200 ciclos verdes; WS/Private a la baja;
+    GDI 24→24; `ThreadException` 0.
+- **Glow tipo CSS (capa en el padre): REVERTIDA.** Usaba composición **GDI+** (`Bitmap` +
+  `Graphics.DrawImage`) sobre controles **Skia**; el usuario reportó sangrado de píxeles en los
+  bordes al cambiar de estado (hover/translate). Decisión: **Skia-only**. El glow volvió al
+  canvas Skia (se recorta en el HWND; comportamiento original).
+- **Parpadeo del glow: resuelto al eliminar la capa.** La causa medida era un `else` que
+  limpiaba el bake en cada paint (~80 rebakes/s); con la capa fuera ya no existe.
+- **Backdrop:** camino CPU **aceptado** (41 MB, 15–17 fps). Acrylic intacto. GPU/DWM: opcional.
+- **Harness:** 500/200/150/3 ciclos verdes; el gate de memoria usa el máximo de las muestras
+  intermedias (un pico 4000×3000 no cuenta como fuga); `StressTests/` sigue sin commitear.
+- **Archivos del usuario:** `Form1.Designer.cs`, `opencode.json`, `.opencode/` no se tocan.
 
-### Resultados finales (500 ciclos, build actual)
+### Decisiones nuevas (2026-11-19)
 
-```
-[assert] OK blur live (mover): hash 86F5B61B... -> 26B633FC...
-[assert] OK blur live (quieto, fondo cambia): hash 26B633FC... -> B5C3E337...
-[assert] OK WorkingSet: 159 -> 94 (0.59x)
-[assert] OK Private:    117 -> 37 (0.32x)
-[assert] OK GDI: 24 -> 24   USER: 13 -> 13
-[assert] pendiente Private = negativa
-[stress] fallos=0  (110 s)
-```
+1. **Skia-only.** Todo el diseño/render nuevo va por Skia. El pipeline GDI queda como legado,
+   no se mejora ni se usa para efectos CSS-like (el usuario prioriza Skia).
+2. **No composición GDI+ del glow.** Nada de `Bitmap`/`Graphics.DrawImage` para halos sobre
+   controles Skia; si se retoma el overflow CSS, será un overlay/superficie 100 % Skia.
+3. **Backdrop CPU aceptado.** 15–17 fps y ~41 MB son el estado actual; no se persigue GPU/DWM
+   salvo pedido explícito.
+4. **Validación visual del usuario** para todo cambio de render; los agentes no ven la pantalla.
+5. **Commit solo con `@revisor` + `@rompedor` APROBADO**, un commit por cambio, y avisar antes.
 
-Ambos rompedores coincidieron: Private/GDI/USER/Threads/Handles **estables o a la baja**;
-WorkingSet oscila por recorte del SO (por eso el gate de tendencia ahora usa Private, no WS).
+### Pendientes priorizados
 
-### TODOs del harness (anotados por los revisores, no bloquean)
-
-1. Click real con `WM_LBUTTONDOWN/UP` y hit-testing (hoy via `OnMouseDown` por reflexión).
-2. Ripple: `ControlBuilder.Ripple()` no activa `UseRipple` (bug de producto detectado); probar
-   `btn-danger` y afirmar `_isRippling`.
-3. Alternar Blur→None→Blur ×50 y afirmar `BackColor` restaurado por control.
-4. `BlurAmount` 1→10→20 con pantalla quieta (hash + `_bdLastRadius`).
-5. Bloquear el hilo UI >1.5 s para ejercitar el watchdog de slots.
-6. Medir retención de `_bdWork`/handoffs tras un resize 4K (hoy se cierra el form).
-
-### Nota de procedimiento
-
-Los revisores corren con sandbox restringido (solo `dotnet`/`git`): no pueden lanzar la app ni
-matar procesos. Sus veredictos sobre RAM de la app real se basan en logs de esta sesión.
+1. Commitear **2/4/5** (ya aprobado).
+2. **Infraestructura:** limpiar el harness (tests del glow viejo sin usar, build `runtimeconfig`),
+   agregarlo a la solución y medir controles reales con `Design()`.
+3. **Skia rápido:** translate/escala estática recortada; fade del ripple.
+4. **Skia medio:** hit-test vs dibujado (Tarea 6).
+5. **Skia grande:** overlay Skia único para glow CSS con overflow (sin GDI).
+6. **Nodos desprendidos:** liberar cachés al quitar/reemplazar nodos del árbol.
 
 ---
 
@@ -64,7 +63,11 @@ no el blur. Para igualar al acrylic (que va al ritmo del compositor) haría falt
 DWM/compositor, no CPU. Se dejó el camino actual, que es el más rápido medido y estable.
 Los tres experimentos se revirtieron; no quedó código muerto.
 
-## Tarea 7 — Sombra/glow: APROBADO y commiteado
+## Tarea 7 — Sombra/glow: histórico (la expansión 2× fue revertida)
+
+> **Corrección 2026-11-19:** esta sección describe la expansión `reach = 2×radio`, que se
+> **revirtió** en `43c0fa8` por solape de HWND. El código actual vuelve a `radio + offset` y el
+> glow se dibuja en el canvas Skia; la capa GDI+ posterior también se revirtió (ver Tarea 7d).
 
 `@revisor` verificó que `reach = S(Radius) * 2` es espejo exacto del padding del bake, cubre
 offsets negativos/positivos y que 3σ < 2·radio. Observaciones no bloqueantes anotadas:
@@ -94,7 +97,81 @@ No se activó porque destapa dos bugs preexistentes:
 
 **No se cambió el comportamiento visual sin decisión del usuario** (regla: no tocar si hay duda).
 
-## Tarea 7c — Expansión de sombra segura (RECHAZADA y revertida)
+## Tarea 7d — Glow tipo CSS: capa compartida en el padre (REVERTIDA)
+
+**Estado: revertida.** La capa funcionaba (halo completo, sin solape, sin parpadeo tras
+eliminar el rebake), pero usaba **composición GDI+** (`Bitmap` + `Graphics.DrawImage`) sobre
+controles **Skia**. El usuario reportó sangrado de píxeles en los bordes al cambiar de estado
+(hover/translate) y pidió explícitamente **Skia-only**. Se volvió al glow dibujado dentro del
+canvas Skia (comportamiento original, con recorte en el HWND). El parpadeo desapareció al
+eliminar la capa.
+
+El diseño siguiente queda como referencia para una futura capa 100% Skia (overlay único o
+superficie Skia compartida), **no** para reintroducir GDI+:
+
+El glow ya no se dibuja dentro del HWND del control ni expande su rect (eso era lo que
+lo recortaba y lo que solapaba hermanos). Ahora:
+
+- `ModernControlBase.GlowLayer.cs`: el bake de sombra se convierte una vez a `Bitmap` GDI+
+  (`_cachedShadowBitmap`, liberado en `ReleaseNativeResources`).
+- `ModernGlowLayer`: capa estática que dibuja los glows de los hijos sobre la superficie del
+  padre. Se engancha una sola vez al `Paint` de Form/Panel (`ConditionalWeakTable`); los
+  contenedores `ModernControlBase` la pintan al final de su `OnPaint`.
+- Cada control, al pintar su fondo, copia la misma capa ya trasladada a coordenadas del padre.
+  Como todos los HWND escriben exactamente los mismos píxeles en las zonas de solape, el
+  halo deja de borrarse entre hermanos.
+- `UpdatePhysicalBounds` ya **no suma la sombra** al HWND cuando hay padre: solo suma el
+  contenido (hover/press scale + translate, badge y 1 px). El halo completo (2 × radio) vive
+  en la capa del padre, así que puede salir fuera del botón sin tocar layout ni hit-test.
+- El nodo raíz no se dibuja en el canvas cuando hay capa; los nodos hijos conservan su sombra
+  interna.
+- `AnimationTick` invalida el rect del glow en el padre mientras el control se mueve, para
+  que el halo siga al botón durante el translate del hover.
+- **Translate estático**: `UpdatePhysicalBounds` ahora suma el `TranslateX/Y` del control y el
+  `Translate` base del nodo (antes solo miraba hover/press y solo durante animación). Ese era
+  el caso que recortaba el botón/halo al hacer `translate` en reposo.
+
+**Evidencia (harness):** `OK glow fuera del HWND` (píxel 66,0,66 a 5 px fuera del HWND),
+`OK botones sin solape`, `OK glow remove: hermano repintado`, `OK glow dispose: hermano repintado`,
+`OK cache fillPath/childrenClip/sweepClip`, `OK RenderNode.Dispose doble`, `OK GC global`.
+150 ciclos: `fallos=0`, WS 82→76, Private 22→20, GDI 24→24.
+
+**Parpadeo (reportado por el usuario y corregido):** el `else` que limpiaba el bake por paint
+dejaba `_cachedShadowImage = null` y provocaba ~80 bakes/s; se eliminó ese borrado. Medición con
+la app real: **5 bakes al arrancar (uno por botón) y 0 después**, CPU 12.5 % (backdrop CPU).
+
+### Correcciones tras el primer rechazo del revisor
+
+1. **Hermanos obsoletos**: `InvalidateParentGlow` ahora invalida al padre **y a los hermanos**
+   cuyo `ClientRectangle` intersecta el halo (el padre no puede pintar debajo de los HWND hijos
+   por `WS_CLIPCHILDREN`). Así cada copia se refresca durante el hover/translate.
+2. **Halo fantasma al quitar la sombra**: el bake **no se dibuja** si `radio <= 0` o el color efectivo
+   (`stepColor`) tiene alfa 0; se invalida el padre una vez. El bake **se retiene** a propósito
+   (permite calcular el rect para limpiar el halo); no se libera en el camino de paint, que era
+   la causa del parpadeo (~80 rebakes/s).
+3. **Ocultar/disponer/reparentar**: `OnVisibleChanged`, `Dispose` y `OnParentChanged` invalidan
+   el rect del halo en el padre viejo antes de soltarlo; `PaintGlow` sale con `!Visible` o tamaño 0.
+4. **Hover/press en reposo**: la expansión de estados volvió a estar condicionada a
+   `_isAnimating || _isHoveringInternal || _isMouseDownInternal`; el `Translate` base se reserva
+   siempre. Los márgenes de hover ya no inflan el HWND quieto.
+5. **Translate en caliente**: los setters `TranslateX/Y` llaman `InvalidateParentGlow`.
+6. **Sombras de nodos hijos**: con capa del padre solo se omite la sombra de la raíz; los hijos
+   conservan su margen físico para no recortarse.
+7. **Escala base/disabled**: `TryGetGlowTransform` parte de `node.ScaleX/ScaleY` y aplica
+   `DisabledState.Scale`, igual que `RenderNodeTree`.
+8. **Concurrencia**: el lock es `RenderNode._shadowSync` (compartido con `RenderNode.Dispose`);
+   `GetGlowBoundsInParent` tiene try/catch; `InvalidateParentGlow` marshaliza con `BeginInvoke`
+   si corre desde el hilo de animación.
+9. **Suscripción**: `ModernGlowLayer` cuenta los controles por padre y da de baja el handler
+   `Paint` cuando el contador llega a 0.
+
+**Limitaciones conocidas:** `ModernGlowLayer.Paint` recorre los hijos del padre (O(N) por paint,
+O(N²) en un repintado completo; se filtra con `HasGlow` y el rect del halo), la rotación/opacidad
+del nodo no se aplican al halo de la capa, y el bake GDI+ usa un encode PNG por cambio de sombra.
+La capa es de un solo nivel: el glow de un control dentro de un contenedor no aparece sobre los
+hijos de ese contenedor (cada nivel copia la capa de su padre directo).
+
+## Tarea 7c — Expansión de sombra segura: histórico (rechazada y revertida)
 
 **Estado: revertida.** Se implementó con acumuladores separados, clamp solo de la sombra,
 recálculo de hermanos y aserción del harness (gaps 0/1/20 → OK). El `@revisor` y el `@rompedor`
