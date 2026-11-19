@@ -94,6 +94,35 @@ No se activó porque destapa dos bugs preexistentes:
 
 **No se cambió el comportamiento visual sin decisión del usuario** (regla: no tocar si hay duda).
 
+## Tarea 7b — Solape de HWND entre hermanos (regresión del fix de sombra)
+
+**Estado:** implementado, pendiente de revisión (reportado por el usuario: "se superponen los
+botones y se ven recortados").
+
+- **Causa:** al expandir el HWND a `2*S(Radio)` (36-41 px), botones separados 20 px se solapan;
+  cada hijo pinta el fondo del padre en todo su rect, así que el de arriba borra al de abajo.
+- **Fix:** en `UpdatePhysicalBounds` se recorre a los hermanos visibles y cada lado se limita a
+  `min(expansión, gap/2 - 1)`, usando su `LogicalBounds`.
+- **Evidencia:** bounds medidos sin solapes: **(4,4,252,93)** — top recuperado a 36 px —,
+  (39,107,182,50), (19,167,222,66), (29,235,202,66), (0,303,261,82), (29,391,222,95). Chequeo
+  geométrico de los 6 rects: **0 pares con solape**. Dump sin botones tapados. Harness 40 ciclos:
+  0 fallos, blur live (mover + quieto) OK, Private estable.
+- **Alcance del clamp:** solo contra hermanos que solapan en el eje perpendicular (un diagonal no
+  limita), `hueco/2 - 1` si el vecino también expande y `hueco - 1` si no (nativos/GlassPanel), y
+  nunca por debajo del overflow de hover/scale.
+- **Estado de revisión:** 2 rechazos por casos límite, **sin commitear**:
+  1. Vecinos en diagonal: el test se hace con los rects inflados por la expansión actual; aun así,
+     la expansión del vecino no se conoce y puede quedar solape de esquina en layouts escalonados.
+  2. Hover/translate (`.Hover(translateX: 22)`) con un vecino a <9 px: el tope recorta el
+     desplazamiento del nodo durante el hover (el suelo actual solo cubre `scale`, no `translate`).
+  3. Suelo `+1` puede invadir 1 px con huecos de 0-1 px.
+- **Decisión:** se mantiene en el working tree porque **elimina el solape reportado por el usuario**
+  en el layout real (una columna, 0 pares con solape). La solución completa exige separar los
+  acumuladores (anim/translate/badge/sombra) y recalcular todos los hermanos en `OnLayout`,
+  un refactor de layout mayor. Pendiente de decisión del usuario.
+- **Trade-off:** con separación de 20 px el margen de glow queda en ~9 px; para glows grandes hay
+  que separar más los controles (es geometría, no un bug).
+
 ## Nota sobre el harness (flakiness conocida)
 
 `blur live (mover)` compara el hash del `BackgroundImage` antes/después de mover la ventana. Si

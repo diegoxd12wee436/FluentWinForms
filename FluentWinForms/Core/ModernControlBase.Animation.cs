@@ -1,4 +1,4 @@
-﻿#nullable enable
+#nullable enable
 using System;
 using System.ComponentModel;
 using System.Diagnostics;
@@ -202,18 +202,19 @@ namespace FluentWinForms.Core
         {
             if (sh.Radius <= 0 || sh.Color.A <= 0) return;
 
-            // El bake de la sombra (RenderNodeTree) usa `2 * S(Radius)` de
-            // padding por lado y luego blitea la imagen en rect - pad. El HWND
-            // debe expandirse al menos ese padding o el borde del bitmap corta
-            // la sombra/glow (síntoma reportado).
-            float reach = S(sh.Radius) * 2f;
+            // Revertido a la fórmula original (radio, no 2x): expandir a 2x
+            // evitaba el recorte del bake pero solapaba los HWND de hermanos
+            // cercanos (cada hijo pinta el fondo del padre en todo su rect y el
+            // de arriba borra al de abajo). El recorte del glow en el borde es
+            // el comportamiento previo; la solución completa exige recalcular
+            // todos los hermanos en OnLayout y separar los acumuladores.
             float ox = S(sh.OffsetX);
             float oy = S(sh.OffsetY);
 
-            maxLeft = Math.Max(maxLeft, reach + Math.Max(0f, -ox));
-            maxRight = Math.Max(maxRight, reach + Math.Max(0f, ox));
-            maxTop = Math.Max(maxTop, reach + Math.Max(0f, -oy));
-            maxBottom = Math.Max(maxBottom, reach + Math.Max(0f, oy));
+            maxLeft = Math.Max(maxLeft, sh.Radius + Math.Max(0f, -ox));
+            maxRight = Math.Max(maxRight, sh.Radius + Math.Max(0f, ox));
+            maxTop = Math.Max(maxTop, sh.Radius + Math.Max(0f, -oy));
+            maxBottom = Math.Max(maxBottom, sh.Radius + Math.Max(0f, oy));
         }
         private void StartAnimation()
         {
