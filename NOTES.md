@@ -155,7 +155,7 @@ botones y se ven recortados").
    comprobar que el backdrop se actualiza. Ya se cambió a un color neutro (24,24,32) y quedó
    comentado en el código.
 
-### Revisión: RECHAZADO → revertido (bloqueo documentado) → revertido (bloqueo documentado)
+### Revisión: RECHAZADO -> revertido (bloqueo documentado)
 
 `@revisor` bloqueó el atajo de reescribir `_backdropType`:
 
