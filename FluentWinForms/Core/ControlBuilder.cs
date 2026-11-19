@@ -265,6 +265,9 @@ namespace FluentWinForms.Core
             try { rp.Color = ParseHex(hexColor); } catch { }
             rp.Opacity = (float)opacity;
             _node.Ripple = rp;
+            // El builder debe activar el ripple del control; antes solo
+            // configuraba el nodo y `UseRipple` quedaba en false.
+            if (_hostControl != null) _hostControl.UseRipple = true;
             return this;
         }
         public ControlBuilder<T> NoRipple()
@@ -273,6 +276,7 @@ namespace FluentWinForms.Core
             rp.Color = System.Drawing.Color.Transparent;
             rp.Opacity = 0f;
             _node.Ripple = rp;
+            if (_hostControl != null) _hostControl.UseRipple = false;
             return this;
         }
         /// <summary>
@@ -727,6 +731,10 @@ namespace FluentWinForms.Core
                 parent.Controls.Add(_hostControl);
             else if (parent == null && _hostControl.Parent == null && Application.OpenForms.Count > 0)
                 Application.OpenForms[0]!.Controls.Add(_hostControl);
+
+            // El Translate/Scale del builder se aplicó antes de tener bounds;
+            // recalcular la expansión ahora que el HWND ya está ubicado.
+            _hostControl.RefreshPhysicalBounds();
 
             return _hostControl;
         }

@@ -559,7 +559,7 @@ namespace FluentWinForms.Core
             _sharedPaint.ColorFilter = null;
 
             // 8. RIPPLE EFFECT EN NODO
-            if (_isRippling && Enabled && node == _currentPressedNode && node.Ripple.Color.A > 0)
+            if (_isRippling && Enabled && node == _rippleNode && node.Ripple.Color.A > 0)
             {
                 canvas.Save();
                 if (node.Corners.TopLeft > 0)
@@ -582,10 +582,12 @@ namespace FluentWinForms.Core
                 }
                 else canvas.ClipRect(rect, SKClipOperation.Intersect, true);
 
-                // Paint cacheado: solo se actualiza el color/alpha por frame.
+                // Paint cacheado: color * opacidad del ripple * fade.
                 node._cachedRipplePaint ??= new SKPaint { IsAntialias = true };
+                byte rippleAlpha = (byte)Math.Clamp(
+                    node.Ripple.Color.A * node.Ripple.Opacity * _rippleOpacity, 0f, 255f);
                 node._cachedRipplePaint.Color =
-                    node.Ripple.Color.ToSKColor().WithAlpha((byte)(node.Ripple.Opacity * 255));
+                    node.Ripple.Color.ToSKColor().WithAlpha(rippleAlpha);
                 canvas.DrawCircle(_rippleCenter.X, _rippleCenter.Y, _rippleRadius, node._cachedRipplePaint);
                 canvas.Restore();
             }
@@ -1008,9 +1010,23 @@ namespace FluentWinForms.Core
 
                     // 🎯 Misma fuente de verdad que UpdatePhysicalBounds: reutilizamos maxLeft/Right/Top/Bottom
                     // en vez de descartarlos, para que hit-test y expansión de HWND coincidan siempre.
-                    float currentScaleX = this.ScaleX;
-                    float currentScaleY = this.ScaleY;
+                    // En VisualNode la escala del control no se dibuja: solo la
+                    // del nodo (CalculateBaseOverflow). El camino legacy usa la
+                    // propiedad del control.
+                    float currentScaleX = _visualNode != null ? 1f : Math.Max(1f, this.ScaleX);
+                    float currentScaleY = _visualNode != null ? 1f : Math.Max(1f, this.ScaleY);
                     float maxLeft = 0f, maxRight = 0f, maxTop = 0f, maxBottom = 0f;
+                    float badgeLeft = 0f, badgeRight = 0f, badgeTop = 0f, badgeBottom = 0f;
+
+                    // Base del árbol (translate/escala CSS): debe coincidir con
+                    // UpdatePhysicalBounds para que el clic llegue al dibujado.
+                    if (_visualNode != null)
+                    {
+                        CalculateBaseOverflow(_visualNode, ref currentScaleX, ref currentScaleY,
+                            ref maxLeft, ref maxRight, ref maxTop, ref maxBottom);
+                        CalculateBadgeOverflow(_visualNode,
+                            ref badgeLeft, ref badgeRight, ref badgeTop, ref badgeBottom);
+                    }
 
                     if (_visualNode != null && (_isAnimating || _isHoveringInternal || _isMouseDownInternal))
                     {
@@ -1025,10 +1041,10 @@ namespace FluentWinForms.Core
 
                     // 🚀 FIX: LTRB idéntico al de UpdatePhysicalBounds (exLeft/exRight/exTop/exBottom)
                     RectangleF drawnArea = RectangleF.FromLTRB(
-                        EngineOffset.X + this.TranslateX - (scaleExW + maxLeft),
-                        EngineOffset.Y + this.TranslateY - (scaleExH + maxTop),
-                        EngineOffset.X + this.TranslateX + logicalW + (scaleExW + maxRight),
-                        EngineOffset.Y + this.TranslateY + logicalH + (scaleExH + maxBottom)
+                        EngineOffset.X + this.TranslateX - (scaleExW + maxLeft + badgeLeft),
+                        EngineOffset.Y + this.TranslateY - (scaleExH + maxTop + badgeTop),
+                        EngineOffset.X + this.TranslateX + logicalW + (scaleExW + maxRight + badgeRight),
+                        EngineOffset.Y + this.TranslateY + logicalH + (scaleExH + maxBottom + badgeBottom)
                     );
 
                     // Damos 1px de margen de seguridad (Inflate) para absorber errores de redondeo nativo de Windows

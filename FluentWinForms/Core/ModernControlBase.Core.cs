@@ -56,11 +56,13 @@ namespace FluentWinForms.Core
                 if (_visualNode != null) _visualNode.Children.CollectionChanged -= VisualNode_ChildrenChanged;
 
                 _visualNode = value;
+                _rippleNode = null;
 
                 if (_visualNode != null)
                 {
                     _visualNode.Children.CollectionChanged += VisualNode_ChildrenChanged;
-                    FluentWinForms.Core.LayoutEngine.ComputeLayout(_visualNode, new RectangleF(0, 0, Width, Height));
+                    if (Width > 0 && Height > 0)
+                        FluentWinForms.Core.LayoutEngine.ComputeLayout(_visualNode, new RectangleF(0, 0, Width, Height));
                 }
                 RefreshVisuals();
             }
@@ -71,7 +73,10 @@ namespace FluentWinForms.Core
         {
             if (_visualNode != null)
             {
-                FluentWinForms.Core.LayoutEngine.ComputeLayout(_visualNode, new RectangleF(0, 0, Width, Height));
+                // Si el control aún no tiene tamaño (builder antes de Apply),
+                // no recalcular: borraría el Layout declarado con .Layout(x,y).
+                if (Width > 0 && Height > 0)
+                    FluentWinForms.Core.LayoutEngine.ComputeLayout(_visualNode, new RectangleF(0, 0, Width, Height));
                 RefreshVisuals();
             }
         }

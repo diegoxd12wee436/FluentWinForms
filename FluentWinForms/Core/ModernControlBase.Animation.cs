@@ -69,6 +69,7 @@ namespace FluentWinForms.Core
         private PointF _rippleCenter;
         private bool _isRippling = false;
         private float _maxRippleRadius = 0f;
+        private RenderNode? _rippleNode;
 
         protected bool _isHoveringInternal = false;
         protected bool _isMouseDownInternal = false;
@@ -86,6 +87,8 @@ namespace FluentWinForms.Core
         private void DisposeAnimations()
         {
             _isAnimating = false;
+            _isRippling = false;
+            _rippleNode = null;
             AnimationManager.Unregister(this);
         }
 
@@ -93,31 +96,53 @@ namespace FluentWinForms.Core
         // =====================================================================
         // 🚀 EXPANSIÓN FÍSICA ZERO-ALLOCATION (CSS-LIKE BEHAVIOR)
         // =====================================================================
+        /// <summary>Fuerza el recálculo de la expansión física (para el builder).</summary>
+        internal void RefreshPhysicalBounds() => UpdatePhysicalBounds();
+
         protected virtual void UpdatePhysicalBounds()
         {
             if (_logicalBounds.IsEmpty || _visualNode == null) return;
 
+            // En el camino VisualNode la escala del control NO se dibuja: solo
+            // la del nodo. Incluirla aquí inflaba el HWND y tapaba hermanos.
             float maxScaleX = 1f, maxScaleY = 1f;
-            float maxLeft = 0f, maxRight = 0f, maxTop = 0f, maxBottom = 0f;
+            float ctrlLeft = 0f, ctrlRight = 0f, ctrlTop = 0f, ctrlBottom = 0f;
+            float nodeLeft = 0f, nodeRight = 0f, nodeTop = 0f, nodeBottom = 0f;
+            float badgeLeft = 0f, badgeRight = 0f, badgeTop = 0f, badgeBottom = 0f;
+            float shLeft = 0f, shRight = 0f, shTop = 0f, shBottom = 0f;
+
+            // Translate del propio control (se aplica primero, en OnPaint) y
+            // translate/escala del árbol (se aplica encima): son ADITIVOS, por
+            // eso se acumulan por separado y se suman.
+            if (TranslateX < 0f) ctrlLeft = Math.Max(ctrlLeft, -TranslateX);
+            else if (TranslateX > 0f) ctrlRight = Math.Max(ctrlRight, TranslateX);
+            if (TranslateY < 0f) ctrlTop = Math.Max(ctrlTop, -TranslateY);
+            else if (TranslateY > 0f) ctrlBottom = Math.Max(ctrlBottom, TranslateY);
+
+            CalculateBaseOverflow(_visualNode, ref maxScaleX, ref maxScaleY,
+                ref nodeLeft, ref nodeRight, ref nodeTop, ref nodeBottom);
 
             // Overflow por hover/press scale + translate — solo durante animación
             if (_isAnimating || _isHoveringInternal || _isMouseDownInternal)
                 CalculateMaxOverflow(_visualNode, ref maxScaleX, ref maxScaleY,
-                    ref maxLeft, ref maxRight, ref maxTop, ref maxBottom);
+                    ref nodeLeft, ref nodeRight, ref nodeTop, ref nodeBottom);
 
-            // Overflow por badge — SIEMPRE (visible en reposo también)
-            CalculateBadgeOverflow(_visualNode, ref maxRight, ref maxTop);
+            // Overflow por badge — SIEMPRE y en acumulador propio: el badge se
+            // dibuja desde el borde ya trasladado y su alcance es el Offset
+            // (no bHalf+Offset). Se suma al translate del nodo.
+            CalculateBadgeOverflow(_visualNode,
+                ref badgeLeft, ref badgeRight, ref badgeTop, ref badgeBottom);
 
-            // Overflow por sombra/glow — SIEMPRE, estático (no depende de animación ni lerp)
-            CalculateShadowOverflow(_visualNode, ref maxLeft, ref maxRight, ref maxTop, ref maxBottom);
+            // Overflow por sombra/glow — SIEMPRE, se SUMA al contenido.
+            CalculateShadowOverflow(_visualNode, ref shLeft, ref shRight, ref shTop, ref shBottom);
 
             float scaleExW = _logicalBounds.Width * (maxScaleX - 1f) / 2f;
             float scaleExH = _logicalBounds.Height * (maxScaleY - 1f) / 2f;
 
-            float exLeft = scaleExW + maxLeft + 1f;
-            float exRight = scaleExW + maxRight + 1f;
-            float exTop = scaleExH + maxTop + 1f;
-            float exBottom = scaleExH + maxBottom + 1f;
+            float exLeft = scaleExW + ctrlLeft + nodeLeft + badgeLeft + shLeft + 1f;
+            float exRight = scaleExW + ctrlRight + nodeRight + badgeRight + shRight + 1f;
+            float exTop = scaleExH + ctrlTop + nodeTop + badgeTop + shTop + 1f;
+            float exBottom = scaleExH + ctrlBottom + nodeBottom + badgeBottom + shBottom + 1f;
 
             Rectangle newBounds = new Rectangle(
                 (int)Math.Floor(_logicalBounds.X - exLeft),
@@ -174,17 +199,47 @@ namespace FluentWinForms.Core
                     ref maxLeft, ref maxRight, ref maxTop, ref maxBottom);
         }
 
-        // Escanea badges SIEMPRE (necesitan espacio incluso en reposo)
-        private void CalculateBadgeOverflow(RenderNode node, ref float maxRight, ref float maxTop)
+        // Escanea Translate/Escala base del árbol (CSS transform estático)
+        private void CalculateBaseOverflow(RenderNode node, ref float maxScaleX, ref float maxScaleY,
+            ref float maxLeft, ref float maxRight, ref float maxTop, ref float maxBottom)
+        {
+            maxScaleX = Math.Max(maxScaleX, node.ScaleX);
+            maxScaleY = Math.Max(maxScaleY, node.ScaleY);
+
+            if (node.TranslateX < 0f) maxLeft = Math.Max(maxLeft, -node.TranslateX);
+            else if (node.TranslateX > 0f) maxRight = Math.Max(maxRight, node.TranslateX);
+            if (node.TranslateY < 0f) maxTop = Math.Max(maxTop, -node.TranslateY);
+            else if (node.TranslateY > 0f) maxBottom = Math.Max(maxBottom, node.TranslateY);
+
+            for (int i = 0; i < node.Children.Count; i++)
+                CalculateBaseOverflow(node.Children[i], ref maxScaleX, ref maxScaleY,
+                    ref maxLeft, ref maxRight, ref maxTop, ref maxBottom);
+        }
+
+        // Escanea badges SIEMPRE (necesitan espacio incluso en reposo).
+        // El badge es un círculo de diámetro Size anclado arriba-derecha:
+        // derecho = Right+OffsetX, superior = Top+OffsetY,
+        // izquierdo = Right+OffsetX-Size, inferior = Top+OffsetY+Size.
+        // El translate del nodo se acumula aparte en nodeLeft/Top.
+        private void CalculateBadgeOverflow(RenderNode node,
+            ref float maxLeft, ref float maxRight, ref float maxTop, ref float maxBottom)
         {
             if (node.Badge.IsVisible)
             {
-                float bHalf = (float)(node.Badge.Size * 0.5);
-                maxRight = Math.Max(maxRight, bHalf + Math.Max(0f, (float)node.Badge.OffsetX));
-                maxTop = Math.Max(maxTop, bHalf + Math.Max(0f, -(float)node.Badge.OffsetY));
+                float ox = (float)node.Badge.OffsetX;
+                float oy = (float)node.Badge.OffsetY;
+                float size = (float)node.Badge.Size;
+                float width = node.Layout.Width;
+                float height = node.Layout.Height;
+
+                maxRight = Math.Max(maxRight, Math.Max(0f, ox));
+                maxTop = Math.Max(maxTop, Math.Max(0f, -oy));
+                maxLeft = Math.Max(maxLeft, Math.Max(0f, size - width - ox));
+                maxBottom = Math.Max(maxBottom, Math.Max(0f, size + oy - height));
             }
             for (int i = 0; i < node.Children.Count; i++)
-                CalculateBadgeOverflow(node.Children[i], ref maxRight, ref maxTop);
+                CalculateBadgeOverflow(node.Children[i],
+                    ref maxLeft, ref maxRight, ref maxTop, ref maxBottom);
         }
         // Escanea la sombra/glow de cada nodo (Normal + Hover + Press + Disabled) SIEMPRE — no depende de animación
         private void CalculateShadowOverflow(RenderNode node, ref float maxLeft, ref float maxRight, ref float maxTop, ref float maxBottom)
@@ -208,13 +263,14 @@ namespace FluentWinForms.Core
             // de arriba borra al de abajo). El recorte del glow en el borde es
             // el comportamiento previo; la solución completa exige recalcular
             // todos los hermanos en OnLayout y separar los acumuladores.
+            float radius = S(sh.Radius);
             float ox = S(sh.OffsetX);
             float oy = S(sh.OffsetY);
 
-            maxLeft = Math.Max(maxLeft, sh.Radius + Math.Max(0f, -ox));
-            maxRight = Math.Max(maxRight, sh.Radius + Math.Max(0f, ox));
-            maxTop = Math.Max(maxTop, sh.Radius + Math.Max(0f, -oy));
-            maxBottom = Math.Max(maxBottom, sh.Radius + Math.Max(0f, oy));
+            maxLeft = Math.Max(maxLeft, radius + Math.Max(0f, -ox));
+            maxRight = Math.Max(maxRight, radius + Math.Max(0f, ox));
+            maxTop = Math.Max(maxTop, radius + Math.Max(0f, -oy));
+            maxBottom = Math.Max(maxBottom, radius + Math.Max(0f, oy));
         }
         private void StartAnimation()
         {
@@ -300,7 +356,7 @@ namespace FluentWinForms.Core
                 _rippleRadius += (dt * S(1.2f));
                 if (!_isMouseDownInternal) _rippleOpacity -= (step * 1.5f);
 
-                if (_rippleOpacity <= 0) _isRippling = false;
+                if (_rippleOpacity <= 0) { _isRippling = false; _rippleNode = null; }
                 isMoving = true;
             }
 
@@ -459,6 +515,7 @@ namespace FluentWinForms.Core
                     _rippleRadius = S(10f);
                     _rippleOpacity = 1f;
                     _isRippling = true;
+                    _rippleNode = _currentPressedNode ?? _visualNode;
                 }
                 StartAnimation();
             }
