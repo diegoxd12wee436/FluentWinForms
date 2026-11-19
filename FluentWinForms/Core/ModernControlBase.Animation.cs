@@ -328,11 +328,10 @@ namespace FluentWinForms.Core
                 Trace.TraceError($"[ModernControl API] Error en CustomAnimationLoop: {ex.Message}");
             }
 
-            // 🔥 INYECCIÓN GC PRO: Recolector de basura periódico en .NET 8 para evitar acumulación silenciosa a 120 FPS
-            if (AnimationManager.Frames > 0 && (AnimationManager.Frames % 600) == 0)
-            {
-                GC.Collect();
-            }
+            // La recolección periódica vive en AnimationManager (una por frame
+            // global). Antes se ejecutaba aquí y N controles recolectaban en el
+            // mismo frame.
+
             // 8. Gestión de Renderizado
             if (isMoving)
             {

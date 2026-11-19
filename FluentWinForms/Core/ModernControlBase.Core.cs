@@ -1,4 +1,4 @@
-﻿#nullable enable
+#nullable enable
 #pragma warning disable CA1416 // Silencia la advertencia de compatibilidad de System.Drawing
 #pragma warning disable IDE0090 // Silencia sugerencias de simplificar 'new'
 #pragma warning disable IDE0028 // Silencia sugerencias de inicialización de colecciones
@@ -363,6 +363,7 @@ namespace FluentWinForms.Core
                 SafeDispose(ref _skCanvas);
                 SafeDispose(ref _skBitmap);
                 SafeDispose(ref _cachedClipPath);
+                SafeDispose(ref _cachedFillPath);
             }
             base.Dispose(disposing);
         }

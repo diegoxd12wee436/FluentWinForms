@@ -1,4 +1,4 @@
-﻿#nullable enable
+#nullable enable
 using SkiaSharp;
 using System;
 using System.Collections.ObjectModel;
@@ -24,7 +24,7 @@ namespace FluentWinForms.Core
     [ToolboxItem(false)]
     [TypeConverter(typeof(ExpandableObjectConverter))]
     [DebuggerDisplay("{Id,nq} ({Layout.Width}x{Layout.Height})")]
-    public sealed class RenderNode
+    public sealed class RenderNode : IDisposable
     {
         [Browsable(false)] public string Id { get; init; } = Guid.NewGuid().ToString("N");
         [Browsable(false)] public bool StretchX { get; set; } = false;
@@ -103,6 +103,12 @@ namespace FluentWinForms.Core
         [Browsable(false)] internal SKPaint? _cachedSweepPaint;
         [Browsable(false)] internal SKPaint? _cachedOpacityPaint;
         // Ripple: paint y clip reutilizados (antes se creaban por frame).
+        [Browsable(false)] internal SKPath? _cachedSweepClip;
+        [Browsable(false)] internal SKRect _lastSweepClipRect;
+        [Browsable(false)] internal float _lastSweepClipCorner = -1f;
+        [Browsable(false)] internal SKPath? _cachedChildrenClip;
+        [Browsable(false)] internal SKRect _lastChildrenClipRect;
+        [Browsable(false)] internal float _lastChildrenClipCorner = -1f;
         [Browsable(false)] internal SKPaint? _cachedRipplePaint;
         [Browsable(false)] internal SKPath? _cachedRippleClip;
         [Browsable(false)] internal SKRect _lastRippleClipRect;
@@ -121,6 +127,9 @@ namespace FluentWinForms.Core
         [Browsable(false)] internal float _lastFilterGrayscale = -1f;
         [Browsable(false)] internal float _lastFilterBrightness = -1f;
         [Browsable(false)] internal float _lastFilterContrast = -1f;
+        /// <summary>Libera los recursos nativos del nodo (idempotente).</summary>
+        public void Dispose() => ReleaseNativeResources();
+
         internal void ReleaseNativeResources()
         {
             _cachedShadowFilter?.Dispose();
@@ -142,6 +151,10 @@ namespace FluentWinForms.Core
             _cachedRipplePaint = null;
             _cachedRippleClip?.Dispose();
             _cachedRippleClip = null;
+            _cachedSweepClip?.Dispose();
+            _cachedSweepClip = null;
+            _cachedChildrenClip?.Dispose();
+            _cachedChildrenClip = null;
             _cachedAcrylicTintPaint?.Dispose();
             _cachedAcrylicTintPaint = null;
             _cachedAcrylicGlowPaint?.Dispose();

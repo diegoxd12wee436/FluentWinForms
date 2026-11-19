@@ -1,4 +1,4 @@
-﻿#nullable enable
+#nullable enable
 #pragma warning disable CA1416 // Silencia advertencias de compatibilidad de System.Drawing en .NET 6+
 using System;
 using System.Collections.Generic;
@@ -20,6 +20,9 @@ namespace FluentWinForms.Core
     public abstract partial class ModernControlBase
     {
         private SKPath? _cachedClipPath;
+        private SKPath? _cachedFillPath;
+        private SKRect _lastFillRect;
+        private float _lastFillInnerRadius = -1f;
 
         // RUTA MAESTRA DE DIBUJADO
         protected override void OnPaint(PaintEventArgs e)
@@ -40,6 +43,7 @@ namespace FluentWinForms.Core
                 e.Graphics.TranslateTransform(-Left, -Top);
                 using (var pe = new PaintEventArgs(e.Graphics, Parent.ClientRectangle))
                     InvokePaintBackground(Parent, pe);
+
                 e.Graphics.Restore(state);
             }
 
@@ -292,13 +296,25 @@ namespace FluentWinForms.Core
                 float currX = startX + (endX - startX) * node.HoverProgress;
                 float currY = startY + (endY - startY) * node.HoverProgress;
 
-                // CSS: overflow: hidden (Clip)
-                using var clipPathBuilder = new SKPathBuilder();
-                clipPathBuilder.AddRoundRect(new SKRect(0, 0, node.Layout.Width, node.Layout.Height), node.Corners.TopLeft, node.Corners.TopLeft);
-                using var clipPath = clipPathBuilder.Detach();
+                // CSS: overflow: hidden (Clip) — path cacheado por nodo
+                SKRect sweepRect = new SKRect(0, 0, node.Layout.Width, node.Layout.Height);
+                if (node._cachedSweepClip == null ||
+                    node._lastSweepClipRect != sweepRect ||
+                    // Negación del "menor que": si el valor es NaN la comparación
+                    // da false y el path queda inválido para siempre. Con !(<=)
+                    // NaN cuenta como dirty y se reconstruye.
+                    !(Math.Abs(node._lastSweepClipCorner - node.Corners.TopLeft) <= 0.01f))
+                {
+                    using var clipPathBuilder = new SKPathBuilder();
+                    clipPathBuilder.AddRoundRect(sweepRect, node.Corners.TopLeft, node.Corners.TopLeft);
+                    node._cachedSweepClip?.Dispose();
+                    node._cachedSweepClip = clipPathBuilder.Detach();
+                    node._lastSweepClipRect = sweepRect;
+                    node._lastSweepClipCorner = node.Corners.TopLeft;
+                }
 
                 canvas.Save();
-                canvas.ClipPath(clipPath, SKClipOperation.Intersect, true);
+                canvas.ClipPath(node._cachedSweepClip, SKClipOperation.Intersect, true);
 
                 // Dibujar el pseudo-elemento ::before (Sweep) — paint reusado, solo se actualiza el color (sin alloc)
                 node._cachedSweepPaint ??= new SKPaint { IsAntialias = true, Style = SKPaintStyle.Fill };
@@ -320,6 +336,7 @@ namespace FluentWinForms.Core
             var rect = new SKRect(node.Layout.Left, node.Layout.Top, node.Layout.Right, node.Layout.Bottom);
             _sharedPaint ??= new SKPaint();
 
+            // 6. SOMBRA — horneada UNA VEZ a una imagen cacheada. Por frame solo se blitea (sin recomponer el blur)
             // 6. SOMBRA — horneada UNA VEZ a una imagen cacheada. Por frame solo se blitea (sin recomponer el blur)
             if (sh.Radius > 0 && sh.Color.A > 0)
             {
@@ -550,7 +567,9 @@ namespace FluentWinForms.Core
                     // Clip cacheado: solo se reconstruye si cambia el rect o la esquina.
                     if (node._cachedRippleClip == null ||
                         node._lastRippleClipRect != rect ||
-                        Math.Abs(node._lastRippleClipCorner - node.Corners.TopLeft) > 0.01f)
+                        // !(<=) para que NaN cuente como dirty (misma regla que
+                        // los demás clips cacheados).
+                        !(Math.Abs(node._lastRippleClipCorner - node.Corners.TopLeft) <= 0.01f))
                     {
                         using var rClipBuilder = new SKPathBuilder();
                         rClipBuilder.AddRoundRect(rect, node.Corners.TopLeft, node.Corners.TopLeft);
@@ -761,10 +780,19 @@ namespace FluentWinForms.Core
                 canvas.Save();
                 if (node.Corners.TopLeft > 0)
                 {
-                    using var clipPathBuilder = new SKPathBuilder();
-                    clipPathBuilder.AddRoundRect(rect, node.Corners.TopLeft, node.Corners.TopLeft);
-                    using var clipPath = clipPathBuilder.Detach();
-                    canvas.ClipPath(clipPath, SKClipOperation.Intersect, true);
+                    // Clip de hijos cacheado por nodo (antes se creaba por frame).
+                    if (node._cachedChildrenClip == null ||
+                        node._lastChildrenClipRect != rect ||
+                        !(Math.Abs(node._lastChildrenClipCorner - node.Corners.TopLeft) <= 0.01f))
+                    {
+                        using var clipPathBuilder = new SKPathBuilder();
+                        clipPathBuilder.AddRoundRect(rect, node.Corners.TopLeft, node.Corners.TopLeft);
+                        node._cachedChildrenClip?.Dispose();
+                        node._cachedChildrenClip = clipPathBuilder.Detach();
+                        node._lastChildrenClipRect = rect;
+                        node._lastChildrenClipCorner = node.Corners.TopLeft;
+                    }
+                    canvas.ClipPath(node._cachedChildrenClip, SKClipOperation.Intersect, true);
                 }
                 else canvas.ClipRect(rect, SKClipOperation.Intersect, true);
 
@@ -843,11 +871,20 @@ namespace FluentWinForms.Core
             var fillRect = new SKRect(shadowRect.Left + activeBorder / 2f, shadowRect.Top + activeBorder / 2f,
                                       shadowRect.Right - activeBorder / 2f, shadowRect.Bottom - activeBorder / 2f);
 
-            using var fillPathBuilder = new SKPathBuilder(); // Ya estaba protegido, se mantiene.
+            // Relleno interior: path cacheado (antes se creaba por frame).
             float innerRad = Math.Max(0, rad - (activeBorder / 2f));
-            fillPathBuilder.AddRoundRect(fillRect, innerRad, innerRad);
-            using var fillPath = fillPathBuilder.Detach();
-
+            if (_cachedFillPath == null ||
+                _lastFillRect != fillRect ||
+                !(Math.Abs(_lastFillInnerRadius - innerRad) <= 0.01f))
+            {
+                using var fillPathBuilder = new SKPathBuilder();
+                fillPathBuilder.AddRoundRect(fillRect, innerRad, innerRad);
+                _cachedFillPath?.Dispose();
+                _cachedFillPath = fillPathBuilder.Detach();
+                _lastFillRect = fillRect;
+                _lastFillInnerRadius = innerRad;
+            }
+            SKPath fillPath = _cachedFillPath!;
             CalculateStateColors(out Color bgColor1, out Color bgColor2, out Color borderColorTarget);
 
             var acrylicFilter = GetOrCreateAcrylicFilter();
