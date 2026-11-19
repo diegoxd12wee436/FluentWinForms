@@ -46,6 +46,38 @@ WorkingSet oscila por recorte del SO (por eso el gate de tendencia ahora usa Pri
 Los revisores corren con sandbox restringido (solo `dotnet`/`git`): no pueden lanzar la app ni
 matar procesos. Sus veredictos sobre RAM de la app real se basan en logs de esta sesión.
 
+---
+
+## Tarea C — 15 fps: qué se probó y por qué no subió
+
+Medido con arrastre programático (150 pasos) y `FWF_DUMP_BACKDROP`:
+
+| Intento | Coste medido | Resultado |
+|---|---|---|
+| Cache de pantalla difuminada a resolución nativa | refresco 200 ms (blur de 1.3 Mpx) | **6 fps** (descartado) |
+| Cache de pantalla a 1/3 + recorte con upscale | crop 8–10 ms + refresco ~100 ms | **15 fps** (descartado) |
+| Invalidar solo hijos en 3 de 4 frames (Label cada 4) | `Update()` no pinta HWND hijos → se encolan frames | **1.3 fps** (revertido) |
+| Camino actual (captura + downscale + 2×blur + upscale + `Invalidate(true)`) | produce ~20 ms, paint ~20 ms | **15–20 fps** |
+
+**Conclusión:** el techo lo pone el repintado de WinForms (~20 ms por frame ⇒ ~50 fps teóricos),
+no el blur. Para igualar al acrylic (que va al ritmo del compositor) haría falta blur a nivel
+DWM/compositor, no CPU. Se dejó el camino actual, que es el más rápido medido y estable.
+Los tres experimentos se revirtieron; no quedó código muerto.
+
+## Tarea 7 — Sombra/glow: APROBADO y commiteado
+
+`@revisor` verificó que `reach = S(Radius) * 2` es espejo exacto del padding del bake, cubre
+offsets negativos/positivos y que 3σ < 2·radio. Observaciones no bloqueantes anotadas:
+solape de HWND con hermanos cercanos (el margen pasó de ~15 a ~36-41 px), hit-test del margen,
+y `Anchor/Dock` (no se usa en el repo).
+
+## Tarea 6 — Hit-test (análisis, sin tocar)
+
+Divergencia detectada: `WM_NCHITTEST` calcula `drawnArea` con `CalculateMaxOverflow` usando
+`ScaleX/ScaleY` **actuales**, mientras `UpdatePhysicalBounds` usa `1f` y calcula el máximo de
+los estados. Además el hit-test no incluye la sombra (correcto: no debe ser clickeable).
+**No se toca sin reproducir**; queda anotado.
+
 ### Hallazgo pendiente del rompedor (fuera del harness)
 
 - `FluentWinForms/Form1.cs:126` suscribe `AnimationManager.FrameTicked` y **nunca** se daba de baja;

@@ -198,14 +198,22 @@ namespace FluentWinForms.Core
                 CalculateShadowOverflow(node.Children[i], ref maxLeft, ref maxRight, ref maxTop, ref maxBottom);
         }
 
-        private static void AccumulateShadowReach(ShadowData sh, ref float maxLeft, ref float maxRight, ref float maxTop, ref float maxBottom)
+        private void AccumulateShadowReach(ShadowData sh, ref float maxLeft, ref float maxRight, ref float maxTop, ref float maxBottom)
         {
             if (sh.Radius <= 0 || sh.Color.A <= 0) return;
 
-            maxLeft = Math.Max(maxLeft, sh.Radius + Math.Max(0f, -sh.OffsetX));
-            maxRight = Math.Max(maxRight, sh.Radius + Math.Max(0f, sh.OffsetX));
-            maxTop = Math.Max(maxTop, sh.Radius + Math.Max(0f, -sh.OffsetY));
-            maxBottom = Math.Max(maxBottom, sh.Radius + Math.Max(0f, sh.OffsetY));
+            // El bake de la sombra (RenderNodeTree) usa `2 * S(Radius)` de
+            // padding por lado y luego blitea la imagen en rect - pad. El HWND
+            // debe expandirse al menos ese padding o el borde del bitmap corta
+            // la sombra/glow (síntoma reportado).
+            float reach = S(sh.Radius) * 2f;
+            float ox = S(sh.OffsetX);
+            float oy = S(sh.OffsetY);
+
+            maxLeft = Math.Max(maxLeft, reach + Math.Max(0f, -ox));
+            maxRight = Math.Max(maxRight, reach + Math.Max(0f, ox));
+            maxTop = Math.Max(maxTop, reach + Math.Max(0f, -oy));
+            maxBottom = Math.Max(maxBottom, reach + Math.Max(0f, oy));
         }
         private void StartAnimation()
         {
