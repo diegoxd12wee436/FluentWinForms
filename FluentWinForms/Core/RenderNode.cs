@@ -102,6 +102,11 @@ namespace FluentWinForms.Core
         [Browsable(false)] internal SKShader? _cachedGradientShader;
         [Browsable(false)] internal SKPaint? _cachedSweepPaint;
         [Browsable(false)] internal SKPaint? _cachedOpacityPaint;
+        // Ripple: paint y clip reutilizados (antes se creaban por frame).
+        [Browsable(false)] internal SKPaint? _cachedRipplePaint;
+        [Browsable(false)] internal SKPath? _cachedRippleClip;
+        [Browsable(false)] internal SKRect _lastRippleClipRect;
+        [Browsable(false)] internal float _lastRippleClipCorner = -1f;
         [Browsable(false)] internal Color _lastGradientColor1 = Color.Empty;
         [Browsable(false)] internal Color _lastGradientColor2 = Color.Empty;
         [Browsable(false)] internal SKRect _lastGradientRect;
@@ -133,6 +138,10 @@ namespace FluentWinForms.Core
             _cachedSweepPaint = null;
             _cachedOpacityPaint?.Dispose();
             _cachedOpacityPaint = null;
+            _cachedRipplePaint?.Dispose();
+            _cachedRipplePaint = null;
+            _cachedRippleClip?.Dispose();
+            _cachedRippleClip = null;
             _cachedAcrylicTintPaint?.Dispose();
             _cachedAcrylicTintPaint = null;
             _cachedAcrylicGlowPaint?.Dispose();

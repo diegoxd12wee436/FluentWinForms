@@ -547,17 +547,27 @@ namespace FluentWinForms.Core
                 canvas.Save();
                 if (node.Corners.TopLeft > 0)
                 {
-                    using var rClipBuilder = new SKPathBuilder(); // 🔥 FIX LEAK: Cierre hermético de memoria C++
-                    rClipBuilder.AddRoundRect(rect, node.Corners.TopLeft, node.Corners.TopLeft);
-                    using var rClip = rClipBuilder.Detach();
-                    canvas.ClipPath(rClip, SKClipOperation.Intersect, true);
+                    // Clip cacheado: solo se reconstruye si cambia el rect o la esquina.
+                    if (node._cachedRippleClip == null ||
+                        node._lastRippleClipRect != rect ||
+                        Math.Abs(node._lastRippleClipCorner - node.Corners.TopLeft) > 0.01f)
+                    {
+                        using var rClipBuilder = new SKPathBuilder();
+                        rClipBuilder.AddRoundRect(rect, node.Corners.TopLeft, node.Corners.TopLeft);
+                        node._cachedRippleClip?.Dispose();
+                        node._cachedRippleClip = rClipBuilder.Detach();
+                        node._lastRippleClipRect = rect;
+                        node._lastRippleClipCorner = node.Corners.TopLeft;
+                    }
+                    canvas.ClipPath(node._cachedRippleClip, SKClipOperation.Intersect, true);
                 }
                 else canvas.ClipRect(rect, SKClipOperation.Intersect, true);
 
-                using (var ripplePaint = new SKPaint { Color = node.Ripple.Color.ToSKColor().WithAlpha((byte)(node.Ripple.Opacity * 255)), IsAntialias = true })
-                {
-                    canvas.DrawCircle(_rippleCenter.X, _rippleCenter.Y, _rippleRadius, ripplePaint);
-                }
+                // Paint cacheado: solo se actualiza el color/alpha por frame.
+                node._cachedRipplePaint ??= new SKPaint { IsAntialias = true };
+                node._cachedRipplePaint.Color =
+                    node.Ripple.Color.ToSKColor().WithAlpha((byte)(node.Ripple.Opacity * 255));
+                canvas.DrawCircle(_rippleCenter.X, _rippleCenter.Y, _rippleRadius, node._cachedRipplePaint);
                 canvas.Restore();
             }
 

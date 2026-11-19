@@ -71,6 +71,36 @@ offsets negativos/positivos y que 3σ < 2·radio. Observaciones no bloqueantes a
 solape de HWND con hermanos cercanos (el margen pasó de ~15 a ~36-41 px), hit-test del margen,
 y `Anchor/Dock` (no se usa en el repo).
 
+## Tarea 3 — Ripple sin allocations por frame
+
+**Estado:** APROBADO por `@revisor`; commiteado solo la optimización.
+
+- **Allocations:** el bloque del ripple creaba `SKPathBuilder`/`SKPath`/`SKPaint` por frame.
+  Ahora hay caché por nodo (`_cachedRippleClip`, `_cachedRipplePaint`) con dirty-check de
+  rect/esquina; el paint solo actualiza color/alpha. Se liberan en `ReleaseNativeResources`.
+- **Verificación:** build 0/0; el revisor confirmó que no quedan allocations por frame en el
+  bloque, sin doble dispose y solo UI thread.
+
+### Bug de producto NO tocado (decisión pendiente del usuario)
+
+`ControlBuilder.Ripple(...)` nunca activa `UseRipple`, así que **el ripple no se reproduce**.
+No se activó porque destapa dos bugs preexistentes:
+
+1. El alpha del color se **sustituye** por `opacity` (`Rendering.cs:568`). Con `.Ripple()`
+   (default `#40000000`) el círculo sale **100 % opaco** en vez de translúcido; `opacity > 1`
+   castea a byte fuera de rango.
+2. `_currentPressedNode = null` en `OnMouseUp` (`Animation.cs:481`): el fade nunca se dibuja y
+   el ripple desaparece de golpe al soltar.
+
+**No se cambió el comportamiento visual sin decisión del usuario** (regla: no tocar si hay duda).
+
+## Nota sobre el harness (flakiness conocida)
+
+`blur live (mover)` compara el hash del `BackgroundImage` antes/después de mover la ventana. Si
+el escritorio detrás es uniforme en ambas posiciones, el hash no cambia y falla sin que haya
+regresión. El chequeo "quieto + ventana opaca encima" sí es determinista. Pendiente: mover a una
+zona con contenido distinto o combinar ambos chequeos en un solo veredicto.
+
 ## Tarea 6 — Hit-test (análisis, sin tocar)
 
 Divergencia detectada: `WM_NCHITTEST` calcula `drawnArea` con `CalculateMaxOverflow` usando
