@@ -123,6 +123,53 @@ botones y se ven recortados").
 - **Trade-off:** con separación de 20 px el margen de glow queda en ~9 px; para glows grandes hay
   que separar más los controles (es geometría, no un bug).
 
+## Tarea C2 — Blur al ritmo de la pantalla (compositor en Windows 11)
+
+**Estado:** implementado, pendiente de revisión; **sin commitear**.
+
+- En `ApplyModernEffects`, si `BackdropType == Blur` y es Windows 11, se trata internamente
+  como `Acrylic`: usa el material del compositor (`SetWindowCompositionAttribute`
+  `ACCENT_ENABLE_ACRYLICBLURBEHIND`), el mismo backend que el usuario validó como "perfecto".
+  El camino CPU queda para Windows 10 (o con `FWF_BLUR_CPH=1`… ver nota).
+- **Medición (app real, diseñador en Blur, 5 s en reposo):**
+
+| Backend | CPU | RAM | Frames de backdrop CPU |
+|---|---|---|---|
+| Compositor (Win11) | **0.00 s (0.0 % de un core)** | **55.9 MB** | **0** |
+| CPU (`FWF_BLUR_CPU=1`) | 0.25 s (5.0 %) | 82.5 MB | 0 (quieto) |
+
+  Sin frames de backdrop y con CPU 0, el pintado lo hace DWM al refresco del monitor: es
+  exactamente el comportamiento del acrylic que el usuario pidió.
+- **Trade-off:** el look cambia al material del sistema (grano/tinte propios de DWM). El usuario
+  tendrá que validarlo; si prefiere el blur CPU, `FWF_BLUR_CPU=1` lo fuerza.
+- **Pendiente:** validación visual del usuario y revisión de los agentes.
+
+### Revisión: RECHAZADO → revertido (bloqueo documentado)
+
+`@revisor` bloqueó el atajo de reescribir `_backdropType`:
+
+1. Rompe el contrato público: `BackdropType` deja de devolver `Blur` tras el primer
+   `ApplyModernEffects` (y el harness que exige `BackgroundImage` falla).
+2. Al volver a `None` **no se limpia** el accent (`ACCENT_DISABLED` no existe en el repo) ni
+   `DwmExtendFrameIntoClientArea`.
+3. El branch Acrylic fuerza `DWMWA_USE_IMMERSIVE_DARK_MODE=0` → cambia el title bar a apps que
+   usan `Blur`.
+5. El flip no hace la limpieza del setter (motor CPU corriendo, `BackgroundImage` viejo).
+6. `BlurAmount` y `BackdropPerformanceMode` quedan sin efecto en Blur/Win11.
+
+**Conclusión:** el backend del compositor sí funciona (medido: 0 % CPU, 55.9 MB, 0 frames), pero
+usarlo para `Blur` requiere un diseño aparte:
+
+- `BackdropType` efectivo calculado en local (`_effectiveBackdropType`), sin mutar la propiedad.
+- `ACCENT_DISABLED` + revertir `DwmExtendFrameIntoClientArea` al salir a `None`/`TransparentStyle`.
+- No tocar `DWMWA_USE_IMMERSIVE_DARK_MODE` en el camino Blur.
+- Mapear `BlurAmount` al material del sistema (no aplica) o documentar que se ignora.
+- Limpieza del motor CPU al cambiar de camino.
+
+**Atajo inmediato para el usuario (sin tocar código):** poner `BackdropType = Acrylic` en el
+diseñador. Es el mismo backend que pidió, ya validado visualmente por él ("está perfecto") y con
+0 % de CPU. El cambio está revertido; no quedó código a medias.
+
 ## Nota sobre el harness (flakiness conocida)
 
 `blur live (mover)` compara el hash del `BackgroundImage` antes/después de mover la ventana. Si
