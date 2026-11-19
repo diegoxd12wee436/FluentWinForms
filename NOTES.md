@@ -94,10 +94,33 @@ No se activó porque destapa dos bugs preexistentes:
 
 **No se cambió el comportamiento visual sin decisión del usuario** (regla: no tocar si hay duda).
 
-## Tarea 7b — Solape de HWND entre hermanos (regresión del fix de sombra)
+## Tarea 7c — Expansión de sombra segura (RECHAZADA y revertida)
+
+**Estado: revertida.** Se implementó con acumuladores separados, clamp solo de la sombra,
+recálculo de hermanos y aserción del harness (gaps 0/1/20 → OK). El `@revisor` y el `@rompedor`
+la rechazaron con dos pruebas:
+
+1. **Diagonal**: el test perpendicular usa el contenido propio (0 en reposo), no el alcance de la
+   sombra. Dos vecinos en diagonal con `Glow(14)` se solapan **38×38 px** (57×57 con gap 1/1).
+2. **Badge**: en la app real, `btn5` ("Notificaciones") tiene `.Badge("5").BadgeOffset(-4,-6)`,
+   que aporta 15 px de contenido hacia arriba. El clamp resta solo el contenido de **este**
+   control, así que `btn4` conserva 10 px de sombra: **5 px de solape estático** (reproducido en
+   dos dumps, no es animación como decía la nota anterior).
+
+**Conclusión:** la expansión de sombra es un problema de empaquetado 2D: hay que calcular el
+contenido y la sombra de **ambos** lados de cada par (no solo del control que se recalcula) y
+limitar en los dos ejes para diagonales. Requiere un helper compartido de "expansión deseada por
+control" y un pase de layout global. No se hace con un clamp local; se deja el comportamiento
+original (`radio + offset`, sin solape) para no romper nada.
+
+**Lo que sí queda demostrado y sirve para la futura implementación:** harness con aserción de
+intersección de `Bounds` (gaps 0/1/20), recálculo de hermanos con guard anti-recursión, y la
+prueba de que el badge es el caso que rompe los cálculos locales.
 
 **Estado:** implementado, pendiente de revisión (reportado por el usuario: "se superponen los
 botones y se ven recortados").
+
+> Histórico: primera versión del clamp (rechazada por casos límite); ver más abajo.
 
 - **Causa:** al expandir el HWND a `2*S(Radio)` (36-41 px), botones separados 20 px se solapan;
   cada hijo pinta el fondo del padre en todo su rect, así que el de arriba borra al de abajo.
