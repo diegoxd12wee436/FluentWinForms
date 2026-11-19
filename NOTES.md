@@ -123,9 +123,39 @@ botones y se ven recortados").
 - **Trade-off:** con separación de 20 px el margen de glow queda en ~9 px; para glows grandes hay
   que separar más los controles (es geometría, no un bug).
 
-## Tarea C2 — Blur al ritmo de la pantalla (compositor en Windows 11)
+## Tarea C3 — Backend del compositor para Blur (RECHAZADO y revertido)
 
-**Estado:** implementado, pendiente de revisión; **sin commitear**.
+**Estado: revertido.** Se implementó el diseño (propiedad `BlurBackend`, `ApplySystemBlur`,
+`DisableSystemBlur`, sin mutar `BackdropType`) y **funcionó**: `System` = 0.00 s CPU (0 %), 63 MB,
+0 frames de backdrop; `Cpu` = 8.8 %, 82.3 MB. Pero el `@revisor` lo rechazó con 11 puntos y,
+por la regla de dos intentos, se revirtió.
+
+### Bloqueos que debe resolver una implementación futura
+
+1. **Cambio en caliente Cpu→System no apaga el motor CPU**: hay que `Stop()` + `SetBackdropSink(null)`
+   + `ClearBlurBackdrop()` + restaurar `_opaqueControls` antes del `return`.
+2. **Frames CPU encolados** (`BeginInvoke`) pueden reponer el `BackgroundImage` sobre el material:
+   filtrar por backend/generación en `ApplyBlurBackdrop` y `OnBlurBackdrop`.
+3. **`TransparentStyle`** muta a `None` sin `ApplyModernEffects`: el material y el frame extendido
+   quedan aplicados. Debe llamar a `DisableSystemBlur()`.
+4. **`Dispose`/cambio de `TargetForm`** dejan el material en el form viejo: limpiar sobre el HWND
+   anterior antes de soltarlo y resetear la bandera en `UnsubscribeTargetForm`.
+5. `DisableSystemBlur()` debe fijar también `DWMWA_SYSTEMBACKDROP_TYPE = NONE`.
+6. Estado por HWND (no global) para saber a qué ventana pertenece el material.
+7. `EnableAcrylic()` no es un fallback: se aplica siempre → doble tinte. Usar el HRESULT.
+8. `BlurAmount`/`BackdropPerformanceMode` quedan inertes con `System`: documentarlo en **esas**
+   propiedades o mapearlas.
+9. **Sin evidencia visual**: los hijos son HWND opacos y pintan `BackColor` negro; no está probado
+   que el material DWM se vea a través de ellos. Requiere `DrawToBitmap`/foto del usuario.
+10. El harness de "blur live" hay que forzarlo a `BlurBackend=Cpu` y añadir un check de que
+    `System` no genera frames CPU.
+
+**Atajo que sigue disponible sin tocar código:** `BackdropType = Acrylic` en el diseñador (mismo
+material, 0 % CPU, ya validado visualmente por el usuario).
+
+## Tarea C2 — Intento anterior (revertido, histórico)
+
+**Estado:** revertido; se conserva como registro.
 
 - En `ApplyModernEffects`, si `BackdropType == Blur` y es Windows 11, se trata internamente
   como `Acrylic`: usa el material del compositor (`SetWindowCompositionAttribute`
