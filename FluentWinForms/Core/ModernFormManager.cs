@@ -12,6 +12,7 @@ using System.Buffers;
 using System.ComponentModel;
 using System.Drawing;
 using System.Drawing.Drawing2D;
+using System.Drawing.Imaging;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
@@ -80,6 +81,15 @@ namespace FluentWinForms.Core
         private bool _autoSetBlackBackground = false;
         private int _blurAmount = 20;
 
+        // Backdrop CPU expuesto como BackgroundImage del form para que los
+        // controles hijos pinten blur en sus zonas transparentes (Bug A).
+        private Bitmap? _blurBackdropBitmap;
+        private bool _backdropLogged;
+        private bool _compositionDumped;
+        private bool _backdropCalibrated;
+        private int _backdropFrames;
+        private long _backdropFpsWindowStart;
+
         public ModernFormManager() { }
         public ModernFormManager(IContainer container) { container?.Add(this); }
 
@@ -101,6 +111,7 @@ namespace FluentWinForms.Core
                 _targetForm.Deactivate -= TargetForm_Deactivate;
                 _formHook?.ReleaseHandle();
                 _formHook = null;
+                ClearBlurBackdrop();
             }
             catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"UnsubscribeTargetForm: {ex.Message}"); }
         }
@@ -213,6 +224,8 @@ namespace FluentWinForms.Core
                 if (_backdropType != FormBackdropType.Blur && _d2dBlurHelper != null)
                 {
                     _d2dBlurHelper.Stop();
+                    _d2dBlurHelper.SetBackdropSink(null);
+                    ClearBlurBackdrop();
                 }
 
                 UpdateFormBackground();
@@ -327,6 +340,13 @@ namespace FluentWinForms.Core
             bool isWin11 = WindowsVersionHelper.IsWindows11OrGreater();
 
             if (isWin11 && _backdropType == FormBackdropType.Acrylic && _borderThickness <= 0) return;
+
+            // En Blur el backdrop cubre toda la ventana y sin borde no hay nada
+            // que dibujar: evitar el blit de una capa 100% transparente ahorra
+            // ~20 ms por repintado (medido).
+            if (_backdropType == FormBackdropType.Blur && _borderThickness <= 0 &&
+                (_overlayWindow == null || _overlayWindow.IsDisposed))
+                return;
             if (DesignMode)
             {
                 e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
@@ -362,6 +382,7 @@ namespace FluentWinForms.Core
         private int _lastWidth, _lastHeight, _lastRadius;
         private Color _lastColor;
         private float _lastThickness;
+        private bool _overlayBitmapPushed;
 
         private float GetScaleFactor()
         {
@@ -383,9 +404,11 @@ namespace FluentWinForms.Core
             Color actualColor = _borderThickness > 0 ? _borderColor : Color.Transparent;
 
             int scaledRadius = (int)Math.Round((double)(_borderRadius * scale));
+            bool rebuilt = false;
             if (_skBorderBitmap == null || _gdiBorderBitmap == null || _lastWidth != w || _lastHeight != h ||
                 _lastRadius != _borderRadius || _lastColor != actualColor || Math.Abs(_lastThickness - actualThickness) > 0.01f)
             {
+                rebuilt = true;
                 SafeDispose(ref _gdiBorderBitmap);
                 SafeDispose(ref _skBorderBitmap);
 
@@ -461,12 +484,18 @@ namespace FluentWinForms.Core
 
             if (!DesignMode && _overlayWindow != null && !_overlayWindow.IsDisposed)
             {
-                _overlayWindow.SetSkiaBitmapForOverlay(_skBorderBitmap);
+                // El overlay es una ventana propia: el bitmap ya empujado sigue
+                // visible hasta que cambie. Reenviarlo en cada paint costaba
+                // ~16 ms de UpdateLayeredWindow sin aportar nada.
+                if (rebuilt || !_overlayBitmapPushed)
+                {
+                    _overlayWindow.SetSkiaBitmapForOverlay(_skBorderBitmap);
+                    _overlayBitmapPushed = true;
+                }
             }
             else if (_gdiBorderBitmap != null)
             {
-                var oldComposite = g.CompositingMode;
-                g.CompositingMode = System.Drawing.Drawing2D.CompositingMode.SourceCopy;
+                var oldComposite = g.CompositingMode;                g.CompositingMode = System.Drawing.Drawing2D.CompositingMode.SourceCopy;
                 g.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
                 g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
                 g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
@@ -724,7 +753,18 @@ namespace FluentWinForms.Core
                 {
                     _d2dBlurHelper = new Direct2DBlurHelper(_targetForm);
                 }
+                EnableDoubleBuffering(_targetForm);
+                AdaptNativeControlsToBackdrop(_targetForm, _targetForm.BackColor);
+                _d2dBlurHelper.SetBackdropSink(OnBlurBackdrop);
                 _d2dBlurHelper.BlurAmount = _blurAmount;
+
+                // Diagnóstico: permite probar intensidades sin editar el diseñador.
+                if (int.TryParse(Environment.GetEnvironmentVariable("FWF_BLUR_AMOUNT"), out int dbgAmount) && dbgAmount > 0)
+                {
+                    _blurAmount = dbgAmount;
+                    _d2dBlurHelper.BlurAmount = dbgAmount;
+                }
+
                 _d2dBlurHelper.Start();
             }
 
@@ -819,6 +859,278 @@ namespace FluentWinForms.Core
         private void SafeDispose<T>(ref T? obj) where T : class, IDisposable
         {
             try { obj?.Dispose(); } catch { } finally { obj = null; }
+        }
+
+        // ====================================================================
+        // BACKDROP CPU → BackgroundImage del form (Bug A)
+        // --------------------------------------------------------------------
+        // El blur se dibuja en el HWND del form, pero cada control hijo es un
+        // HWND opaco: no puede ver esa superficie. WinForms resuelve la
+        // transparencia repintando el fondo del padre, así que si el padre
+        // expone el blur como BackgroundImage, los halos de los hijos dejan
+        // de mostrar el BackColor negro y muestran el backdrop real.
+        // ====================================================================
+        private void OnBlurBackdrop(byte[] pixels, int w, int h)
+        {
+            Form? form = _targetForm;
+            if (form == null || form.IsDisposed || !form.IsHandleCreated || w <= 0 || h <= 0)
+            {
+                _d2dBlurHelper?.ReleaseBackdropBuffer(pixels);
+                return;
+            }
+
+            try
+            {
+                form.BeginInvoke(new Action(() => ApplyBlurBackdrop(pixels, w, h)));
+            }
+            catch
+            {
+                _d2dBlurHelper?.ReleaseBackdropBuffer(pixels);
+            }
+        }
+
+        private void ApplyBlurBackdrop(byte[] pixels, int w, int h)
+        {
+            try
+            {
+                Form? form = _targetForm;
+                if (form == null || form.IsDisposed || _backdropType != FormBackdropType.Blur) return;
+
+                if (_blurBackdropBitmap == null || _blurBackdropBitmap.Width != w || _blurBackdropBitmap.Height != h)
+                {
+                    SafeDispose(ref _blurBackdropBitmap);
+                    _blurBackdropBitmap = new Bitmap(w, h, PixelFormat.Format32bppRgb);
+                }
+
+                BitmapData data = _blurBackdropBitmap.LockBits(
+                    new Rectangle(0, 0, w, h), ImageLockMode.WriteOnly, PixelFormat.Format32bppRgb);
+                try
+                {
+                    int rowBytes = w * 4;
+                    if (data.Stride == rowBytes)
+                    {
+                        Marshal.Copy(pixels, 0, data.Scan0, w * h * 4);
+                    }
+                    else
+                    {
+                        for (int y = 0; y < h; y++)
+                            Marshal.Copy(pixels, y * rowBytes, IntPtr.Add(data.Scan0, y * data.Stride), rowBytes);
+                    }
+                }
+                finally { _blurBackdropBitmap.UnlockBits(data); }
+
+                if (!ReferenceEquals(form.BackgroundImage, _blurBackdropBitmap))
+                {
+                    form.BackgroundImageLayout = ImageLayout.Stretch;
+                    form.BackgroundImage = _blurBackdropBitmap;
+
+                    if (!_backdropLogged && Environment.GetEnvironmentVariable("FWF_DUMP_BACKDROP") == "1")
+                    {
+                        _backdropLogged = true;
+                        try
+                        {
+                            System.IO.File.AppendAllText(
+                                System.IO.Path.Combine(System.IO.Path.GetTempPath(), "fwf-backdrop-log.txt"),
+                                $"{DateTime.Now:HH:mm:ss.fff} BackgroundImage asignado {w}x{h} form={form.Width}x{form.Height} dpi={form.DeviceDpi}{Environment.NewLine}");
+                        }
+                        catch { }
+                    }
+                }
+
+                // El backdrop es ahora la ÚNICA superficie de vidrio de la
+                // ventana, así que form y hijos deben repintar con el mismo
+                // bitmap. `Invalidate(true)` propaga a los hijos: su
+                // InvokePaintBackground(Parent) vuelve a leer el
+                // BackgroundImage y el halo queda idéntico al resto del fondo.
+                form.Invalidate(true);
+
+                // Primera vez: ajustar la cadencia de producción al coste real
+                // de repintado de esta máquina (evita saturar el hilo UI).
+                if (!_backdropCalibrated) CalibrateBackdropInterval(form);
+
+                // Diagnóstico de cadencia: frames de backdrop por segundo.
+                if (Environment.GetEnvironmentVariable("FWF_DUMP_BACKDROP") == "1")
+                {
+                    _backdropFrames++;
+                    long nowMs = Environment.TickCount64;
+                    if (_backdropFpsWindowStart == 0) _backdropFpsWindowStart = nowMs;
+                    else if (nowMs - _backdropFpsWindowStart >= 1000)
+                    {
+                        System.IO.File.AppendAllText(
+                            System.IO.Path.Combine(System.IO.Path.GetTempPath(), "fwf-backdrop-log.txt"),
+                            $"{DateTime.Now:HH:mm:ss.fff} backdrop fps={_backdropFrames * 1000.0 / (nowMs - _backdropFpsWindowStart):0.0}{Environment.NewLine}");
+                        _backdropFrames = 0;
+                        _backdropFpsWindowStart = nowMs;
+                    }
+                }
+
+                // Diagnóstico: renderiza la composición real (form + hijos) a PNG,
+                // sin pasar por la captura de pantalla que WDA bloquea.
+                if (!_compositionDumped && Environment.GetEnvironmentVariable("FWF_DUMP_FORM") == "1")
+                {
+                    _compositionDumped = true;
+                    try { form.BeginInvoke(new Action(() => DumpComposition(form))); } catch { }
+                }            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"ApplyBlurBackdrop: {ex.Message}");
+            }
+            finally
+            {
+                _d2dBlurHelper?.ReleaseBackdropBuffer(pixels);
+            }
+        }
+
+        private void ClearBlurBackdrop()
+        {
+            Form? form = _targetForm;
+            try
+            {
+                if (form != null && !form.IsDisposed && ReferenceEquals(form.BackgroundImage, _blurBackdropBitmap))
+                    form.BackgroundImage = null;
+            }
+            catch { }
+
+            SafeDispose(ref _blurBackdropBitmap);
+            _backdropLogged = false;
+            _backdropCalibrated = false;
+            _compositionDumped = false;
+        }
+
+        /// <summary>
+        /// Diagnóstico (FWF_DUMP_FORM=1): vuelca a PNG la composición WinForms
+        /// real —fondo del form + cada control hijo— para poder inspeccionar los
+        /// halos sin depender de una captura de pantalla (WDA la bloquea).
+        /// </summary>
+        private static void DumpComposition(Form form)
+        {
+            try
+            {
+                if (form.IsDisposed || !form.IsHandleCreated) return;
+                int w = Math.Max(1, form.ClientSize.Width);
+                int h = Math.Max(1, form.ClientSize.Height);
+
+                using var bmp = new Bitmap(w, h, PixelFormat.Format32bppRgb);
+                form.DrawToBitmap(bmp, new Rectangle(0, 0, w, h));
+                bmp.Save(
+                    System.IO.Path.Combine(System.IO.Path.GetTempPath(), "fwf-form.png"),
+                    ImageFormat.Png);
+
+                System.IO.File.AppendAllText(
+                    System.IO.Path.Combine(System.IO.Path.GetTempPath(), "fwf-backdrop-log.txt"),
+                    $"{DateTime.Now:HH:mm:ss.fff} composicion volcada {w}x{h}{Environment.NewLine}");
+
+                LogChildControls(form, 0);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"DumpComposition: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Los controles nativos (Label, Panel, ...) heredan el `BackColor` negro
+        /// del formulario y pintan un rectángulo opaco que tapa el backdrop. Si
+        /// no tienen un color propio y soportan fondo transparente, los pasamos
+        /// a `Transparent`: así `InvokePaintBackground(Parent)` dibuja el
+        /// `BackgroundImage` del padre (el mismo blur) en vez del negro.
+        /// Los controles que no soportan transparencia se dejan intactos.
+        /// </summary>
+        private static void AdaptNativeControlsToBackdrop(Control parent, Color formBackColor)
+        {
+            foreach (Control child in parent.Controls)
+            {
+                try
+                {
+                    if (!child.IsDisposed
+                        && child.BackColor.A == 255
+                        && child.BackColor.ToArgb() == formBackColor.ToArgb())
+                    {
+                        child.BackColor = Color.Transparent;
+                    }
+                }
+                catch { /* el control no soporta transparencia: se deja igual */ }
+
+                if (child.Controls.Count > 0)
+                    AdaptNativeControlsToBackdrop(child, formBackColor);
+            }
+        }
+
+        /// <summary>
+        /// Diagnóstico: lista los controles hijos con bounds y color de fondo,
+        /// para identificar quién no está tomando el backdrop (controles nativos).
+        /// </summary>
+        private static void LogChildControls(Control parent, int depth)
+        {
+            if (depth > 3) return;
+            string path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "fwf-backdrop-log.txt");
+            foreach (Control c in parent.Controls)
+            {
+                try
+                {
+                    System.IO.File.AppendAllText(path,
+                        $"  {new string(' ', depth * 2)}{c.GetType().Name} bounds={c.Bounds} back={c.BackColor}({c.BackColor.A}) visible={c.Visible}{Environment.NewLine}");
+                }
+                catch { }
+                if (c.Controls.Count > 0) LogChildControls(c, depth + 1);
+            }
+        }
+
+        /// <summary>
+        /// Calibra la cadencia del backdrop con el coste REAL de repintar la
+        /// ventana en esta máquina. Repintar más rápido de lo que da el hilo UI
+        /// solo produce lag: el intervalo se fija en ~3x el coste medido, con
+        /// suelo de 60 ms y techo de 400 ms.
+        /// </summary>
+        private void CalibrateBackdropInterval(Form form)
+        {
+            if (_backdropCalibrated) return;
+            _backdropCalibrated = true;
+
+            try
+            {
+                int best = int.MaxValue;
+                for (int i = 0; i < 4; i++)
+                {
+                    long t0 = System.Diagnostics.Stopwatch.GetTimestamp();
+                    form.Invalidate(true);
+                    form.Update();
+                    int ms = (int)((System.Diagnostics.Stopwatch.GetTimestamp() - t0) * 1000L / System.Diagnostics.Stopwatch.Frequency);
+                    if (ms < best) best = ms;
+                }
+
+                int interval = Math.Clamp(best * 2, 50, 250);
+                if (_d2dBlurHelper != null) _d2dBlurHelper.BackdropIntervalMs = interval;
+
+                if (Environment.GetEnvironmentVariable("FWF_DUMP_BACKDROP") == "1")
+                {
+                    System.IO.File.AppendAllText(
+                        System.IO.Path.Combine(System.IO.Path.GetTempPath(), "fwf-backdrop-log.txt"),
+                        $"  calibracion: paint={best}ms -> intervalo backdrop={interval}ms{Environment.NewLine}");
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"CalibrateBackdropInterval: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// El fondo completo de la ventana se repinta cuando llega un backdrop
+        /// nuevo. Sin buffer doble eso produce flicker. `Control.DoubleBuffered`
+        /// es protegido, así que lo activamos por reflexión y solo para el form
+        /// objetivo (no cambia la API pública ni toca los controles hijos).
+        /// </summary>
+        private static void EnableDoubleBuffering(Form form)
+        {
+            try
+            {
+                var prop = typeof(Control).GetProperty(
+                    "DoubleBuffered",
+                    System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+                prop?.SetValue(form, true, null);
+            }
+            catch { }
         }
 
         protected override void Dispose(bool disposing)
@@ -1034,14 +1346,14 @@ namespace FluentWinForms.Core
             int w = sk.Width;
             int h = sk.Height;
             if (w <= 0 || h <= 0) return;
-            float scale = 1f;
-            if (this.Owner != null && !this.Owner.IsDisposed)
-            {
-                try { using (var g = this.Owner.CreateGraphics()) scale = g.DpiX / 96f; } catch { }
-            }
 
-            int physW = (int)Math.Round((double)(w * scale));
-            int physH = (int)Math.Round((double)(h * scale));
+            // El bitmap del borde se construye con _targetForm.Width/Height,
+            // que YA están en píxeles físicos. Multiplicarlo otra vez por el
+            // DPI generaba un overlay 1.25x más grande que el form, anclado en
+            // su esquina: al mover la ventana asomaba por la derecha y por
+            // abajo (el artefacto reportado).
+            int physW = w;
+            int physH = h;
 
             if (physW <= 0 || physH <= 0) return;
 
@@ -1072,7 +1384,7 @@ namespace FluentWinForms.Core
                     if (skPtr == IntPtr.Zero) return;
 
                     int skStride = sk.RowBytes;
-                    if (skStride == physW * 4 && scale == 1f)
+                    if (skStride == physW * 4)
                     {
                         Marshal.Copy(skPtr, tmp, 0, bytes);
                     }
