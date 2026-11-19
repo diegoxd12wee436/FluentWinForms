@@ -11,8 +11,9 @@
 | Estado del build | **Compila: 0 errores, 0 warnings** |
 | Estado de los bugs A/B/C | A: **VERIFIED** por el usuario. B: corregido. C: límite de arquitectura aceptado (CPU 15–17 fps; Acrylic sigue disponible). |
 
-> **Estado actual:** ver `NOTES.md` → "ESTADO ACTUAL (2026-11-19)". Tareas 2/4/5 aprobadas
-> (sin commitear); glow CSS en capa GDI+ **revertido**; decisión **Skia-only**.
+> **Estado actual:** ver `NOTES.md` → "ESTADO ACTUAL (2026-11-19)". 2/4/5 y la ronda Skia
+> rápida (translate/escala/badge/ripple/hit-test) aprobadas y commiteadas; harness/slnx
+> commiteado. Glow CSS en capa GDI+ revertido; decisión **Skia-only**; overlay Skia pendiente.
 
 > **Avance del día a día:** ver `PROGRESS.md` (qué se implementó, evidencia y qué falta probar).
 

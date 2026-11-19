@@ -21,7 +21,10 @@
   limpiaba el bake en cada paint (~80 rebakes/s); con la capa fuera ya no existe.
 - **Backdrop:** camino CPU **aceptado** (41 MB, 15–17 fps). Acrylic intacto. GPU/DWM: opcional.
 - **Harness:** 500/200/150/3 ciclos verdes; el gate de memoria usa el máximo de las muestras
-  intermedias (un pico 4000×3000 no cuenta como fuga); `StressTests/` sigue sin commitear.
+  intermedias (un pico 4000×3000 no cuenta como fuga); `StressTests/` commiteado en `b3150cb`.
+- **Ronda Skia rápida + infra (2026-11-19):** aprobada por revisor+rompedor y commiteada
+  (`d8d650d` librería, `b3150cb` harness/slnx). Translate/escala base, badge, ripple y hit-test
+  corregidos; build 0/0 y 3 ciclos `fallos=0`.
 - **Archivos del usuario:** `Form1.Designer.cs`, `opencode.json`, `.opencode/` no se tocan.
 
 ### Decisiones nuevas (2026-11-19)
@@ -37,13 +40,59 @@
 
 ### Pendientes priorizados
 
-1. Commitear **2/4/5** (ya aprobado).
-2. **Infraestructura:** limpiar el harness (tests del glow viejo sin usar, build `runtimeconfig`),
-   agregarlo a la solución y medir controles reales con `Design()`.
-3. **Skia rápido:** translate/escala estática recortada; fade del ripple.
-4. **Skia medio:** hit-test vs dibujado (Tarea 6).
-5. **Skia grande:** overlay Skia único para glow CSS con overflow (sin GDI).
+1. ~~Commitear 2/4/5~~ (hecho: `2dc1746`).
+2. ~~Infraestructura: harness, slnx, controles reales~~ (hecho: `b3150cb`).
+3. ~~Skia rápido: translate/escala, badge, ripple~~ (hecho: `d8d650d`).
+4. ~~Skia medio: hit-test~~ (hecho: `d8d650d`; queda ampliar tests de esquina/clamp).
+5. **Skia grande:** overlay Skia único para glow CSS con overflow (sin GDI) — siguiente.
 6. **Nodos desprendidos:** liberar cachés al quitar/reemplazar nodos del árbol.
+7. Tests pendientes no bloqueantes: clamp al parent con badge negativo, badge de hijo no 0×0,
+   alpha de ripple por píxel, escala del control en VisualNode.
+
+### Tarea 7e — Glow CSS 100 % Skia (diseño, pendiente)
+
+**Objetivo:** que el halo salga completo fuera del HWND sin composición GDI+ y sin que los
+hermanos lo borren. Debe ser una sola superficie Skia.
+
+**Opción recomendada (prototipo): overlay layered por form.**
+- Ventana hija `WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_NOACTIVATE` que cubre el cliente del
+  form; `WM_NCHITTEST` devuelve `HTTRANSPARENT` para que el mouse pase a los controles.
+- Un `SKBitmap` 32bpp (BGRA premultiplicado) del tamaño del cliente; un `SKCanvas` dibuja los
+  halos de todos los `ModernControlBase` con la misma transformación que el canvas del control
+  (translate/scale/hover/press), y se presenta con `UpdateLayeredWindow`.
+- Se repinta solo cuando cambia un halo (animación/hover/estado); el resto de frames se puede
+  reutilizar el bitmap. Sin `Graphics.DrawImage`, sin GDI+ en el halo.
+- Riesgos: coste de `UpdateLayeredWindow` con bitmap completo, DPI/multimonitor, z-order,
+  recreación de handle y que el overlay no intercepte clics. Validación visual del usuario.
+
+**Alternativas descartadas:** capa en el padre con GDI+ (artefactos de borde, ya revertida);
+expandir cada HWND y aceptar solape de hermanos (borrado entre superficies); superficie única
+para toda la UI (reescritura mayor).
+
+**Orden:** después de aprobar la ronda actual (translate/ripple/hit-test). No se implementa sin
+validación visual y sin revisión de ciclo de vida (overlay/DPI/dispose).
+
+### Ronda 2026-11-19 — infraestructura + Skia rápido (APROBADA y commiteada: `d8d650d` + `b3150cb`)
+
+- `StressTests` agregado a `FluentWinForms.slnx` y **commiteado** (`b3150cb`); `dotnet run --project StressTests` funciona.
+- Harness: escenario de **60 controles reales** (`Design()` + Skia + glow) con WS/Private/GDI;
+  chequeo de `translate` estático (expansión esperada 11 px), `ripple fade` (nodo conservado
+  tras `MouseUp`) y `hit-test` real (`WM_NCHITTEST`: anillo de sombra -1, cuerpo 1).
+- `UpdatePhysicalBounds`: acumuladores separados **control / nodo / badge / sombra**; se suman
+  (control y nodo se dibujan consecutivos). El badge usa el círculo real: derecho `OffsetX`,
+  superior `-OffsetY`, izquierdo `Size - ancho - OffsetX`, inferior `Size + OffsetY - alto`; el
+  translate del nodo se suma una vez. En `VisualNode` la escala del control ya **no** se incluye:
+  solo la del nodo. `AccumulateShadowReach` usa `S(radio/offset)` a DPI >100 %.
+- `Apply` recalcula la expansión después de ubicar el HWND; `VisualNode_ChildrenChanged` no
+  re-layoutea si el control aún no tiene tamaño (antes borraba el `.Layout()` declarado).
+- Ripple: `ControlBuilder.Ripple()` activa `UseRipple`, `NoRipple()` lo desactiva; el nodo del
+  ripple se conserva tras `MouseUp` y se limpia en `DisposeAnimations`; el alpha usa
+  `color.A * Opacity * _rippleOpacity` (fade real).
+- Hit-test: `WM_NCHITTEST` incluye la base del árbol (`CalculateBaseOverflow`) y, en
+  `VisualNode`, ignora la escala del control (no dibujada); la sombra sigue fuera del área.
+- Evidencia: build 0/0; 3 ciclos `fallos=0`; `translate` host 11 px; **control+nodo+badge
+  top=27 left=23 bottom=13**; `ripple fade` OK; `hit-test` anillo -1 / cuerpo 1 (badge incluido);
+  `masa moderna 60` WS/Private planos.
 
 ---
 

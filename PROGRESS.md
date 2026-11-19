@@ -9,13 +9,13 @@
 | Rama de trabajo | `feature/estabilizacion` |
 | `main` | **intacta** (`ae1f469`, no se toca) |
 | Última verificación | **2026-11-19** |
-| Commits | A+B `42fc8be`, handler `d67f15c`, ripple `7854f7f`; docs `5dc14cb`. **2/4/5 sin commitear**; glow CSS revertido. Sin push. |
+| Commits | A+B `42fc8be`, handler `d67f15c`, ripple `7854f7f`; 2/4/5 `2dc1746`; docs `4a8f9d1`; Skia rápido `d8d650d`; harness/slnx `b3150cb`. Sin push. |
 | Último build | **0 errores, 0 warnings** |
 | Entorno detectado | `DeviceDpi=120` (125%), `PerMonitorV2`, pantalla 1536×864 |
 
-> **Estado detallado y decisiones nuevas:** ver `NOTES.md` → "ESTADO ACTUAL (2026-11-19)".
-> Resumen: tareas 2/4/5 aprobadas y listas para commit; glow CSS en la capa del padre
-> **revertido** por artefactos GDI+/Skia; decisión **Skia-only**; backdrop CPU aceptado.
+> **Estado actual:** ver `NOTES.md` → "ESTADO ACTUAL (2026-11-19)". 2/4/5 y la ronda Skia
+> rápida (translate/escala/badge/ripple/hit-test) aprobadas y commiteadas; harness/slnx
+> commiteado. Glow CSS en capa GDI+ revertido; decisión **Skia-only**; overlay Skia pendiente.
 
 ---
 
