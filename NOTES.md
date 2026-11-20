@@ -159,6 +159,25 @@ el modo de compatibilidad de Windows 7 y rechaza `WS_EX_LAYERED` en ventanas hij
 (incluye `Pump`); el bitmap completo se reenvía en cada repintado. No se implementaron dirty
 rects: el coste es aceptable para el uso actual y el foco era la corrección/estabilidad.
 
+### Plan: Blur GPU (Direct2D GaussianBlur) — checkpoint
+
+**Decisión del usuario:** `BackdropType.Blur` pasa a GPU con el efecto `ID2D1Effect`
+GaussianBlur de Direct2D (ajustable con `BlurAmount`); Acrylic no se toca; CPU (`StackBlurUltra`)
+solo como fallback Win7/8 o si el dispositivo D2D falla. Modo normal = VSync nativo; 30/60 =
+cadencia de recaptura/blur. Objetivo: menos CPU y menos RAM (downsample 1/2 como ahora).
+
+- **Punto de retorno:** este commit (y `a56ddf9`) es el estado antes de tocar el motor del blur.
+- Cambio previsto en `Direct2DBlurHelper.TryProduceBackdrop`: tras el downscale GDI, subir los
+  píxeles a una `ID2D1Bitmap` pequeña, aplicar `_blurEffect` (sigma = `BlurAmount*dpi/d`) sobre un
+  `ID2D1Bitmap1` de salida, `Map(MapOptions.Read)` y copiar a `_bdWork`; el upscale/tinte/firma/
+  sink quedan iguales. Reemplaza las dos pasadas de `StackBlurUltra`.
+- Recursos nuevos: `_blurUpload` (ID2D1Bitmap) y `_blurOut` (ID2D1Bitmap1) a `sw×sh`, con
+  save/restore del target del `_context`; liberados en `ReleaseDeviceResources`.
+- `EnsureDeviceResources(w,h)` se llama también en el camino del backdrop (crea `_context`/
+  `_blurEffect`; en Win7 `_context` es null → fallback CPU).
+- Validación: `RunLiveBlurCheck` (hash del `BackgroundImage`) debe seguir OK; `FWF_DUMP_BACKDROP=1`
+  vuelca el primer backdrop a PNG para inspeccionar el blur; harness 10/150 y Blur+stress.
+
 ### Nodos desprendidos: implementado (3.er diseño)
 
 - `RenderNode.Children` usa `RenderNodeChildren`: al `Remove`/`Clear`/`SetItem` libera solo
