@@ -23,8 +23,8 @@
 - **Harness:** 500/200/150/3 ciclos verdes; el gate de memoria usa el máximo de las muestras
   intermedias (un pico 4000×3000 no cuenta como fuga); `StressTests/` commiteado en `b3150cb`.
 - **Ronda Skia rápida + infra (2026-11-19):** aprobada por revisor+rompedor y commiteada
-  (`d8d650d` librería, `b3150cb` harness/slnx). Translate/escala base, badge, ripple y hit-test
-  corregidos; build 0/0 y 3 ciclos `fallos=0`.
+  (`d8d650d` librería, `b3150cb` harness/slnx, `0c49546` RippleDuration). Translate/escala base,
+  badge, ripple y hit-test corregidos; build 0/0 y 3 ciclos `fallos=0`.
 - **Archivos del usuario:** `Form1.Designer.cs`, `opencode.json`, `.opencode/` no se tocan.
 
 ### Decisiones nuevas (2026-11-19)
@@ -42,7 +42,7 @@
 
 1. ~~Commitear 2/4/5~~ (hecho: `2dc1746`).
 2. ~~Infraestructura: harness, slnx, controles reales~~ (hecho: `b3150cb`).
-3. ~~Skia rápido: translate/escala, badge, ripple~~ (hecho: `d8d650d`).
+3. ~~Skia rápido: translate/escala, badge, ripple~~ (hecho: `d8d650d` + `0c49546`).
 4. ~~Skia medio: hit-test~~ (hecho: `d8d650d`; queda ampliar tests de esquina/clamp).
 5. **Skia grande:** overlay Skia único para glow CSS con overflow (sin GDI) — siguiente.
 6. **Nodos desprendidos:** liberar cachés al quitar/reemplazar nodos del árbol.
@@ -72,7 +72,7 @@ para toda la UI (reescritura mayor).
 **Orden:** después de aprobar la ronda actual (translate/ripple/hit-test). No se implementa sin
 validación visual y sin revisión de ciclo de vida (overlay/DPI/dispose).
 
-### Ronda 2026-11-19 — infraestructura + Skia rápido (APROBADA y commiteada: `d8d650d` + `b3150cb`)
+### Ronda 2026-11-19 — infraestructura + Skia rápido (APROBADA y commiteada: `d8d650d` + `b3150cb` + `0c49546`)
 
 - `StressTests` agregado a `FluentWinForms.slnx` y **commiteado** (`b3150cb`); `dotnet run --project StressTests` funciona.
 - Harness: escenario de **60 controles reales** (`Design()` + Skia + glow) con WS/Private/GDI;
@@ -87,12 +87,16 @@ validación visual y sin revisión de ciclo de vida (overlay/DPI/dispose).
   re-layoutea si el control aún no tiene tamaño (antes borraba el `.Layout()` declarado).
 - Ripple: `ControlBuilder.Ripple()` activa `UseRipple`, `NoRipple()` lo desactiva; el nodo del
   ripple se conserva tras `MouseUp` y se limpia en `DisposeAnimations`; el alpha usa
-  `color.A * Opacity * _rippleOpacity` (fade real).
+  `color.A * Opacity * _rippleOpacity` (fade real). `RippleDuration` (ms, default 600,
+  **saneada a 80–10000**, NaN/∞ → 600): el radio llega a la diagonal en esa duración usando
+  `dt` real (no el clamp de 32 ms) y el fade dura `0.6 * duración`. Overload binario
+  `Ripple(string, double)` + `Ripple(string, double, double)` y `.RippleDuration(ms)`.
+  Test: 900 ms, radio/max 0.55 a 450 ms, fin tras 900+540 ms.
 - Hit-test: `WM_NCHITTEST` incluye la base del árbol (`CalculateBaseOverflow`) y, en
   `VisualNode`, ignora la escala del control (no dibujada); la sombra sigue fuera del área.
 - Evidencia: build 0/0; 3 ciclos `fallos=0`; `translate` host 11 px; **control+nodo+badge
-  top=27 left=23 bottom=13**; `ripple fade` OK; `hit-test` anillo -1 / cuerpo 1 (badge incluido);
-  `masa moderna 60` WS/Private planos.
+  top=27 left=23 bottom=13**; `ripple duration=900ms`; `ripple fade` OK; `hit-test` anillo -1 /
+  cuerpo 1 (badge incluido); `masa moderna 60` WS/Private planos.
 
 ---
 
