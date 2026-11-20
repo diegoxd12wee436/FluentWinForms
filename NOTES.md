@@ -48,9 +48,9 @@
 5. **Skia grande:** ~~overlay Skia único para glow CSS con overflow (sin GDI)~~ (prototipo
    commiteado `f0fd531`, opt-in; funcionando en la demo con `app.manifest`, validación visual
    final del usuario pendiente; coste medido en el harness).
-6. **Nodos desprendidos:** pendiente de rediseño. Se intentó dos veces y se revirtió (ver
-   “Nodos desprendidos: bloqueado tras 2 intentos”); no reintentar sin resolver la propiedad
-   del árbol y las notificaciones de nietos.
+6. ~~**Nodos desprendidos:** liberar cachés al quitar/reemplazar nodos del árbol.~~
+   (hecho en el 3.er diseño: `ReleaseReconstructibleCaches`, `VisualNode` con `except`,
+   suscripciones recursivas y limpieza de hover/pressed/ripple; ver sección).
 7. **Tests pendientes no bloqueantes:** clamp al parent con badge negativo, badge de hijo 0×0,
    alpha de ripple por píxel y escala del control en VisualNode: hechos en
    `TEST: alpha del ripple, badge/layout y manifiesto`. Queda pendiente **badge de hijo no 0×0**
@@ -156,26 +156,28 @@ el modo de compatibilidad de Windows 7 y rechaza `WS_EX_LAYERED` en ventanas hij
 (incluye `Pump`); el bitmap completo se reenvía en cada repintado. No se implementaron dirty
 rects: el coste es aceptable para el uso actual y el foco era la corrección/estabilidad.
 
-### Nodos desprendidos: bloqueado tras 2 intentos (revertido)
+### Nodos desprendidos: implementado (3.er diseño)
 
-**Intento 1:** `Children.Remove/Clear/SetItem` y el setter `VisualNode` llamaban
-`ReleaseNativeResources()`. El revisor lo rechazó: destruía `SvgPicture` y el subárbol, impedía
-reinsertar el nodo y, al promover un hijo a root, liberaba el árbol nuevo.
-
-**Intento 2:** `ReleaseReconstructibleCaches(except)` (solo cachés, sin `SvgPicture`), `Contains`
-para reentrancia y limpieza de `_currentHoveredNode/_currentPressedNode/_rippleNode`. El revisor
-encontró más casos: `VisualNode = null` no limpia punteros; el control solo escucha el
-`CollectionChanged` del root (un nieto removido no lo notifica); `SetItem` no pasa `except`; el
-árbol viejo pierde su `SvgPicture` sin dispose determinista; el release doble recorre O(n²).
-
-**Decisión:** revertido el producto y los tests; no se reintenta sin un rediseño de propiedad
-del árbol. Propuesta para una sesión dedicada:
-- Back-reference nodo→control o notificación recursiva de `Children` (no solo el root).
-- API explícita `Detach` vs `Dispose`; `VisualNode` con `ReleaseNativeResources(except: newRoot)`
-  para el SVG del árbol viejo.
-- `SetItem(old.ReleaseReconstructibleCaches(item))`.
-- Tests de `VisualNode=null`, pressed/hover en un nieto, `SetItem` descendiente y `SvgPicture`.
-- Un solo recorrido de cachés; el bucle de hijos libera solo lo no reconstruible.
+- `RenderNode.Children` usa `RenderNodeChildren`: al `Remove`/`Clear`/`SetItem` libera solo
+  cachés reconstruibles (`ReleaseReconstructibleCaches`), **no** `SvgPicture` ni datos públicos,
+  comprueba `!Contains(node)` por reentrancia y `SetItem` pasa el nuevo item como `except`.
+- `VisualNode` libera el árbol viejo con `ReleaseNativeResources(value)` (cachés + `SvgPicture`
+  del subárbol salvo el nuevo root). Si el **nuevo root contiene al viejo** (`IsNodeInTree`), no
+  libera el viejo: sigue formando parte del árbol nuevo. Usa suscripciones recursivas
+  (`SubscribeTree`/`SyncNodeSubscriptions` con `HashSet<RenderNode>`) para enterarse de cambios
+  en nietos.
+- `ClearDetachedNodeState` limpia `_currentHoveredNode/_currentPressedNode/_rippleNode` también
+  con `VisualNode=null`.
+- `SvgPicture` es por nodo: no compartir la misma instancia entre nodos que se promueven o
+  reemplazan.
+- Tests: re-bake tras remove/re-add, promover hijo (SVG viejo liberado, SVG nuevo conservado),
+  **ancestro** del viejo (SVG del viejo conservado), `SetItem` con nuevo descendiente (paint/SVG
+  del viejo intactos), `VisualNode=null` con pressed, nieto pressed sin click, `_subscribedNodes`
+  sin nodos viejos, churn de 100 y WeakReference.
+- Builder: `ModernControlBase.Design()` y `FluentElement.Design()` pasan por el setter
+  `VisualNode` (suscripciones/`oldInNew`); `IconSvg`/`IconSvgFile` clonan el `SKPicture` con
+  `Serialize`/`Deserialize` antes de que el `SKSvg` lo libere. Tests con `.SvgIcon` y
+  `.AddChild(...SvgIcon...)`, y con una subclase directa de `ModernControlBase`.
 
 **Objetivo:** que el halo salga completo fuera del HWND sin composición GDI+ y sin que los
 hermanos lo borren. Debe ser una sola superficie Skia.

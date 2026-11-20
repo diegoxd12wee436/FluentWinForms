@@ -7,6 +7,7 @@ using FluentWinForms.Custom_Controls;
 using SkiaSharp;
 using System;
 using System.Collections.Concurrent; // 🔥 INYECCIÓN: Para Caché Concurrente
+using System.Collections.Generic;
 using System.Collections.Specialized; // 🔥 INYECCIÓN: Para Reactividad del Árbol
 using System.ComponentModel;
 using System.Diagnostics;
@@ -44,6 +45,7 @@ namespace FluentWinForms.Core
 
         // 🔥 INYECCIÓN: El nodo raíz de la UI (El Lienzo)
         private RenderNode? _visualNode;
+        private readonly HashSet<RenderNode> _subscribedNodes = new();
 
         [Browsable(false)]
         [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
@@ -52,48 +54,143 @@ namespace FluentWinForms.Core
             get => _visualNode;
             set
             {
-                // 🔥 FIX REACTIVIDAD: Nos desuscribimos del viejo y nos suscribimos al nuevo
-                if (_visualNode != null) _visualNode.Children.CollectionChanged -= VisualNode_ChildrenChanged;
+                UnsubscribeAllNodes();
+                RenderNode? oldNode = _visualNode;
 
                 _visualNode = value;
                 _rippleNode = null;
 
-                if (_visualNode != null)
-                {
-                    _visualNode.Children.CollectionChanged += VisualNode_ChildrenChanged;
-                    if (Width > 0 && Height > 0)
-                        FluentWinForms.Core.LayoutEngine.ComputeLayout(_visualNode, new RectangleF(0, 0, Width, Height));
-                }
+                SubscribeTree(_visualNode);
+                if (_visualNode != null && Width > 0 && Height > 0)
+                    FluentWinForms.Core.LayoutEngine.ComputeLayout(_visualNode, new RectangleF(0, 0, Width, Height));
+
+                // El árbol viejo se descarta: liberar todo (incluido SVG) salvo
+                // el nuevo root si era descendiente suyo. Si el nuevo root
+                // CONTIENE al viejo, el viejo sigue en el árbol nuevo: no liberar.
+                bool oldInNew = oldNode != null && value != null && IsNodeInTree(oldNode, value);
+                if (oldNode != null && !ReferenceEquals(oldNode, value) && !oldInNew)
+                    oldNode.ReleaseNativeResources(value);
+
+                ClearDetachedNodeState();
                 RefreshVisuals();
+            }
+        }
+
+        private void SubscribeTree(RenderNode? node)
+        {
+            if (node == null) return;
+            if (_subscribedNodes.Add(node))
+                node.Children.CollectionChanged += VisualNode_ChildrenChanged;
+            for (int i = 0; i < node.Children.Count; i++)
+                SubscribeTree(node.Children[i]);
+        }
+
+        private void UnsubscribeAllNodes()
+        {
+            foreach (var node in _subscribedNodes)
+                node.Children.CollectionChanged -= VisualNode_ChildrenChanged;
+            _subscribedNodes.Clear();
+        }
+
+        private static void CollectNodes(RenderNode? node, HashSet<RenderNode> set)
+        {
+            if (node == null) return;
+            set.Add(node);
+            for (int i = 0; i < node.Children.Count; i++)
+                CollectNodes(node.Children[i], set);
+        }
+
+        /// <summary>
+        /// Reconcilia las suscripciones recursivas tras cualquier cambio de
+        /// Children (incluye nietos, Clear/Reset y Replace).
+        /// </summary>
+        private void SyncNodeSubscriptions()
+        {
+            var current = new HashSet<RenderNode>();
+            CollectNodes(_visualNode, current);
+
+            var stale = new List<RenderNode>();
+            foreach (var node in _subscribedNodes)
+                if (!current.Contains(node)) stale.Add(node);
+            foreach (var node in stale)
+            {
+                node.Children.CollectionChanged -= VisualNode_ChildrenChanged;
+                _subscribedNodes.Remove(node);
+            }
+            foreach (var node in current)
+            {
+                if (_subscribedNodes.Add(node))
+                    node.Children.CollectionChanged += VisualNode_ChildrenChanged;
             }
         }
 
         // 🔥 FIX REACTIVIDAD: Cuando el programador hace AddChild, esto acomoda todo
         private void VisualNode_ChildrenChanged(object? sender, NotifyCollectionChangedEventArgs e)
         {
+            SyncNodeSubscriptions();
             if (_visualNode != null)
             {
                 // Si el control aún no tiene tamaño (builder antes de Apply),
                 // no recalcular: borraría el Layout declarado con .Layout(x,y).
                 if (Width > 0 && Height > 0)
                     FluentWinForms.Core.LayoutEngine.ComputeLayout(_visualNode, new RectangleF(0, 0, Width, Height));
+                ClearDetachedNodeState();
                 RefreshVisuals();
             }
+        }
+
+        /// <summary>Pone a null los punteros a nodos que ya no están en el árbol.</summary>
+        private void ClearDetachedNodeState()
+        {
+            if (_visualNode == null)
+            {
+                if (_currentHoveredNode != null) _currentHoveredNode.IsHovered = false;
+                if (_currentPressedNode != null) _currentPressedNode.IsPressed = false;
+                _currentHoveredNode = null;
+                _currentPressedNode = null;
+                _rippleNode = null;
+                _isRippling = false;
+                _rippleOpacity = 0f;
+                return;
+            }
+
+            if (_currentHoveredNode != null && !IsNodeInTree(_currentHoveredNode, _visualNode))
+            {
+                _currentHoveredNode.IsHovered = false;
+                _currentHoveredNode = null;
+            }
+            if (_currentPressedNode != null && !IsNodeInTree(_currentPressedNode, _visualNode))
+            {
+                _currentPressedNode.IsPressed = false;
+                _currentPressedNode = null;
+            }
+            if (_rippleNode != null && !IsNodeInTree(_rippleNode, _visualNode))
+            {
+                _rippleNode = null;
+                _isRippling = false;
+                _rippleOpacity = 0f;
+            }
+        }
+
+        private static bool IsNodeInTree(RenderNode node, RenderNode root)
+        {
+            if (ReferenceEquals(node, root)) return true;
+            for (int i = 0; i < root.Children.Count; i++)
+                if (IsNodeInTree(node, root.Children[i])) return true;
+            return false;
         }
         //Desing
         public ControlBuilder<ModernControlBase> Design()
         {
-            _visualNode ??= new RenderNode();
+            VisualNode ??= new RenderNode();
 
-            
-            var builder = new ControlBuilder<ModernControlBase>(_visualNode, this);
+            var builder = new ControlBuilder<ModernControlBase>(VisualNode!, this);
 
             builder.OnApplied = node =>
             {
-                // 🔥 FIX 2: Siempre forzar ComputeLayout — sin condición
-                _visualNode = node;
-                FluentWinForms.Core.LayoutEngine.ComputeLayout(_visualNode, new RectangleF(0, 0, Width, Height));
-                RefreshVisuals();
+                // Pasar por el setter: suscripciones recursivas, oldInNew y
+                // limpieza de punteros; el setter ya recalcula layout/refresh.
+                VisualNode = node;
             };
             return builder;
         }
@@ -388,6 +485,7 @@ namespace FluentWinForms.Core
                 AppTheme.ThemeChanged -= OnThemeChanged;
                 if (_themeUpdater != null) AppTheme.ThemeChanged -= _themeUpdater;
                 if (_visualNode != null) _visualNode.Children.CollectionChanged -= VisualNode_ChildrenChanged;
+                UnsubscribeAllNodes();
 
                 DisposeAnimations();
                 ClearCaches();

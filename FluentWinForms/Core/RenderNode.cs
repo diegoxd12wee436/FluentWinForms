@@ -74,7 +74,42 @@ namespace FluentWinForms.Core
         [Category("5. Contenedor")][NotifyParentProperty(true)] public Align AlignItems { get; set; } = Align.Start;
         [Category("5. Contenedor")][NotifyParentProperty(true)] public Justify JustifyContent { get; set; } = Justify.Start;
 
-        [Browsable(false)] public ObservableCollection<RenderNode> Children { get; } = new ObservableCollection<RenderNode>();
+        [Browsable(false)] public ObservableCollection<RenderNode> Children { get; } = new RenderNodeChildren();
+
+        /// <summary>
+        /// Colección que libera solo cachés reconstruibles de los nodos que
+        /// salen del árbol. No toca SvgPicture ni datos públicos: el nodo puede
+        /// reinsertarse y se re-bakea en el siguiente paint.
+        /// </summary>
+        private sealed class RenderNodeChildren : ObservableCollection<RenderNode>
+        {
+            protected override void ClearItems()
+            {
+                var old = new RenderNode[Count];
+                CopyTo(old, 0);
+                base.ClearItems();
+                foreach (var node in old)
+                {
+                    // Un handler pudo reinsertarlo durante CollectionChanged.
+                    if (!Contains(node)) node.ReleaseReconstructibleCaches();
+                }
+            }
+
+            protected override void RemoveItem(int index)
+            {
+                RenderNode node = this[index];
+                base.RemoveItem(index);
+                if (!Contains(node)) node.ReleaseReconstructibleCaches();
+            }
+
+            protected override void SetItem(int index, RenderNode item)
+            {
+                RenderNode old = this[index];
+                base.SetItem(index, item);
+                if (!ReferenceEquals(old, item) && !Contains(old))
+                    old.ReleaseReconstructibleCaches(item);
+            }
+        }
 
         [Browsable(false)] public VisualStateOverrides HoverState;
         [Browsable(false)] public VisualStateOverrides PressState;
@@ -130,7 +165,7 @@ namespace FluentWinForms.Core
         /// <summary>Libera los recursos nativos del nodo (idempotente).</summary>
         public void Dispose() => ReleaseNativeResources();
 
-        internal void ReleaseNativeResources()
+        private void ReleaseCachesLocal()
         {
             _cachedShadowFilter?.Dispose();
             _cachedShadowFilter = null;
@@ -165,9 +200,33 @@ namespace FluentWinForms.Core
             _cachedFilterImageFilter = null;
             _cachedFilterColorFilterOnly?.Dispose();
             _cachedFilterColorFilterOnly = null;
+        }
+
+        /// <summary>
+        /// Libera cachés reconstruibles de este nodo y sus hijos, salvo el
+        /// subárbol <paramref name="except"/> (p. ej. un hijo promovido a root).
+        /// Conserva SvgPicture y datos públicos para permitir reinsertar.
+        /// </summary>
+        internal void ReleaseReconstructibleCaches(RenderNode? except = null)
+        {
+            if (ReferenceEquals(this, except)) return;
+            ReleaseCachesLocal();
+            for (int i = 0; i < Children.Count; i++)
+                Children[i].ReleaseReconstructibleCaches(except);
+        }
+
+        /// <summary>
+        /// Libera todo, incluido SvgPicture y el subárbol, salvo <paramref name="except"/>.
+        /// Se usa cuando el árbol se descarta definitivamente (VisualNode/Dispose).
+        /// </summary>
+        internal void ReleaseNativeResources(RenderNode? except = null)
+        {
+            if (ReferenceEquals(this, except)) return;
+            ReleaseCachesLocal();
             SvgPicture?.Dispose();
             SvgPicture = null;
-            foreach (var child in Children) child.ReleaseNativeResources();
+            for (int i = 0; i < Children.Count; i++)
+                Children[i].ReleaseNativeResources(except);
         }
 
         public void ClearSvg()

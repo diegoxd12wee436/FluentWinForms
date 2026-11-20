@@ -10,6 +10,7 @@ using System.Runtime.InteropServices;
 using System.Windows.Forms;
 using FluentWinForms.Core;
 using FluentWinForms.Custom_Controls;
+using SkiaSharp;
 
 namespace FluentWinForms.StressTests
 {
@@ -152,6 +153,7 @@ namespace FluentWinForms.StressTests
                 RunResizeStress();
                 warmFailures += RunSiblingOverlapCheck();
                 warmFailures += RunBadgeLayoutCheck();
+                warmFailures += RunDetachedNodeCheck();
                 warmFailures += RunControlChurnCheck();
                 warmFailures += RunDisposedBeforeHandleCheck();
                 warmFailures += RunGcCostCheck();
@@ -1062,6 +1064,243 @@ namespace FluentWinForms.StressTests
             catch (Exception ex)
             {
                 Console.WriteLine($"[assert] FALLO badge/layout: {ex.Message}");
+                failures++;
+            }
+            return failures;
+        }
+
+        private static SKPicture MakePicture()
+        {
+            var recorder = new SKPictureRecorder();
+            var canvas = recorder.BeginRecording(new SKRect(0, 0, 4, 4));
+            var picture = recorder.EndRecording();
+            canvas.Dispose();
+            recorder.Dispose();
+            return picture;
+        }
+
+        private static bool SubscribedContains(object? set, object node)
+        {
+            if (set is System.Collections.IEnumerable items)
+                foreach (var item in items)
+                    if (ReferenceEquals(item, node)) return true;
+            return false;
+        }
+
+        private static int SubscribedCount(object? set)
+            => set?.GetType().GetProperty("Count")?.GetValue(set) is int count ? count : -1;
+
+        /// <summary>Nodos desprendidos: remove/reinsert con re-bake, promover hijo a root,
+        /// VisualNode=null, remoción de nieto (suscripción recursiva) y SetItem
+        /// con un nuevo item que era descendiente del viejo.</summary>
+        private static int RunDetachedNodeCheck()
+        {
+            int failures = 0;
+            try
+            {
+                using var form = new Form { Size = new Size(400, 300) };
+                var control = FluentElement.Design("detached").Layout(80, 60, 160, 48)
+                    .Glow("#00ff00", 12).Apply(form);
+                form.Show();
+                Pump(300);
+                PaintOnce(control);
+
+                var root = control.VisualNode;
+                var paintField = typeof(RenderNode).GetField("_cachedRipplePaint",
+                    BindingFlags.Instance | BindingFlags.NonPublic);
+                var shadowField = typeof(RenderNode).GetField("_cachedShadowImage",
+                    BindingFlags.Instance | BindingFlags.NonPublic);
+                var subsField = typeof(ModernControlBase).GetField("_subscribedNodes",
+                    BindingFlags.Instance | BindingFlags.NonPublic);
+                if (root == null || paintField == null || shadowField == null || subsField == null)
+                    throw new InvalidOperationException("RenderNode/fields no disponibles");
+                object NewPaint() => Activator.CreateInstance(paintField.FieldType)!;
+
+                var removeNode = new RenderNode();
+                paintField.SetValue(removeNode, NewPaint());
+                root.Children.Add(removeNode);
+                bool added = paintField.GetValue(removeNode) != null;
+                root.Children.Remove(removeNode);
+                bool removeOk = added && paintField.GetValue(removeNode) == null;
+
+                var reusable = new RenderNode
+                {
+                    Layout = new RectangleF(10, 10, 60, 30),
+                    Shadow = new ShadowData
+                    {
+                        Radius = 8,
+                        Color = Color.FromArgb(200, 255, 0, 255)
+                    }
+                };
+                root.Children.Add(reusable);
+                PaintOnce(control);
+                bool baked = shadowField.GetValue(reusable) != null;
+                reusable.SvgPicture = MakePicture();
+                root.Children.Remove(reusable);
+                bool released = shadowField.GetValue(reusable) == null;
+                bool svgRemoved = reusable.SvgPicture != null;
+                root.Children.Add(reusable);
+                PaintOnce(control);
+                bool rebaked = shadowField.GetValue(reusable) != null;
+                bool svgReadded = reusable.SvgPicture != null;
+                bool rebakeOk = baked && released && rebaked && svgRemoved && svgReadded;
+
+                var promoteChild = new RenderNode();
+                paintField.SetValue(promoteChild, NewPaint());
+                root.SvgPicture = MakePicture();
+                promoteChild.SvgPicture = MakePicture();
+                root.Children.Add(promoteChild);
+                control.VisualNode = promoteChild;
+                bool promoteOk = paintField.GetValue(promoteChild) != null &&
+                                 root.SvgPicture == null &&
+                                 promoteChild.SvgPicture != null;
+                var promotedSubs = subsField.GetValue(control);
+                promoteOk = promoteOk &&
+                            SubscribedContains(promotedSubs, promoteChild) &&
+                            !SubscribedContains(promotedSubs, root) &&
+                            !SubscribedContains(promotedSubs, reusable);
+
+                // Caso inverso: el nuevo root CONTIENE al viejo. El viejo no debe
+                // liberarse (sigue en el árbol nuevo) y conserva su SVG.
+                var ancestor = new RenderNode();
+                ancestor.Children.Add(promoteChild);
+                promoteChild.SvgPicture?.Dispose();
+                promoteChild.SvgPicture = MakePicture();
+                control.VisualNode = ancestor;
+                bool ancestorOk = promoteChild.SvgPicture != null;
+                PaintOnce(control);
+                ancestorOk = ancestorOk && promoteChild.SvgPicture != null;
+
+                // Cleanup explícito de los SVG del test que ya no pertenecen al control.
+                reusable.SvgPicture?.Dispose();
+                reusable.SvgPicture = null;
+                root.SvgPicture?.Dispose();
+                root.SvgPicture = null;
+
+                // SetItem: el nuevo item era hijo del viejo -> sus cachés y SVG se conservan.
+                var setParent = new RenderNode();
+                var setOld = new RenderNode();
+                var setNew = new RenderNode();
+                paintField.SetValue(setNew, NewPaint());
+                setOld.SvgPicture = MakePicture();
+                setOld.Children.Add(setNew);
+                setParent.Children.Add(setOld);
+                setParent.Children[0] = setNew;
+                bool setOk = paintField.GetValue(setNew) != null &&
+                             setOld.SvgPicture != null;
+                setOld.SvgPicture?.Dispose();
+                setOld.SvgPicture = null;
+                setParent.Dispose();
+
+                // Builder: el SVG no debe destruirse al aplicar/reasignar el nodo.
+                var svgBuilder = FluentElement.Design("svg-builder").Layout(20, 120, 140, 48)
+                    .SvgIcon("<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16'><rect width='16' height='16' fill='red'/></svg>")
+                    .Apply(form);
+                Pump(100);
+                bool builderSvg = svgBuilder.VisualNode?.SvgPicture != null;
+                PaintOnce(svgBuilder);
+                builderSvg = builderSvg && svgBuilder.VisualNode?.SvgPicture != null;
+
+                var svgChild = FluentElement.Design("svg-child").Layout(20, 180, 160, 60)
+                    .AddChild(child => child.Layout(4, 4, 24, 24)
+                        .SvgIcon("<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16'><circle cx='8' cy='8' r='8' fill='red'/></svg>"))
+                    .Apply(form);
+                Pump(100);
+                var childNode = svgChild.VisualNode?.Children.FirstOrDefault();
+                bool childSvg = childNode?.SvgPicture != null;
+                PaintOnce(svgChild);
+                childSvg = childSvg && childNode?.SvgPicture != null;
+
+                // API base (subclase directa de ModernControlBase): el builder
+                // también debe pasar por VisualNode/suscripciones y conservar SVG.
+                var baseControl = new TestModernControl { Name = "base-control" };
+                baseControl.Design().Layout(20, 240, 140, 48)
+                    .SvgIcon("<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16'><rect width='16' height='16' fill='blue'/></svg>")
+                    .Apply(form);
+                Pump(100);
+                bool baseSvg = baseControl.VisualNode?.SvgPicture != null;
+                bool baseSubscribed = baseControl.VisualNode != null &&
+                                      SubscribedContains(subsField.GetValue(baseControl),
+                                          baseControl.VisualNode);
+                PaintOnce(baseControl);
+                baseSvg = baseSvg && baseControl.VisualNode?.SvgPicture != null;
+
+                var pressedField = typeof(ModernControlBase).GetField("_currentPressedNode",
+                    BindingFlags.Instance | BindingFlags.NonPublic);
+                var hoverField = typeof(ModernControlBase).GetField("_currentHoveredNode",
+                    BindingFlags.Instance | BindingFlags.NonPublic);
+
+                // VisualNode=null con un nodo pressed.
+                bool nullOk;
+                using (var nullForm = new Form { Size = new Size(300, 200) })
+                {
+                    var nc = FluentElement.Design("null-node").Layout(60, 60, 120, 48).Apply(nullForm);
+                    nullForm.Show();
+                    Pump(200);
+                    var nroot = nc.VisualNode!;
+                    int clicks = 0;
+                    var nchild = new RenderNode
+                    {
+                        Layout = new RectangleF(10, 10, 60, 30),
+                        OnClickAction = _ => clicks++
+                    };
+                    nroot.Children.Add(nchild);
+                    nroot.SvgPicture = MakePicture();
+                    Pump(50);
+                    OnMouseDown?.Invoke(nc, new object[]
+                        { new MouseEventArgs(MouseButtons.Left, 1, 20, 20, 0) });
+                    bool pressed = ReferenceEquals(pressedField?.GetValue(nc), nchild);
+                    nc.VisualNode = null;
+                    bool cleared = pressedField?.GetValue(nc) == null &&
+                                   hoverField?.GetValue(nc) == null;
+                    bool nullSvg = nroot.SvgPicture == null;
+                    bool nullSubs = SubscribedCount(subsField.GetValue(nc)) == 0;
+                    OnMouseUp?.Invoke(nc, new object[]
+                        { new MouseEventArgs(MouseButtons.Left, 1, 20, 20, 0) });
+                    nullOk = pressed && cleared && clicks == 0 && nullSvg && nullSubs;
+                    nullForm.Close();
+                }
+
+                // Nieto pressed removido: la suscripción recursiva debe limpiarlo.
+                bool nestedOk;
+                using (var nestedForm = new Form { Size = new Size(300, 200) })
+                {
+                    var nc = FluentElement.Design("nested-node").Layout(60, 60, 120, 48).Apply(nestedForm);
+                    nestedForm.Show();
+                    Pump(200);
+                    var nroot = nc.VisualNode!;
+                    int clicks = 0;
+                    var mid = new RenderNode { Layout = new RectangleF(10, 10, 90, 40) };
+                    var leaf = new RenderNode
+                    {
+                        Layout = new RectangleF(20, 20, 30, 20),
+                        OnClickAction = _ => clicks++
+                    };
+                    mid.Children.Add(leaf);
+                    nroot.Children.Add(mid);
+                    Pump(50);
+                    OnMouseDown?.Invoke(nc, new object[]
+                        { new MouseEventArgs(MouseButtons.Left, 1, 40, 40, 0) });
+                    bool pressed = ReferenceEquals(pressedField?.GetValue(nc), leaf);
+                    mid.Children.Remove(leaf);
+                    bool cleared = pressedField?.GetValue(nc) == null;
+                    bool nestedSubsOk = !SubscribedContains(subsField.GetValue(nc), leaf);
+                    OnMouseUp?.Invoke(nc, new object[]
+                        { new MouseEventArgs(MouseButtons.Left, 1, 40, 40, 0) });
+                    nestedOk = pressed && cleared && clicks == 0 && nestedSubsOk;
+                    nestedForm.Close();
+                }
+
+                bool ok = removeOk && rebakeOk && promoteOk && setOk &&
+                          ancestorOk && nullOk && nestedOk &&
+                          builderSvg && childSvg && baseSvg && baseSubscribed;
+                Console.WriteLine($"[assert] {(ok ? "OK" : "FALLO")} nodos desprendidos: remove={removeOk} rebake={rebakeOk} promote={promoteOk} ancestor={ancestorOk} setItem={setOk} builderSvg={builderSvg} childSvg={childSvg} baseSvg={baseSvg}/{baseSubscribed} null={nullOk} nieto={nestedOk}");
+                if (!ok) failures++;
+                form.Close();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[assert] FALLO nodos desprendidos: {ex.Message}");
                 failures++;
             }
             return failures;
@@ -2496,5 +2735,6 @@ namespace FluentWinForms.StressTests
             Samples.Add((cycle, ws, priv, managed, gdi, user, threads, handles));
             return (cycle, ws, priv, managed, gdi, user, threads, handles);
         }
+        private sealed class TestModernControl : ModernControlBase { }
     }
 }

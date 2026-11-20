@@ -43,7 +43,8 @@ namespace FluentWinForms.Custom_Controls
 
             builder.OnApplied = node =>
             {
-                VisualNode = null;
+                // No pasar por VisualNode=null: el nodo es el mismo y el setter
+                // liberaría su SvgPicture/cachés antes de reasignarlo.
                 VisualNode = node;
             };
 

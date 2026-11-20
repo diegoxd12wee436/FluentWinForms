@@ -1,5 +1,6 @@
 #nullable enable
 using Svg.Skia;
+using SkiaSharp;
 using System;
 using System.ComponentModel;
 using System.Drawing;
@@ -328,9 +329,20 @@ namespace FluentWinForms.Core
 
                 if (picture != null)
                 {
-                    _node.SvgPicture = picture;
-                    _node.SvgSize = new SizeF((float)width, (float)height);
-                    if (!string.IsNullOrWhiteSpace(color)) _node.SvgTintColor = ParseHex(color!);
+                    // El SKSvg (using) es dueño del picture; clonarlo antes de
+                    // que se libere para que el nodo tenga uno válido.
+                    using var data = picture.Serialize();
+                    var clone = data != null ? SKPicture.Deserialize(data) : null;
+                    if (clone != null)
+                    {
+                        _node.SvgPicture = clone;
+                        _node.SvgSize = new SizeF((float)width, (float)height);
+                        if (!string.IsNullOrWhiteSpace(color)) _node.SvgTintColor = ParseHex(color!);
+                    }
+                    else
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[FluentWinForms] IconSvg: clone nulo en '{_node.Id}'.");
+                    }
                 }
                 else
                 {
@@ -372,9 +384,18 @@ namespace FluentWinForms.Core
 
                 if (picture != null)
                 {
-                    _node.SvgPicture = picture;
-                    _node.SvgSize = new SizeF((float)width, (float)height);
-                    if (!string.IsNullOrWhiteSpace(color)) _node.SvgTintColor = ParseHex(color!);
+                    using var data = picture.Serialize();
+                    var clone = data != null ? SKPicture.Deserialize(data) : null;
+                    if (clone != null)
+                    {
+                        _node.SvgPicture = clone;
+                        _node.SvgSize = new SizeF((float)width, (float)height);
+                        if (!string.IsNullOrWhiteSpace(color)) _node.SvgTintColor = ParseHex(color!);
+                    }
+                    else
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[FluentWinForms] IconSvgFile: clone nulo en '{_node.Id}'.");
+                    }
                 }
                 else
                 {
