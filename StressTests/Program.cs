@@ -1617,6 +1617,50 @@ namespace FluentWinForms.StressTests
                 Console.WriteLine($"[assert] {(cornersOk && ringOk ? "OK" : "FALLO")} hit-test esquinas: tl={hTL}, tr={hTR}, bl={hBL}, br={hBR}, arriba={hTop}, abajo={hBottom} (cuerpo=1, anillo=-1)");
                 if (!cornersOk || !ringOk) failures++;
 
+                // Control Glow pegado al borde derecho/inferior: el HWND se
+                // clampa al parent y el hit-test debe seguir distinguiendo
+                // cuerpo (1) y anillo (-1) dentro del HWND recortado.
+                var edge = FluentElement.Design("hit-clamped")
+                    .Layout(form.ClientSize.Width - 50, form.ClientSize.Height - 40, 160, 48)
+                    .Glow("#00ff00", 14).Apply(form);
+                Pump(300);
+                Rectangle edgeLogical = edge.LogicalBounds;
+                Rectangle edgeBounds = edge.Bounds;
+                int edgeMargin = (int)Math.Ceiling(14 * form.DeviceDpi / 96f) + 1;
+                Rectangle expectedLogical = new Rectangle(
+                    form.ClientSize.Width - 50, form.ClientSize.Height - 40, 160, 48);
+                Rectangle expectedEdge = Rectangle.FromLTRB(
+                    Math.Max(0, expectedLogical.Left - edgeMargin),
+                    Math.Max(0, expectedLogical.Top - edgeMargin),
+                    Math.Min(form.ClientSize.Width, expectedLogical.Right + edgeMargin),
+                    Math.Min(form.ClientSize.Height, expectedLogical.Bottom + edgeMargin));
+                bool clampedExact = edgeBounds == expectedEdge &&
+                                    edgeLogical == expectedLogical &&
+                                    (edgeLogical.Right > form.ClientSize.Width ||
+                                     edgeLogical.Bottom > form.ClientSize.Height);
+                // lParam usa coordenadas de pantalla: el WndProc del control las
+                // convierte a cliente (convención del harness).
+                Point pEdgeBody = form.PointToScreen(new Point(
+                    edgeLogical.Left + 10, edgeLogical.Top + 10));
+                Point pEdgeRing = form.PointToScreen(new Point(
+                    edgeLogical.Left - 5, edgeLogical.Top + edgeLogical.Height / 2));
+                Point pEdgeRight = form.PointToScreen(new Point(
+                    form.ClientSize.Width - 2, edgeLogical.Top + 10));
+                Point pEdgeBottom = form.PointToScreen(new Point(
+                    edgeLogical.Left + 10, form.ClientSize.Height - 2));
+                int hEdgeBody = SendMessage(edge.Handle, 0x0084, IntPtr.Zero,
+                    LParam(pEdgeBody)).ToInt32();
+                int hEdgeRing = SendMessage(edge.Handle, 0x0084, IntPtr.Zero,
+                    LParam(pEdgeRing)).ToInt32();
+                int hEdgeRight = SendMessage(edge.Handle, 0x0084, IntPtr.Zero,
+                    LParam(pEdgeRight)).ToInt32();
+                int hEdgeBottom = SendMessage(edge.Handle, 0x0084, IntPtr.Zero,
+                    LParam(pEdgeBottom)).ToInt32();
+                bool clampHitOk = clampedExact && hEdgeBody == 1 && hEdgeRing == -1 &&
+                                  hEdgeRight == 1 && hEdgeBottom == 1;
+                Console.WriteLine($"[assert] {(clampHitOk ? "OK" : "FALLO")} hit-test clamp: bounds={edgeBounds} esperado={expectedEdge} logical={edgeLogical} esperado={expectedLogical}, cuerpo={hEdgeBody}, anillo={hEdgeRing}, bordeDer={hEdgeRight}, bordeInf={hEdgeBottom}");
+                if (!clampHitOk) failures++;
+
                 form.Close();
                 form.Dispose();
             }
