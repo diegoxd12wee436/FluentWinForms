@@ -97,6 +97,49 @@ namespace FluentWinForms.StressTests
             int warmFailures = 0;
             try
             {
+                bool visualStyles = Application.RenderWithVisualStyles;
+                Console.WriteLine($"[assert] {(visualStyles ? "OK" : "FALLO")} visual styles activos: {visualStyles}");
+                if (!visualStyles) warmFailures++;
+
+                bool supportedOs = false;
+                bool commonControls = false;
+                bool manifestChecked = false;
+                string manifestExe = "";
+                try
+                {
+                    // Módulo activo real: el apphost del harness es el que lleva
+                    // NUESTRO manifiesto. Si corre bajo dotnet.exe, no lo es.
+                    try
+                    {
+                        using var proc = Process.GetCurrentProcess();
+                        manifestExe = proc.MainModule?.FileName ?? "";
+                    }
+                    catch { }
+                    if (manifestExe.Length == 0)
+                    {
+                        string apphost = System.IO.Path.Combine(AppContext.BaseDirectory,
+                            "FluentWinForms.StressTests.exe");
+                        manifestExe = System.IO.File.Exists(apphost)
+                            ? apphost
+                            : (Environment.ProcessPath ?? "");
+                    }
+
+                    if (manifestExe.Length > 0 && System.IO.File.Exists(manifestExe))
+                    {
+                        string manifest = System.Text.Encoding.UTF8.GetString(
+                            System.IO.File.ReadAllBytes(manifestExe));
+                        manifestChecked = true;
+                        supportedOs = manifest.Contains("8e0f7a12-bfb3-4fe8-b9a5-48fd50a15a9a");
+                        commonControls = manifest.Contains("Microsoft.Windows.Common-Controls");
+                    }
+                }
+                catch { }
+                bool apphostActive = manifestExe.EndsWith("FluentWinForms.StressTests.exe",
+                    StringComparison.OrdinalIgnoreCase);
+                bool manifestOk = manifestChecked && apphostActive && supportedOs && commonControls;
+                Console.WriteLine($"[assert] {(manifestOk ? "OK" : "FALLO")} manifiesto apphost: module={System.IO.Path.GetFileName(manifestExe)}, activo={apphostActive}, supportedOS={supportedOs}, CommonControls={commonControls}");
+                if (!manifestOk) warmFailures++;
+
                 warm = Snapshot("inicio", 0);
                 // Calentamiento: un ciclo completo (JIT + caches) y se descarta.
                 RunCycle(0, extremes: true);
@@ -107,6 +150,7 @@ namespace FluentWinForms.StressTests
                 // como métrica de fuga).
                 RunResizeStress();
                 warmFailures += RunSiblingOverlapCheck();
+                warmFailures += RunBadgeLayoutCheck();
                 warmFailures += RunGcCostCheck();
                 warmFailures += RunPathCacheCheck();
                 warmFailures += RunRippleFadeCheck();
@@ -910,6 +954,117 @@ namespace FluentWinForms.StressTests
         }
 
         /// <summary>
+        /// Badge en el borde con offset negativo (clamp al parent), badge de un
+        /// hijo 0x0 y escala del nodo en VisualNode.
+        /// </summary>
+        private static int RunBadgeLayoutCheck()
+        {
+            int failures = 0;
+            try
+            {
+                using var form = new Form { Size = new Size(400, 260) };
+                var edge = FluentElement.Design("badge-edge").Layout(330, 40, 120, 44)
+                    .Glow("#ff00ff", 12).Badge("9").Apply(form);
+                form.Show();
+                Pump(250);
+
+                var node = edge.VisualNode;
+                if (node == null)
+                    throw new InvalidOperationException("VisualNode nulo");
+                var badge = node.Badge;
+                badge.IsVisible = false;
+                node.Badge = badge;
+
+                var refresh = typeof(ModernControlBase).GetMethod("RefreshPhysicalBounds",
+                    BindingFlags.Instance | BindingFlags.NonPublic);
+                refresh?.Invoke(edge, null);
+                Pump(100);
+                Rectangle withoutBadge = edge.Bounds;
+
+                badge.IsVisible = true;
+                badge.OffsetX = -30;
+                badge.OffsetY = -8;
+                node.Badge = badge;
+                refresh?.Invoke(edge, null);
+                Pump(120);
+                Rectangle eb = edge.Bounds;
+
+                bool badgeChanged = eb != withoutBadge;
+                bool badgeDirection = eb.Top <= withoutBadge.Top;
+                Rectangle logicalRect = new Rectangle(330, 40, 120, 44);
+                bool logicalOk = edge.LogicalBounds == logicalRect;
+                // Margen del glow (12) escalado por DPI + 1, con clamp al cliente.
+                int shadowMargin = (int)Math.Ceiling(12 * form.DeviceDpi / 96f) + 1;
+                Rectangle expectedWithout = Rectangle.FromLTRB(
+                    Math.Max(0, logicalRect.Left - shadowMargin),
+                    Math.Max(0, logicalRect.Top - shadowMargin),
+                    Math.Min(form.ClientSize.Width, logicalRect.Right + shadowMargin),
+                    Math.Min(form.ClientSize.Height, logicalRect.Bottom + shadowMargin));
+                // OffsetY = -8 desplaza el badge (y el HWND) 8 px hacia arriba.
+                Rectangle expectedWith = new Rectangle(
+                    expectedWithout.X, expectedWithout.Y - 8,
+                    expectedWithout.Width, expectedWithout.Height + 8);
+                bool withoutOk = withoutBadge == expectedWithout;
+                bool withOk = eb == expectedWith;
+                bool clampOk = badgeChanged && badgeDirection && logicalOk &&
+                               withoutOk && withOk &&
+                               eb.Width > 20 && eb.Height > 20 &&
+                               eb.Left >= 0 && eb.Top >= 0 &&
+                               eb.Right <= form.ClientSize.Width &&
+                               eb.Bottom <= form.ClientSize.Height;
+
+                // Badge de un hijo 0x0: debe seguir dentro del nodo y del parent.
+                var child = new RenderNode { Layout = new RectangleF(20, 20, 0, 0) };
+                var childBadge = child.Badge;
+                childBadge.IsVisible = true;
+                childBadge.Size = 16;
+                childBadge.Text = "1";
+                childBadge.OffsetX = 8;
+                childBadge.OffsetY = 8;
+                child.Badge = childBadge;
+                node.Children.Add(child);
+                refresh?.Invoke(edge, null);
+                Pump(120);
+                var childBadgeRect = new RectangleF(
+                    child.Layout.Right + (float)childBadge.OffsetX - (float)childBadge.Size,
+                    child.Layout.Top + (float)childBadge.OffsetY,
+                    (float)childBadge.Size, (float)childBadge.Size);
+                bool childBadgeInside = childBadgeRect.Left >= 0 &&
+                                        childBadgeRect.Top >= 0 &&
+                                        childBadgeRect.Right <= node.Layout.Width &&
+                                        childBadgeRect.Bottom <= node.Layout.Height;
+                bool childOk = node.Children.Contains(child) &&
+                               child.Layout.Width == 0 && child.Layout.Height == 0 &&
+                               child.Badge.IsVisible && childBadgeInside &&
+                               edge.Bounds.Right <= form.ClientSize.Width &&
+                               edge.Bounds.Bottom <= form.ClientSize.Height;
+
+                // Escala del nodo en VisualNode (no debe perderse).
+                var scaled = FluentElement.Design("scaled").Layout(60, 150, 120, 44)
+                    .Scale(1.2).Apply(form);
+                Pump(150);
+                var scaledNode = scaled.VisualNode;
+                bool scaleSet = scaledNode != null &&
+                                Math.Abs(scaledNode.ScaleX - 1.2f) < 0.01f &&
+                                Math.Abs(scaledNode.ScaleY - 1.2f) < 0.01f;
+                int scaleExpansion = scaled.LogicalBounds.Top - scaled.Bounds.Top;
+                bool scaleExpanded = scaleExpansion >= 5 && scaleExpansion <= 7;
+
+                bool ok = clampOk && childOk && scaleSet && scaleExpanded;
+                Console.WriteLine($"[assert] {(ok ? "OK" : "FALLO")} badge/layout: badge={badgeChanged}/{badgeDirection} sin={withoutBadge} esperado={expectedWithout} con={eb} esperado={expectedWith} logical={edge.LogicalBounds}, hijo0x0={childOk} badgeHijo={childBadgeRect}, scale={scaleSet} expansion={scaleExpansion}px (5..7)");
+                if (!ok) failures++;
+
+                form.Close();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[assert] FALLO badge/layout: {ex.Message}");
+                failures++;
+            }
+            return failures;
+        }
+
+        /// <summary>
         /// El ripple debe conservar el nodo después de MouseUp para dibujar el
         /// fade (antes _currentPressedNode=null lo cortaba de golpe).
         /// </summary>
@@ -923,18 +1078,37 @@ namespace FluentWinForms.StressTests
                     .Ripple("#40FF0000").RippleDuration(900).Apply(form);
                 form.Show();
                 Pump(300);
-                bool durationOk = Math.Abs(b.RippleDuration - 900f) < 0.1f;
-                Console.WriteLine($"[assert] {(durationOk ? "OK" : "FALLO")} ripple duration={b.RippleDuration:0}ms (900)");
+                bool useRipple = b.UseRipple;
+                bool durationOk = Math.Abs(b.RippleDuration - 900f) < 0.1f && useRipple;
+                Console.WriteLine($"[assert] {(durationOk ? "OK" : "FALLO")} ripple duration={b.RippleDuration:0}ms (900) useRipple={useRipple}");
                 if (!durationOk) failures++;
 
                 OnMouseDown?.Invoke(b, new object[] { new MouseEventArgs(MouseButtons.Left, 1, 40, 24, 0) });
-                Pump(450);
+                Pump(200);
 
                 var t = typeof(ModernControlBase);
                 var nodeField = t.GetField("_rippleNode", BindingFlags.Instance | BindingFlags.NonPublic);
                 var ripField = t.GetField("_isRippling", BindingFlags.Instance | BindingFlags.NonPublic);
                 var radiusField = t.GetField("_rippleRadius", BindingFlags.Instance | BindingFlags.NonPublic);
                 var maxField = t.GetField("_maxRippleRadius", BindingFlags.Instance | BindingFlags.NonPublic);
+                var opacityField = t.GetField("_rippleOpacity", BindingFlags.Instance | BindingFlags.NonPublic);
+
+                int ReadRippleAlpha()
+                {
+                    PaintOnce(b);
+                    object? paintNode = nodeField?.GetValue(b);
+                    var paintField = paintNode?.GetType().GetField("_cachedRipplePaint",
+                        BindingFlags.Instance | BindingFlags.NonPublic);
+                    object? paint = paintField?.GetValue(paintNode);
+                    object? color = paint?.GetType().GetProperty("Color")?.GetValue(paint);
+                    return color?.GetType().GetProperty("Alpha")?.GetValue(color) is byte alpha
+                        ? alpha : -1;
+                }
+
+                float earlyFade = opacityField?.GetValue(b) is float ef ? ef : -1f;
+                int alphaEarly = ReadRippleAlpha();
+                Pump(250); // total 450ms
+
                 float radius = radiusField?.GetValue(b) is float r ? r : -1f;
                 float max = maxField?.GetValue(b) is float m && m > 0f
                     ? m : (float)Math.Sqrt(b.Width * b.Width + b.Height * b.Height);
@@ -942,6 +1116,23 @@ namespace FluentWinForms.StressTests
                 bool timingOk = ratio >= 0.3f && ratio <= 0.8f;
                 Console.WriteLine($"[assert] {(timingOk ? "OK" : "FALLO")} ripple timing: radio/max={ratio:0.00} a 450ms de 900 (0.30..0.80)");
                 if (!timingOk) failures++;
+
+                // Alpha por píxel: se compara con la opacidad REAL del fade, no
+                // con un rango temporal fijo; un alpha constante o 255 falla.
+                float lateFade = opacityField?.GetValue(b) is float lf ? lf : -1f;
+                int alphaLate = ReadRippleAlpha();
+                var rippleNode = nodeField?.GetValue(b) as RenderNode;
+                float baseAlpha = rippleNode?.Ripple.Color.A ?? 0f;
+                float rippleOpacity = rippleNode?.Ripple.Opacity ?? 1f;
+                int ExpectedAlpha(float fade) =>
+                    (int)Math.Clamp(baseAlpha * rippleOpacity * fade, 0f, 255f);
+                int expectedEarly = ExpectedAlpha(earlyFade);
+                int expectedLate = ExpectedAlpha(lateFade);
+                bool alphaOk = earlyFade > lateFade &&
+                               Math.Abs(alphaEarly - expectedEarly) <= 1 &&
+                               Math.Abs(alphaLate - expectedLate) <= 1;
+                Console.WriteLine($"[assert] {(alphaOk ? "OK" : "FALLO")} ripple alpha: early={alphaEarly} (esperado {expectedEarly}, fade {earlyFade:0.00}) late={alphaLate} (esperado {expectedLate}, fade {lateFade:0.00}); opaco=255 fallaria");
+                if (!alphaOk) failures++;
 
                 OnMouseUp?.Invoke(b, new object[] { new MouseEventArgs(MouseButtons.Left, 1, 40, 24, 0) });
                 Pump(60);
@@ -1017,6 +1208,24 @@ namespace FluentWinForms.StressTests
                 bool ok = shadow.ToInt32() == -1 && body.ToInt32() == 1;
                 Console.WriteLine($"[assert] {(ok ? "OK" : "FALLO")} hit-test sombra: anillo={shadow.ToInt32()} cuerpo={body.ToInt32()} (-1/1)");
                 if (!ok) failures++;
+
+                // Esquinas del cuerpo y anillo superior/inferior.
+                Point pTL = form.PointToScreen(new Point(lb.Left + 2, lb.Top + 2));
+                Point pTR = form.PointToScreen(new Point(lb.Right - 2, lb.Top + 2));
+                Point pBL = form.PointToScreen(new Point(lb.Left + 2, lb.Bottom - 2));
+                Point pBR = form.PointToScreen(new Point(lb.Right - 2, lb.Bottom - 2));
+                Point pTop = form.PointToScreen(new Point(lb.Left + lb.Width / 2, lb.Top - 5));
+                Point pBottom = form.PointToScreen(new Point(lb.Left + lb.Width / 2, lb.Bottom + 5));
+                int hTL = SendMessage(b.Handle, 0x0084, IntPtr.Zero, LParam(pTL)).ToInt32();
+                int hTR = SendMessage(b.Handle, 0x0084, IntPtr.Zero, LParam(pTR)).ToInt32();
+                int hBL = SendMessage(b.Handle, 0x0084, IntPtr.Zero, LParam(pBL)).ToInt32();
+                int hBR = SendMessage(b.Handle, 0x0084, IntPtr.Zero, LParam(pBR)).ToInt32();
+                int hTop = SendMessage(b.Handle, 0x0084, IntPtr.Zero, LParam(pTop)).ToInt32();
+                int hBottom = SendMessage(b.Handle, 0x0084, IntPtr.Zero, LParam(pBottom)).ToInt32();
+                bool cornersOk = hTL == 1 && hTR == 1 && hBL == 1 && hBR == 1;
+                bool ringOk = hTop == -1 && hBottom == -1;
+                Console.WriteLine($"[assert] {(cornersOk && ringOk ? "OK" : "FALLO")} hit-test esquinas: tl={hTL}, tr={hTR}, bl={hBL}, br={hBR}, arriba={hTop}, abajo={hBottom} (cuerpo=1, anillo=-1)");
+                if (!cornersOk || !ringOk) failures++;
 
                 form.Close();
                 form.Dispose();
