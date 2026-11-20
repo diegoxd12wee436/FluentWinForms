@@ -13,8 +13,13 @@ namespace FluentWinForms.Core
         private static int _lines;
         private const int MaxLines = 3000;
 
+        /// <summary>Diagnóstico apagado por defecto (FWF_DIAG_LOG=1).</summary>
+        public static bool Enabled { get; set; } =
+            Environment.GetEnvironmentVariable("FWF_DIAG_LOG") == "1";
+
         public static void Log(string message)
         {
+            if (!Enabled) return;
             lock (_lock)
             {
                 if (_lines >= MaxLines) return;
@@ -26,6 +31,7 @@ namespace FluentWinForms.Core
 
         public static string Callers(int skip = 2, int take = 7)
         {
+            if (!Enabled) return string.Empty;
             var frames = new StackTrace(skip, false).GetFrames();
             var sb = new StringBuilder();
             for (int i = 0; i < frames.Length && i < take; i++)

@@ -897,6 +897,20 @@ namespace FluentWinForms.StressTests
                 if (!heldFinished) failures++;
                 OnMouseUp?.Invoke(b, new object[] { new MouseEventArgs(MouseButtons.Left, 1, 40, 24, 0) });
 
+                // Clics rápidos: el segundo Down no debe reiniciar la onda
+                // (radio no vuelve al inicio).
+                OnMouseDown?.Invoke(b, new object[] { new MouseEventArgs(MouseButtons.Left, 1, 40, 24, 0) });
+                Pump(90);
+                float r1 = radiusField?.GetValue(b) is float rr1 ? rr1 : -1f;
+                OnMouseDown?.Invoke(b, new object[] { new MouseEventArgs(MouseButtons.Left, 1, 20, 20, 0) });
+                Pump(40);
+                float r2 = radiusField?.GetValue(b) is float rr2 ? rr2 : -1f;
+                bool noRestart = r2 >= r1;
+                Console.WriteLine($"[assert] {(noRestart ? "OK" : "FALLO")} ripple clics rápidos: radio {r1:0.0} -> {r2:0.0} (sin reinicio)");
+                if (!noRestart) failures++;
+                OnMouseUp?.Invoke(b, new object[] { new MouseEventArgs(MouseButtons.Left, 1, 20, 20, 0) });
+                Pump(400);
+
                 form.Close();
                 form.Dispose();
             }
