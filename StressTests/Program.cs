@@ -39,6 +39,12 @@ namespace FluentWinForms.StressTests
         [DllImport("psapi.dll")]
         private static extern bool EmptyWorkingSet(IntPtr hProcess);
 
+        [DllImport("dwmapi.dll")]
+        private static extern int DwmGetWindowAttribute(IntPtr hwnd, int attribute, out int value, int size);
+
+        [DllImport("user32.dll")]
+        private static extern IntPtr GetForegroundWindow();
+
         private const int WM_MOUSEMOVE = 0x0200;
 
         private static readonly MethodInfo? OnMouseEnter =
@@ -106,9 +112,13 @@ namespace FluentWinForms.StressTests
                 warmFailures += RunRippleFadeCheck();
                 warmFailures += RunHitTestCheck();
                 warmFailures += RunOverlayCheck();
+                warmFailures += RunOverlayLoadCheck();
+                warmFailures += RunOverlayBackdropCheck();
                 if (Environment.GetEnvironmentVariable("FWF_OVERLAY_PIXEL") == "1")
                     warmFailures += RunOverlayPixelCheck();
                 warmFailures += RunDpiLayoutCheck();
+                if (Environment.GetEnvironmentVariable("FWF_OVERLAY_STRESS") == "1")
+                    ModernGlowOverlay.Enabled = true;
                 RunModernMassScenario();
                 RunCycle(0, extremes: false);
                 RunCycle(0, extremes: false);
@@ -242,8 +252,37 @@ namespace FluentWinForms.StressTests
         private static void RunCycle(int index, bool extremes)
         {
             using var form = new Form1();
+            // Señal fresca por ciclo: sin reset, LastOverlayBounds podría ser
+            // del Form1 anterior (mismo ClientSize) y dar un falso positivo.
+            bool overlayStress = Environment.GetEnvironmentVariable("FWF_OVERLAY_STRESS") == "1" &&
+                                 ModernGlowOverlay.Enabled;
+            if (overlayStress) ResetOverlayStats();
             form.Show();
             Application.DoEvents();
+
+            // Modo stress: el ciclo debe demostrar que Form1 adjunta y pinta
+            // el overlay; si no, el "fallos=0" sería un falso positivo.
+            if (overlayStress)
+            {
+                bool ready = PumpUntil(() =>
+                    ModernGlowOverlay.IsAttached(form) &&
+                    ModernGlowOverlay.LastUpdateSucceeded &&
+                    ModernGlowOverlay.LastOverlayBounds.Width == form.ClientSize.Width &&
+                    ModernGlowOverlay.LastOverlayBounds.Height == form.ClientSize.Height &&
+                    ModernGlowOverlay.LastOverlayScreen == form.PointToScreen(Point.Empty), 1500);
+                if (!ready)
+                {
+                    throw new InvalidOperationException(
+                        $"overlay stress Form1: adjunto={ModernGlowOverlay.IsAttached(form)}, " +
+                        $"UpdateLayered={ModernGlowOverlay.LastUpdateSucceeded}, " +
+                        $"bounds={ModernGlowOverlay.LastOverlayBounds}, cliente={form.ClientSize}, " +
+                        $"screen={ModernGlowOverlay.LastOverlayScreen} esperado={form.PointToScreen(Point.Empty)}");
+                }
+                if (index % 25 == 0)
+                {
+                    Console.WriteLine($"[info] overlay stress Form1 ciclo {index}: adjunto=True, bounds={ModernGlowOverlay.LastOverlayBounds}, cliente={form.ClientSize}, screen={ModernGlowOverlay.LastOverlayScreen}");
+                }
+            }
 
             var buttons = form.Controls.OfType<ModernControlBase>().ToList();
             if (buttons.Count == 0)
@@ -347,6 +386,26 @@ namespace FluentWinForms.StressTests
                 Application.DoEvents();
             }
 
+            // Tras los extremos, el overlay debe seguir pintando en ESTE ciclo.
+            if (overlayStress)
+            {
+                ResetOverlayStats(form);
+                bool endReady = PumpUntil(() =>
+                    ModernGlowOverlay.IsAttached(form) &&
+                    ModernGlowOverlay.LastUpdateSucceeded &&
+                    ModernGlowOverlay.LastOverlayBounds.Width == form.ClientSize.Width &&
+                    ModernGlowOverlay.LastOverlayBounds.Height == form.ClientSize.Height &&
+                    ModernGlowOverlay.LastOverlayScreen == form.PointToScreen(Point.Empty), 1500);
+                if (!endReady)
+                {
+                    throw new InvalidOperationException(
+                        $"overlay stress fin de ciclo: adjunto={ModernGlowOverlay.IsAttached(form)}, " +
+                        $"UpdateLayered={ModernGlowOverlay.LastUpdateSucceeded}, " +
+                        $"bounds={ModernGlowOverlay.LastOverlayBounds}, cliente={form.ClientSize}, " +
+                        $"screen={ModernGlowOverlay.LastOverlayScreen} esperado={form.PointToScreen(Point.Empty)}");
+                }
+            }
+
             // Alternar Close+Dispose con Dispose-solo para cubrir ambos caminos.
             if (index % 10 == 0)
             {
@@ -366,6 +425,9 @@ namespace FluentWinForms.StressTests
         // ==================================================================
         private static void InvokeDpiChange(int cycle)
         {
+            // Los overrides FWF_* ganan en ApplyModernEffects; este test fija
+            // su propio BackdropType y no debe depender del entorno.
+            using var envScope = new DiagnosticEnvScope();
             using var form = new Form1();
             // El Form1 del usuario puede estar en Backdrop=None: este test
             // necesita Blur para comprobar la cobertura del backdrop tras DPI.
@@ -1109,6 +1171,7 @@ namespace FluentWinForms.StressTests
                 {
                     FluentElement.Design("recreate").Layout(80, 60, 160, 48)
                         .Glow("#ff00ff", 14).Apply(rec);
+                    ResetOverlayStats();
                     rec.Show();
                     Pump(300);
                     rec.Size = new Size(520, 320);
@@ -1117,11 +1180,139 @@ namespace FluentWinForms.StressTests
                     Pump(500);
                     bool recAttached = ModernGlowOverlay.IsAttached(rec);
                     bool recBounds = ModernGlowOverlay.LastOverlayBounds.Width == rec.ClientSize.Width &&
-                                     ModernGlowOverlay.LastOverlayBounds.Height == rec.ClientSize.Height;
-                    Console.WriteLine($"[assert] {(recAttached && recBounds ? "OK" : "FALLO")} overlay tras recrear handle: adjunto={recAttached}, bounds={ModernGlowOverlay.LastOverlayBounds} cliente={rec.ClientSize}");
+                                     ModernGlowOverlay.LastOverlayBounds.Height == rec.ClientSize.Height &&
+                                     ModernGlowOverlay.LastOverlayScreen == rec.PointToScreen(Point.Empty);
+                    Console.WriteLine($"[assert] {(recAttached && recBounds ? "OK" : "FALLO")} overlay tras recrear handle: adjunto={recAttached}, bounds={ModernGlowOverlay.LastOverlayBounds} cliente={rec.ClientSize}, screen={ModernGlowOverlay.LastOverlayScreen} esperado={rec.PointToScreen(Point.Empty)}");
                     if (!recAttached || !recBounds) failures++;
                     rec.Close();
                     rec.Dispose();
+                }
+
+                // DPI: OnDpiChangedAfterParent debe liberar la superficie y
+                // volver a pintar; sin el override la superficie sería la misma.
+                using (var dpiForm = new Form { Size = new Size(420, 260) })
+                {
+                    FluentElement.Design("overlay-dpi").Layout(80, 60, 160, 48)
+                        .Glow("#ff00ff", 14).Apply(dpiForm);
+                    dpiForm.Show();
+                    Pump(400);
+                    Control overlayControl = dpiForm.Controls[dpiForm.Controls.Count - 1];
+                    var surfaceField = overlayControl.GetType().GetField("_surface",
+                        BindingFlags.Instance | BindingFlags.NonPublic);
+                    object? surfaceBefore = surfaceField?.GetValue(overlayControl);
+                    var dpiHandler = typeof(Control).GetMethod("OnDpiChangedAfterParent",
+                        BindingFlags.Instance | BindingFlags.NonPublic);
+                    int gdiBefore;
+                    using (var proc = Process.GetCurrentProcess())
+                        gdiBefore = GetGuiResources(proc.Handle, 0);
+                    dpiHandler?.Invoke(overlayControl, new object[] { EventArgs.Empty });
+                    Pump(400);
+                    object? surfaceAfter = surfaceField?.GetValue(overlayControl);
+                    int gdiAfter;
+                    using (var proc = Process.GetCurrentProcess())
+                        gdiAfter = GetGuiResources(proc.Handle, 0);
+                    bool recreated = surfaceBefore != null && surfaceAfter != null &&
+                                     !ReferenceEquals(surfaceBefore, surfaceAfter);
+                    bool oldDisposed = surfaceBefore?.GetType().GetProperty("IsDisposed")
+                        ?.GetValue(surfaceBefore) is true;
+                    // SKSurface sobre DIB externo: en SkiaSharp IsDisposed puede
+                    // quedar false tras Dispose; la recreación de la superficie
+                    // y el GDI estable son la evidencia del camino DPI.
+                    bool dpiOk = recreated && ModernGlowOverlay.IsAttached(dpiForm) &&
+                                 ModernGlowOverlay.LastUpdateSucceeded &&
+                                 ModernGlowOverlay.LastOverlayBounds.Width == dpiForm.ClientSize.Width &&
+                                 ModernGlowOverlay.LastOverlayBounds.Height == dpiForm.ClientSize.Height &&
+                                 ModernGlowOverlay.LastOverlayScreen == dpiForm.PointToScreen(Point.Empty) &&
+                                 gdiAfter - gdiBefore <= 2;
+                    Console.WriteLine($"[assert] {(dpiOk ? "OK" : "FALLO")} overlay DPI: superficie_recreada={recreated}, vieja_dispose={oldDisposed}, adjunto={ModernGlowOverlay.IsAttached(dpiForm)}, UpdateLayered={ModernGlowOverlay.LastUpdateSucceeded}, bounds={ModernGlowOverlay.LastOverlayBounds} cliente={dpiForm.ClientSize}, GDI={gdiBefore}->{gdiAfter}");
+                    if (!dpiOk) failures++;
+
+                    // 20 cambios de DPI más: las superficies viejas no deben
+                    // quedar retenidas (Private acotado, sin depender de IsDisposed).
+                    using (var proc = Process.GetCurrentProcess())
+                    {
+                        GC.Collect();
+                        long priv0 = proc.PrivateMemorySize64;
+                        for (int i = 0; i < 20; i++)
+                        {
+                            dpiHandler?.Invoke(overlayControl, new object[] { EventArgs.Empty });
+                            Pump(120);
+                        }
+                        GC.Collect();
+                        GC.WaitForPendingFinalizers();
+                        GC.Collect();
+                        proc.Refresh();
+                        long priv1 = proc.PrivateMemorySize64;
+                        ResetOverlayStats(dpiForm);
+                        bool dpiRenderOk = PumpUntil(() =>
+                            ModernGlowOverlay.IsAttached(dpiForm) &&
+                            ModernGlowOverlay.LastUpdateSucceeded &&
+                            ModernGlowOverlay.LastOverlayBounds.Width == dpiForm.ClientSize.Width &&
+                            ModernGlowOverlay.LastOverlayBounds.Height == dpiForm.ClientSize.Height &&
+                            ModernGlowOverlay.LastOverlayScreen == dpiForm.PointToScreen(Point.Empty), 1500);
+                        bool dpiLeakOk = priv1 - priv0 <= 6 * 1024 * 1024 && dpiRenderOk;
+                        Console.WriteLine($"[assert] {(dpiLeakOk ? "OK" : "FALLO")} overlay DPI x20: Private={priv0 / 1048576}->{priv1 / 1048576} MB (delta<=6), render_final={dpiRenderOk}, bounds={ModernGlowOverlay.LastOverlayBounds} cliente={dpiForm.ClientSize}");
+                        if (!dpiLeakOk) failures++;
+                    }
+                    dpiForm.Close();
+                    dpiForm.Dispose();
+                }
+
+                // Reparentar a un form SIN overlay con Enabled=true: el nuevo
+                // padre recibe overlay y el control queda a tamaño de contenido.
+                using (var hostOn = new Form { Size = new Size(360, 240) })
+                using (var fresh = new Form { Size = new Size(360, 240) })
+                {
+                    hostOn.Show();
+                    var movedOn = FluentElement.Design("out-on").Layout(60, 60, 140, 44)
+                        .Glow("#ff00ff", 14).Apply(hostOn);
+                    Pump(300);
+                    int insideOn = movedOn.LogicalBounds.Top - movedOn.Bounds.Top;
+                    fresh.Show();
+                    fresh.Controls.Add(movedOn);
+                    Pump(400);
+                    bool freshAttached = ModernGlowOverlay.IsAttached(fresh);
+                    int outsideOn = movedOn.LogicalBounds.Top - movedOn.Bounds.Top;
+                    bool ok = insideOn <= 3 && freshAttached && outsideOn <= 3;
+                    Console.WriteLine($"[assert] {(ok ? "OK" : "FALLO")} overlay reparentado a form sin overlay (Enabled=true): nuevo_adjunto={freshAttached}, dentro={insideOn}px, fuera={outsideOn}px (<=3)");
+                    if (!ok) failures++;
+                    hostOn.Close();
+                    hostOn.Dispose();
+                    fresh.Close();
+                    fresh.Dispose();
+                }
+
+                // Dispose antes de que el padre cree handle: el hook no queda.
+                using (var hookParent = new Form())
+                {
+                    var hooked = FluentElement.Design("hook").Layout(40, 40, 120, 40)
+                        .Glow("#ff00ff", 10).Apply(hookParent);
+                    var handlerField = typeof(ModernControlBase).GetField("_overlayAttachHandler",
+                        BindingFlags.Instance | BindingFlags.NonPublic);
+                    var hookParentField = typeof(ModernControlBase).GetField("_overlayAttachParent",
+                        BindingFlags.Instance | BindingFlags.NonPublic);
+                    object? handlerBefore = handlerField?.GetValue(hooked);
+                    bool installed = handlerBefore != null &&
+                                     hookParentField?.GetValue(hooked) != null;
+                    bool subscribedBefore = OverlayHookSubscribed(hookParent, handlerBefore as Delegate);
+                    hooked.Dispose();
+                    hookParent.Controls.Remove(hooked);
+                    bool cleared = handlerField?.GetValue(hooked) == null &&
+                                   hookParentField?.GetValue(hooked) == null;
+
+                    // Verificación real: antes del Dispose el delegate DEBE
+                    // estar en el EventHandlerList de HandleCreated del padre,
+                    // y después NO. Así también falla si la key cambiara.
+                    bool subscribedAfter = OverlayHookSubscribed(hookParent, handlerBefore as Delegate);
+                    bool unsubscribed = subscribedBefore && !subscribedAfter;
+
+                    // Segunda comprobación: crear el handle del padre después
+                    // del Dispose no debe adjuntar nada.
+                    _ = hookParent.Handle;
+                    Pump(100);
+                    bool hookNotAttached = !ModernGlowOverlay.IsAttached(hookParent);
+                    Console.WriteLine($"[assert] {(installed && cleared && unsubscribed && hookNotAttached ? "OK" : "FALLO")} overlay hook liberado al disponer sin handle: instalado={installed}, antes={subscribedBefore}, despues={subscribedAfter}, limpio={cleared}, sin_attach={hookNotAttached}");
+                    if (!installed || !cleared || !unsubscribed || !hookNotAttached) failures++;
                 }
 
                 form.Close();
@@ -1186,13 +1377,22 @@ namespace FluentWinForms.StressTests
                     int handles0 = proc0.HandleCount;
                     for (int i = 0; i < 30; i++)
                     {
-                        using (var churn = new Form { Size = new Size(320, 220) })
+                        // Tamaño distinto por form: así LastOverlayBounds no
+                        // puede "heredarse" del form anterior.
+                        var churnSize = new Size(300 + i, 220 + (i % 7));
+                        using (var churn = new Form { Size = churnSize })
                         {
                             FluentElement.Design($"churn{i}").Layout(70, 60, 150, 44)
                                 .Glow("#00aaff", 12).Apply(churn);
+                            ResetOverlayStats();
                             churn.Show();
-                            Pump(50);
-                            if (ModernGlowOverlay.IsAttached(churn) && ModernGlowOverlay.LastUpdateSucceeded)
+                            bool ready = PumpUntil(() =>
+                                ModernGlowOverlay.IsAttached(churn) &&
+                                ModernGlowOverlay.LastUpdateSucceeded &&
+                                ModernGlowOverlay.LastOverlayBounds.Width == churn.ClientSize.Width &&
+                                ModernGlowOverlay.LastOverlayBounds.Height == churn.ClientSize.Height &&
+                                ModernGlowOverlay.LastOverlayScreen == churn.PointToScreen(Point.Empty), 1500);
+                            if (ready)
                                 churnOk++;
                             else
                                 churnFail++;
@@ -1217,6 +1417,177 @@ namespace FluentWinForms.StressTests
             {
                 Console.WriteLine($"[assert] FALLO overlay: {ex.Message}");
                 failures++;
+            }
+            finally
+            {
+                ModernGlowOverlay.Enabled = false;
+            }
+            return failures;
+        }
+
+        /// <summary>
+        /// Carga con overlay activo: resize x80 + hover en 3 controles;
+        /// mide CPU/tiempo y GDI, y comprueba que el overlay sigue al cliente.
+        /// </summary>
+        private static int RunOverlayLoadCheck()
+        {
+            int failures = 0;
+            ModernGlowOverlay.Enabled = true;
+            try
+            {
+                using var form = new Form { Size = new Size(620, 440) };
+                var controls = new List<Control>();
+                for (int i = 0; i < 6; i++)
+                {
+                    controls.Add(FluentElement.Design($"load{i}")
+                        .Layout(60 + (i % 3) * 180, 60 + (i / 3) * 120, 160, 48)
+                        .Glow("#00aaff", 14).Apply(form));
+                }
+                ResetOverlayStats();
+                form.Show();
+                Pump(500);
+
+                int gdi0;
+                using (var proc = Process.GetCurrentProcess())
+                    gdi0 = GetGuiResources(proc.Handle, 0);
+
+                var sw = Stopwatch.StartNew();
+                for (int i = 0; i < 80; i++)
+                {
+                    form.Size = (i % 2 == 0) ? new Size(700, 480) : new Size(620, 440);
+                    Pump(15);
+                }
+                // Terminar en un tamaño distinto al inicial y exigir un render
+                // fresco DESPUÉS de los resizes: si el overlay se congeló, falla.
+                form.Size = new Size(700, 480);
+                ResetOverlayStats(form);
+                bool finalReady = PumpUntil(() =>
+                    ModernGlowOverlay.IsAttached(form) &&
+                    ModernGlowOverlay.LastUpdateSucceeded &&
+                    ModernGlowOverlay.LastOverlayBounds.Width == form.ClientSize.Width &&
+                    ModernGlowOverlay.LastOverlayBounds.Height == form.ClientSize.Height &&
+                    ModernGlowOverlay.LastOverlayScreen == form.PointToScreen(Point.Empty), 1500);
+                foreach (var c in controls.Take(3))
+                    OnMouseEnter?.Invoke(c, new object[] { EventArgs.Empty });
+                Pump(500);
+                // También tras el hover: si el render se congela con la animación,
+                // el estado fresco del resize no debe taparlo.
+                ResetOverlayStats(form);
+                bool hoverReady = PumpUntil(() =>
+                    ModernGlowOverlay.IsAttached(form) &&
+                    ModernGlowOverlay.LastUpdateSucceeded &&
+                    ModernGlowOverlay.LastOverlayBounds.Width == form.ClientSize.Width &&
+                    ModernGlowOverlay.LastOverlayBounds.Height == form.ClientSize.Height &&
+                    ModernGlowOverlay.LastOverlayScreen == form.PointToScreen(Point.Empty), 1500);
+                sw.Stop();
+
+                int gdi1;
+                using (var proc = Process.GetCurrentProcess())
+                    gdi1 = GetGuiResources(proc.Handle, 0);
+
+                var hoverField = typeof(ModernControlBase).GetField("_isHoveringInternal",
+                    BindingFlags.Instance | BindingFlags.NonPublic);
+                bool hovered = OnMouseEnter != null && hoverField != null &&
+                               controls.Take(3).All(c => hoverField.GetValue(c) is true);
+                bool attached = ModernGlowOverlay.IsAttached(form);
+                bool updated = ModernGlowOverlay.LastUpdateSucceeded;
+                bool bounds = ModernGlowOverlay.LastOverlayBounds.Width == form.ClientSize.Width &&
+                              ModernGlowOverlay.LastOverlayBounds.Height == form.ClientSize.Height &&
+                              ModernGlowOverlay.LastOverlayScreen == form.PointToScreen(Point.Empty);
+                bool gdiOk = gdi1 - gdi0 <= 4;
+                bool loadOk = attached && updated && bounds && gdiOk && hovered && finalReady && hoverReady;
+                Console.WriteLine($"[assert] {(loadOk ? "OK" : "FALLO")} overlay carga resize x80 + hover: {sw.ElapsedMilliseconds}ms, GDI={gdi0}->{gdi1}, final={finalReady}/{hoverReady}, hover={hovered}, adjunto={attached}, UpdateLayered={updated}, bounds={ModernGlowOverlay.LastOverlayBounds} cliente={form.ClientSize}");
+                if (!loadOk) failures++;
+
+                form.Close();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[assert] FALLO overlay carga: {ex.Message}");
+                failures++;
+            }
+            finally
+            {
+                ModernGlowOverlay.Enabled = false;
+            }
+            return failures;
+        }
+
+        /// <summary>
+        /// Overlay + backdrop Blur/Acrylic con un ModernFormManager propio
+        /// (sin depender de Form1). AutoSetBlackBackground se activa solo.
+        /// </summary>
+        private static int RunOverlayBackdropCheck()
+        {
+            using var envScope = new DiagnosticEnvScope();
+            int failures = 0;
+            ModernGlowOverlay.Enabled = true;
+            try
+            {
+                foreach (string kind in new[] { "Blur", "Acrylic" })
+                {
+                    try
+                    {
+                        using var form = new Form
+                        {
+                            FormBorderStyle = FormBorderStyle.None,
+                            StartPosition = FormStartPosition.Manual,
+                            Location = new Point(80, 80),
+                            // Tamaños que no colisionan con ningún otro test.
+                            Size = kind == "Blur" ? new Size(430, 270) : new Size(470, 330),
+                            BackColor = Color.Teal
+                        };
+                        using var mgr = new ModernFormManager { TargetForm = form };
+                        mgr.BackdropType = (FormBackdropType)Enum.Parse(
+                            typeof(FormBackdropType), kind);
+                        FluentElement.Design($"backdrop-{kind}").Layout(100, 80, 160, 48)
+                            .Glow("#ff00ff", 14).Apply(form);
+                        ResetOverlayStats();
+                        form.Show();
+                        bool ready = PumpUntil(() =>
+                            ModernGlowOverlay.IsAttached(form) &&
+                            ModernGlowOverlay.LastUpdateSucceeded &&
+                            ModernGlowOverlay.LastOverlayBounds.Width == form.ClientSize.Width &&
+                            ModernGlowOverlay.LastOverlayBounds.Height == form.ClientSize.Height &&
+                            ModernGlowOverlay.LastOverlayScreen == form.PointToScreen(Point.Empty), 2000);
+                        if (kind == "Blur") Pump(500); // el worker del backdrop es async
+
+                        bool attached = ModernGlowOverlay.IsAttached(form);
+                        bool layeredOk = ModernGlowOverlay.LastUpdateSucceeded;
+                        bool boundsOk = ModernGlowOverlay.LastOverlayBounds.Width == form.ClientSize.Width &&
+                                        ModernGlowOverlay.LastOverlayBounds.Height == form.ClientSize.Height;
+                        bool screenOk = ModernGlowOverlay.LastOverlayScreen == form.PointToScreen(Point.Empty);
+                        bool autoBlack = mgr.AutoSetBlackBackground;
+                        bool backdrop = form.BackgroundImage != null;
+
+                        // Positivo en Win11 22H2+: DWM backdrop 3 para Acrylic
+                        // y 1 (none) para Blur. En builds anteriores el
+                        // atributo no existe: se valida el fallback y se omite.
+                        int dwmBackdrop = -1;
+                        int dwmHr = -1;
+                        bool dwmSupported = WindowsVersionHelper.GetBuildNumber() >= 22621;
+                        if (dwmSupported)
+                            dwmHr = DwmGetWindowAttribute(form.Handle, 38, out dwmBackdrop, sizeof(int));
+                        bool dwmOk = !dwmSupported ||
+                                     (dwmHr == 0 && (kind == "Acrylic" ? dwmBackdrop == 3 : dwmBackdrop == 1));
+                        string dwmInfo = dwmSupported ? $"{dwmHr}/{dwmBackdrop}" : $"skip(build {WindowsVersionHelper.GetBuildNumber()})";
+
+                        // Blur usa bitmap CPU; Acrylic es DWM y no debe asignar
+                        // BackgroundImage (si lo hace, el test falla).
+                        bool kindOk = kind == "Blur" ? backdrop : !backdrop;
+                        bool ok = ready && attached && layeredOk && boundsOk && screenOk &&
+                                  autoBlack && kindOk && dwmOk;
+                        Console.WriteLine($"[assert] {(ok ? "OK" : "FALLO")} overlay+{kind}: listo={ready}, adjunto={attached}, UpdateLayered={layeredOk}, bounds={ModernGlowOverlay.LastOverlayBounds} cliente={form.ClientSize}, screen={ModernGlowOverlay.LastOverlayScreen} esperado={form.PointToScreen(Point.Empty)}, AutoBlack={autoBlack}, BackgroundImage={backdrop}, DWM={dwmInfo}");
+                        if (!ok) failures++;
+
+                        form.Close();
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"[assert] FALLO overlay+{kind}: {ex.Message}");
+                        failures++;
+                    }
+                }
             }
             finally
             {
@@ -1251,6 +1622,14 @@ namespace FluentWinForms.StressTests
                 form.Show();
                 Pump(700);
 
+                if (GetForegroundWindow() != form.Handle)
+                {
+                    Console.WriteLine("[assert] SKIP overlay pixel: la ventana de prueba no está al frente");
+                    form.Close();
+                    form.Dispose();
+                    return 0;
+                }
+
                 using var shot = new Bitmap(form.ClientSize.Width, form.ClientSize.Height);
                 using (var g = Graphics.FromImage(shot))
                     g.CopyFromScreen(form.PointToScreen(Point.Empty), Point.Empty, form.ClientSize);
@@ -1262,6 +1641,8 @@ namespace FluentWinForms.StressTests
                 bool haloOk = (halo.R > 10 || halo.B > 10) && halo.G < 80;
                 bool farOk = far.R < 10 && far.G < 10 && far.B < 10;
 
+                // Solo se omite si la ventana no está al frente; con la ventana
+                // al frente, un fondo no negro es un FALLO (overlay opaco).
                 Console.WriteLine($"[assert] {(haloOk && farOk ? "OK" : "FALLO")} overlay pixel: halo({px},{py})={halo.R},{halo.G},{halo.B} (visible={haloOk}); lejos={far.R},{far.G},{far.B} (fondo={farOk}); dibujados={ModernGlowOverlay.LastGlowControls} alphaPx={ModernGlowOverlay.LastPaintedPixels} bounds={ModernGlowOverlay.LastOverlayBounds} screen={ModernGlowOverlay.LastOverlayScreen}");
                 if (!(haloOk && farOk)) failures++;
 
@@ -1373,6 +1754,7 @@ namespace FluentWinForms.StressTests
         /// </summary>
         private static int RunLiveBlurCheck()
         {
+            using var envScope = new DiagnosticEnvScope();
             try
             {
                 using var form = new Form1();
@@ -1482,6 +1864,132 @@ namespace FluentWinForms.StressTests
             {
                 Application.DoEvents();
                 System.Threading.Thread.Sleep(15);
+            }
+        }
+
+        /// <summary>Procesa mensajes hasta que la condición se cumpla o venza.</summary>
+        private static bool PumpUntil(Func<bool> condition, int timeoutMs)
+        {
+            long until = Environment.TickCount64 + timeoutMs;
+            while (Environment.TickCount64 < until)
+            {
+                if (condition()) return true;
+                Application.DoEvents();
+                System.Threading.Thread.Sleep(10);
+            }
+            return condition();
+        }
+
+        /// <summary>
+        /// Limpia temporalmente las variables de diagnóstico del manager para
+        /// que un test fije su propio BackdropType sin que FWF_BACKDROP lo pise.
+        /// </summary>
+        private sealed class DiagnosticEnvScope : IDisposable
+        {
+            private static readonly string[] Keys =
+            {
+                "FWF_BACKDROP", "FWF_BORDER_THICKNESS", "FWF_USE_SKIA",
+                "FWF_FAKE_DPI", "FWF_BLUR_AMOUNT"
+            };
+
+            private readonly (string Key, string? Value)[] _saved;
+
+            public DiagnosticEnvScope()
+            {
+                _saved = new (string, string?)[Keys.Length];
+                for (int i = 0; i < Keys.Length; i++)
+                {
+                    _saved[i] = (Keys[i], Environment.GetEnvironmentVariable(Keys[i]));
+                    Environment.SetEnvironmentVariable(Keys[i], null);
+                }
+            }
+
+            public void Dispose()
+            {
+                foreach (var (key, value) in _saved)
+                    Environment.SetEnvironmentVariable(key, value);
+            }
+        }
+
+        /// <summary>
+        /// Limpia las estadísticas estáticas del overlay para que un test no
+        /// pueda pasar con el render de un form anterior.
+        /// </summary>
+        private static void ResetOverlayStats(Control? parent = null)
+        {
+            var type = typeof(ModernGlowOverlay);
+            var stats = type.GetMethod("SetRenderStats",
+                BindingFlags.Static | BindingFlags.NonPublic);
+            var update = type.GetMethod("SetUpdateResult",
+                BindingFlags.Static | BindingFlags.NonPublic);
+            if (stats == null || update == null)
+                throw new InvalidOperationException("No se pudo resetear el estado del overlay.");
+
+            bool freeze = parent != null &&
+                          Environment.GetEnvironmentVariable("FWF_FREEZE_OVERLAY") == "1";
+            if (freeze)
+            {
+                Control? overlay = null;
+                for (int i = parent!.Controls.Count - 1; i >= 0; i--)
+                {
+                    if (parent.Controls[i].GetType().Name == "ModernSkiaGlowOverlay")
+                    {
+                        overlay = parent.Controls[i];
+                        break;
+                    }
+                }
+                if (overlay == null)
+                    throw new InvalidOperationException(
+                        "FWF_FREEZE_OVERLAY: no se encontró el overlay en el padre.");
+                var flagField = overlay.GetType().GetField("_renderQueuedFlag",
+                    BindingFlags.Instance | BindingFlags.NonPublic);
+                if (flagField == null)
+                    throw new InvalidOperationException(
+                        "FWF_FREEZE_OVERLAY: no se encontró _renderQueuedFlag.");
+
+                // Primero drenar el BeginInvoke pendiente; si no, el callback
+                // corre durante PumpUntil, resetea el flag y pinta igual.
+                flagField.SetValue(overlay, 1);
+                Pump(60);
+                flagField.SetValue(overlay, 1);
+            }
+
+            stats.Invoke(null, new object[] { 0, 0L, Rectangle.Empty, Point.Empty });
+            update.Invoke(null, new object[] { false, 0 });
+            if (freeze) return;
+
+            if (parent != null)
+            {
+                // Sin un render nuevo, el reset dejaría bounds vacíos para siempre.
+                type.GetMethod("Request", BindingFlags.Static | BindingFlags.NonPublic)
+                    ?.Invoke(null, new object[] { parent });
+            }
+        }
+
+        /// <summary>
+        /// ¿El delegate está suscrito al HandleCreated real del padre? Lee el
+        /// EventHandlerList privado; si no puede, devuelve false (el test falla).
+        /// </summary>
+        private static bool OverlayHookSubscribed(Control parent, Delegate? handler)
+        {
+            if (handler == null) return false;
+            try
+            {
+                var keyField = typeof(Control).GetField("s_handleCreatedEvent",
+                    BindingFlags.Static | BindingFlags.NonPublic);
+                var key = keyField?.GetValue(null);
+                var eventsProp = typeof(System.ComponentModel.Component).GetProperty("Events",
+                    BindingFlags.Instance | BindingFlags.NonPublic);
+                object? events = eventsProp?.GetValue(parent);
+                var itemProp = events?.GetType().GetProperty("Item",
+                    BindingFlags.Instance | BindingFlags.Public);
+                object? current = itemProp?.GetValue(events, new[] { key! });
+                return current is Delegate currentDelegate &&
+                       currentDelegate.GetInvocationList().Contains(handler);
+            }
+            catch
+            {
+                return false;
             }
         }
 
