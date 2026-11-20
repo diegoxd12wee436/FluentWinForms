@@ -108,9 +108,12 @@ con varios controles y resize ×50.
   añaden controles después; verificado con 2 controles + una alta posterior.
 - La captura `CopyFromScreen` del sandbox devuelve contenido ajeno (teal), así que el píxel
   final (anillo de 1 px incluido) lo valida el usuario.
-- Limitaciones a validar: posible anillo de 1 px entre el botón y el halo (el HWND conserva el
-  margen de seguridad), DPI/multimonitor, z-order con paneles anidados y coste de
-  `UpdateLayeredWindow` con bitmap completo. La capa es de un nivel por padre.
+- ~~posible anillo de 1 px entre el botón y el halo~~ (resuelto: `edgePad=0` con overlay; el HWND
+  ya no tapa el último px del glow; test de píxel `edge` en `Logical.Left-2`).
+- El halo se hornea con `CreateDropShadowOnly` (sin silueta; controles transparentes/glass sin
+  mancha negra; test ghost con cuerpo teal).
+- El overlay pinta **síncrono** en el hilo de UI (hover/click/press sin lag de un frame);
+  `RenderGlows` no toca `Bounds` (lo fijan `OnHandleCreated`/`ParentResized`).
 
 **Main form bloqueado (RESUELTO):** en la app, `Controls.Add(overlay)` fallaba con
 `Win32Exception (0x80004005): Error creating window handle`; el mismo `Form1` creado dentro del

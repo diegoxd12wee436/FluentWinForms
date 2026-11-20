@@ -1699,8 +1699,8 @@ namespace FluentWinForms.StressTests
                 bool layeredOk = ModernGlowOverlay.LastUpdateSucceeded;
                 bool positionOk = ModernGlowOverlay.LastOverlayScreen == form.PointToScreen(Point.Empty);
                 int shadowExpansion = b.LogicalBounds.Top - b.Bounds.Top;
-                bool contentOnly = shadowExpansion <= 3;
-                Console.WriteLine($"[assert] {(attached && behind && contentOnly && layeredOk && positionOk ? "OK" : "FALLO")} overlay Skia: adjunto={attached}, z-order={behind}, UpdateLayered={layeredOk} (err={ModernGlowOverlay.LastUpdateError}), posición={positionOk} {ModernGlowOverlay.LastOverlayScreen}, expansión superior={shadowExpansion}px (<=3)");
+                bool contentOnly = shadowExpansion == 0;
+                Console.WriteLine($"[assert] {(attached && behind && contentOnly && layeredOk && positionOk ? "OK" : "FALLO")} overlay Skia: adjunto={attached}, z-order={behind}, UpdateLayered={layeredOk} (err={ModernGlowOverlay.LastUpdateError}), posición={positionOk} {ModernGlowOverlay.LastOverlayScreen}, expansión superior={shadowExpansion}px (==0)");
                 if (!attached || !behind || !contentOnly || !layeredOk || !positionOk) failures++;
 
                 // Un control añadido después también debe dejar el overlay al fondo.
@@ -1719,9 +1719,9 @@ namespace FluentWinForms.StressTests
                 Pump(100);
                 bool toggleAttached = ModernGlowOverlay.IsAttached(form);
                 int toggleExpansion = b.LogicalBounds.Top - b.Bounds.Top;
-                bool toggleContent = toggleExpansion <= 3;
+                bool toggleContent = toggleExpansion == 0;
                 ModernGlowOverlay.Enabled = true;
-                Console.WriteLine($"[assert] {(toggleAttached && toggleContent ? "OK" : "FALLO")} overlay Enabled=false con overlay adjunto: adjunto={toggleAttached}, expansión={toggleExpansion}px (<=3)");
+                Console.WriteLine($"[assert] {(toggleAttached && toggleContent ? "OK" : "FALLO")} overlay Enabled=false con overlay adjunto: adjunto={toggleAttached}, expansión={toggleExpansion}px (==0)");
                 if (!toggleAttached || !toggleContent) failures++;
 
                 // Adjuntado realmente tardío: form ya visible sin overlay; al
@@ -1737,8 +1737,8 @@ namespace FluentWinForms.StressTests
                     Pump(300);
                     bool lateAttached = ModernGlowOverlay.IsAttached(lateForm);
                     int lateExpansion = late.LogicalBounds.Top - late.Bounds.Top;
-                    bool lateContent = lateExpansion <= 3;
-                    Console.WriteLine($"[assert] {(noOverlayYet && lateAttached && lateContent ? "OK" : "FALLO")} overlay adjuntado tarde: sin-overlay-previo={noOverlayYet}, adjunto={lateAttached}, expansión={lateExpansion}px (<=3)");
+                    bool lateContent = lateExpansion == 0;
+                    Console.WriteLine($"[assert] {(noOverlayYet && lateAttached && lateContent ? "OK" : "FALLO")} overlay adjuntado tarde: sin-overlay-previo={noOverlayYet}, adjunto={lateAttached}, expansión={lateExpansion}px (==0)");
                     if (!noOverlayYet || !lateAttached || !lateContent) failures++;
                     lateForm.Close();
                     lateForm.Dispose();
@@ -1767,8 +1767,8 @@ namespace FluentWinForms.StressTests
                         host.Controls.Add(moved);
                         Pump(300);
                         int movedExpansion = moved.LogicalBounds.Top - moved.Bounds.Top;
-                        bool movedContent = movedExpansion <= 3;
-                        Console.WriteLine($"[assert] {(hostAttached && !otherAttached && movedContent ? "OK" : "FALLO")} overlay control reparentado: host={hostAttached}, otro={otherAttached}, expansión={movedExpansion}px (<=3)");
+                        bool movedContent = movedExpansion == 0;
+                        Console.WriteLine($"[assert] {(hostAttached && !otherAttached && movedContent ? "OK" : "FALLO")} overlay control reparentado: host={hostAttached}, otro={otherAttached}, expansión={movedExpansion}px (==0)");
                         if (!hostAttached || otherAttached || !movedContent) failures++;
                         host.Close();
                         host.Dispose();
@@ -1798,8 +1798,8 @@ namespace FluentWinForms.StressTests
                         bare.Controls.Add(movedOut);
                         Pump(300);
                         int outsideExpansion = movedOut.LogicalBounds.Top - movedOut.Bounds.Top;
-                        bool ok = insideExpansion <= 3 && outsideExpansion >= 10;
-                        Console.WriteLine($"[assert] {(ok ? "OK" : "FALLO")} overlay reparentado fuera: dentro={insideExpansion}px (<=3), fuera={outsideExpansion}px (>=10)");
+                        bool ok = insideExpansion == 0 && outsideExpansion >= 10;
+                        Console.WriteLine($"[assert] {(ok ? "OK" : "FALLO")} overlay reparentado fuera: dentro={insideExpansion}px (==0), fuera={outsideExpansion}px (>=10)");
                         if (!ok) failures++;
                     }
                     finally
@@ -1866,6 +1866,8 @@ namespace FluentWinForms.StressTests
                                  ModernGlowOverlay.LastOverlayBounds.Width == dpiForm.ClientSize.Width &&
                                  ModernGlowOverlay.LastOverlayBounds.Height == dpiForm.ClientSize.Height &&
                                  ModernGlowOverlay.LastOverlayScreen == dpiForm.PointToScreen(Point.Empty) &&
+                                 overlayControl.Bounds.Width == dpiForm.ClientSize.Width &&
+                                 overlayControl.Bounds.Height == dpiForm.ClientSize.Height &&
                                  gdiAfter - gdiBefore <= 2;
                     Console.WriteLine($"[assert] {(dpiOk ? "OK" : "FALLO")} overlay DPI: superficie_recreada={recreated}, vieja_dispose={oldDisposed}, adjunto={ModernGlowOverlay.IsAttached(dpiForm)}, UpdateLayered={ModernGlowOverlay.LastUpdateSucceeded}, bounds={ModernGlowOverlay.LastOverlayBounds} cliente={dpiForm.ClientSize}, GDI={gdiBefore}->{gdiAfter}");
                     if (!dpiOk) failures++;
@@ -1916,8 +1918,8 @@ namespace FluentWinForms.StressTests
                     Pump(400);
                     bool freshAttached = ModernGlowOverlay.IsAttached(fresh);
                     int outsideOn = movedOn.LogicalBounds.Top - movedOn.Bounds.Top;
-                    bool ok = insideOn <= 3 && freshAttached && outsideOn <= 3;
-                    Console.WriteLine($"[assert] {(ok ? "OK" : "FALLO")} overlay reparentado a form sin overlay (Enabled=true): nuevo_adjunto={freshAttached}, dentro={insideOn}px, fuera={outsideOn}px (<=3)");
+                    bool ok = insideOn == 0 && freshAttached && outsideOn == 0;
+                    Console.WriteLine($"[assert] {(ok ? "OK" : "FALLO")} overlay reparentado a form sin overlay (Enabled=true): nuevo_adjunto={freshAttached}, dentro={insideOn}px, fuera={outsideOn}px (==0)");
                     if (!ok) failures++;
                     hostOn.Close();
                     hostOn.Dispose();
@@ -2113,6 +2115,9 @@ namespace FluentWinForms.StressTests
                 foreach (var c in controls.Take(3))
                     OnMouseEnter?.Invoke(c, new object[] { EventArgs.Empty });
                 Pump(500);
+                // Ejercita el render síncrono del overlay DENTRO del paint de un
+                // control (regresión de reentrada de layout).
+                PaintOnce(controls[0]);
                 // También tras el hover: si el render se congela con la animación,
                 // el estado fresco del resize no debe taparlo.
                 ResetOverlayStats(form);
@@ -2282,13 +2287,54 @@ namespace FluentWinForms.StressTests
                 int px = lb.Left - 20, py = lb.Top + lb.Height / 2;
                 Color halo = shot.GetPixel(px, py);
                 Color far = shot.GetPixel(Math.Max(0, lb.Left - 55), py);
+                // Antiguo "anillo de 1px": el pixel pegado al borde del botón
+                // debe tener glow (no fondo). Con el margen del HWND volvía teal.
+                Color edge = shot.GetPixel(lb.Left - 2, py);
                 bool haloOk = (halo.R > 10 || halo.B > 10) && halo.G < 80;
                 bool farOk = far.R < 10 && far.G < 10 && far.B < 10;
+                // El glow magenta tiene G bajo; el fondo teal (G=128) NO debe
+                // pasar como glow (regresión del anillo de 1px).
+                bool edgeOk = (edge.R > 10 || edge.B > 10) && edge.G < 80;
 
                 // Solo se omite si la ventana no está al frente; con la ventana
                 // al frente, un fondo no negro es un FALLO (overlay opaco).
-                Console.WriteLine($"[assert] {(haloOk && farOk ? "OK" : "FALLO")} overlay pixel: halo({px},{py})={halo.R},{halo.G},{halo.B} (visible={haloOk}); lejos={far.R},{far.G},{far.B} (fondo={farOk}); dibujados={ModernGlowOverlay.LastGlowControls} alphaPx={ModernGlowOverlay.LastPaintedPixels} bounds={ModernGlowOverlay.LastOverlayBounds} screen={ModernGlowOverlay.LastOverlayScreen}");
-                if (!(haloOk && farOk)) failures++;
+                Console.WriteLine($"[assert] {(haloOk && farOk && edgeOk ? "OK" : "FALLO")} overlay pixel: halo({px},{py})={halo.R},{halo.G},{halo.B} (visible={haloOk}); borde={edge.R},{edge.G},{edge.B} (glow={edgeOk}); lejos={far.R},{far.G},{far.B} (fondo={farOk}); dibujados={ModernGlowOverlay.LastGlowControls} alphaPx={ModernGlowOverlay.LastPaintedPixels} bounds={ModernGlowOverlay.LastOverlayBounds} screen={ModernGlowOverlay.LastOverlayScreen}");
+                if (!(haloOk && farOk && edgeOk)) failures++;
+
+                // Control transparente: el cuerpo no debe quedar con silueta
+                // negra (DropShadowOnly deja transparente el interior).
+                using (var ghostForm = new Form
+                {
+                    BackColor = Color.Teal,
+                    StartPosition = FormStartPosition.Manual,
+                    Location = new Point(100, 100),
+                    ClientSize = new Size(420, 280),
+                    TopMost = true,
+                    ShowInTaskbar = false
+                })
+                {
+                    var ghost = FluentElement.Design("ghost-pixel").Layout(160, 120, 140, 44)
+                        .Background("#00000000").Glow("#ff00ff", 30).Apply(ghostForm);
+                    ghostForm.Show();
+                    Pump(700);
+                    if (GetForegroundWindow() != ghostForm.Handle)
+                    {
+                        _skips++;
+                        Console.WriteLine("[assert] SKIP overlay pixel ghost: no al frente");
+                    }
+                    else
+                    {
+                        using var ghostShot = new Bitmap(ghostForm.ClientSize.Width, ghostForm.ClientSize.Height);
+                        using (var g2 = Graphics.FromImage(ghostShot))
+                            g2.CopyFromScreen(ghostForm.PointToScreen(Point.Empty), Point.Empty, ghostForm.ClientSize);
+                        Rectangle glb = ghost.LogicalBounds;
+                        Color bodyPx = ghostShot.GetPixel(glb.Left + 10, glb.Top + glb.Height / 2);
+                        bool ghostOk = bodyPx.G > 100 && bodyPx.B > 100 && bodyPx.R < 60;
+                        Console.WriteLine($"[assert] {(ghostOk ? "OK" : "FALLO")} overlay pixel ghost: cuerpo={bodyPx.R},{bodyPx.G},{bodyPx.B} (esperado teal, no negro)");
+                        if (!ghostOk) failures++;
+                    }
+                    ghostForm.Close();
+                }
 
                 form.Close();
                 form.Dispose();

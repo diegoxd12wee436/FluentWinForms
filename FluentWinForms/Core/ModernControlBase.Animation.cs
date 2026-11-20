@@ -168,10 +168,16 @@ namespace FluentWinForms.Core
             float scaleExW = _logicalBounds.Width * (maxScaleX - 1f) / 2f;
             float scaleExH = _logicalBounds.Height * (maxScaleY - 1f) / 2f;
 
-            float exLeft = scaleExW + ctrlLeft + nodeLeft + badgeLeft + shLeft + 1f;
-            float exRight = scaleExW + ctrlRight + nodeRight + badgeRight + shRight + 1f;
-            float exTop = scaleExH + ctrlTop + nodeTop + badgeTop + shTop + 1f;
-            float exBottom = scaleExH + ctrlBottom + nodeBottom + badgeBottom + shBottom + 1f;
+            // Margen de seguridad de 1px para el AA del halo. Con el overlay
+            // Skia, el halo lo pinta el overlay DETRÁS del control: el margen
+            // del HWND tapa ese último px y deja un anillo visible entre el
+            // botón y el glow (teal de fondo). Sin overlay se conserva.
+            float edgePad = UsesSkiaGlowOverlay ? 0f : 1f;
+
+            float exLeft = scaleExW + ctrlLeft + nodeLeft + badgeLeft + shLeft + edgePad;
+            float exRight = scaleExW + ctrlRight + nodeRight + badgeRight + shRight + edgePad;
+            float exTop = scaleExH + ctrlTop + nodeTop + badgeTop + shTop + edgePad;
+            float exBottom = scaleExH + ctrlBottom + nodeBottom + badgeBottom + shBottom + edgePad;
 
             Rectangle newBounds = new Rectangle(
                 (int)Math.Floor(_logicalBounds.X - exLeft),

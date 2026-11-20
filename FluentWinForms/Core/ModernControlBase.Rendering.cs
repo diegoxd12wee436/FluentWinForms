@@ -351,6 +351,10 @@ namespace FluentWinForms.Core
                 if (filterDirty)
                 {
                     node._cachedShadowFilter?.Dispose();
+                    // DropShadowOnly: solo el halo (sin la silueta). CreateDropShadow
+                    // incluye la forma y dejaría una silueta negra visible en
+                    // controles transparentes/glass. El fade continuo lo da
+                    // edgePad=0 (sin margen del HWND) + este filtro.
                     node._cachedShadowFilter = SKImageFilter.CreateDropShadowOnly(
                             S(sh.OffsetX), S(sh.OffsetY), S(sh.Radius) / 2f, S(sh.Radius) / 2f, stepColor.ToSKColor());
                     node._lastShadowColor = stepColor;

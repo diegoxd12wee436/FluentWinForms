@@ -209,6 +209,9 @@ namespace FluentWinForms.Core
 
         private void ParentResized(object? sender, EventArgs e)
         {
+            // El tamaño del cliente lo gestiona Dock=Fill; al cambiar hay que
+            // resincronizar el rect y liberar la superficie.
+            Bounds = new Rectangle(0, 0, Math.Max(1, _parent.ClientSize.Width), Math.Max(1, _parent.ClientSize.Height));
             ReleaseSurface();
             RequestRender();
         }
@@ -221,16 +224,38 @@ namespace FluentWinForms.Core
         private void RequestRender()
         {
             if (IsDisposed || !IsHandleCreated) return;
+
+            // En el hilo de UI se pinta síncrono: el BeginInvoke anterior
+            // añadía un frame de lag al hover/click/press. Fuera del hilo de
+            // UI se conserva el marshal (raro: el motor de animación).
+            if (InvokeRequired)
+            {
+                if (System.Threading.Interlocked.Exchange(ref _renderQueuedFlag, 1) == 1) return;
+                try
+                {
+                    BeginInvoke(new Action(() =>
+                    {
+                        System.Threading.Interlocked.Exchange(ref _renderQueuedFlag, 0);
+                        if (!IsDisposed && IsHandleCreated) RenderGlows();
+                    }));
+                }
+                catch
+                {
+                    System.Threading.Interlocked.Exchange(ref _renderQueuedFlag, 0);
+                }
+                return;
+            }
+
             if (System.Threading.Interlocked.Exchange(ref _renderQueuedFlag, 1) == 1) return;
             try
             {
-                BeginInvoke(new Action(() =>
-                {
-                    System.Threading.Interlocked.Exchange(ref _renderQueuedFlag, 0);
-                    if (!IsDisposed && IsHandleCreated) RenderGlows();
-                }));
+                RenderGlows();
             }
             catch
+            {
+                // un render no debe romper el hilo de UI
+            }
+            finally
             {
                 System.Threading.Interlocked.Exchange(ref _renderQueuedFlag, 0);
             }
@@ -259,6 +284,9 @@ namespace FluentWinForms.Core
         protected override void OnDpiChangedAfterParent(EventArgs e)
         {
             base.OnDpiChangedAfterParent(e);
+            // Al cambiar de DPI el cliente puede cambiar de tamaño: fijar el
+            // rect (fuera del paint) y liberar la superficie.
+            Bounds = new Rectangle(0, 0, Math.Max(1, _parent.ClientSize.Width), Math.Max(1, _parent.ClientSize.Height));
             ReleaseSurface();
             RequestRender();
         }
@@ -312,7 +340,6 @@ namespace FluentWinForms.Core
             int h = _parent.ClientSize.Height;
             if (w <= 0 || h <= 0) return;
 
-            Bounds = new Rectangle(0, 0, w, h);
             EnsureSurface(w, h);
             if (_surface == null) return;
 
