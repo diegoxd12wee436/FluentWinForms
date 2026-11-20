@@ -51,6 +51,23 @@
 7. Tests pendientes no bloqueantes: clamp al parent con badge negativo, badge de hijo no 0×0,
    alpha de ripple por píxel, escala del control en VisualNode.
 
+### Tarea 8 — DPI en caliente (fix en working tree)
+
+**Síntoma del usuario:** al pasar 125→100 los controles se recortan; a 150 el texto queda
+pequeño respecto al botón; el ciclo 125→100→150→125 no vuelve igual.
+
+**Causa:** WinForms escala el HWND con el DPI, pero el **árbol visual** (`RenderNode.Layout`)
+conservaba los píxeles de diseño; el botón interno no seguía al HWND. Además `Form1` usa
+`AutoScaleMode=Font` (8×20), que no reescala el layout por monitor.
+
+**Fix:** `OnDpiChangedAfterParent` calcula `factor = nuevo/antiguo` y llama `ScaleNodeLayout`
+(Layout, Badge.Size/Offset, Spacing, GridMinColumnWidth) en todo el árbol; luego
+`ClearCaches/UpdatePhysicalBounds/RebuildCanvas`. Helper verificado:
+`160×48 → 128×38.4 → 160×48`. El trace añade `autoScale`.
+
+**Validado por el usuario:** ciclo 125→100→150→125 OK. El único solape (borde inferior de
+“Cancelar” con “Eliminar”) es de layout del form (no hay grid), no del DPI.
+
 ### Tarea 7e — Overlay Skia: prototipo commiteado (opt-in, `f0fd531`)
 
 **Estado:** prototipo aprobado por revisor+rompedor y commiteado; `ModernGlowOverlay.Enabled`
