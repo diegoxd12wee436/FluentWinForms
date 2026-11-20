@@ -68,6 +68,11 @@ conservaba los píxeles de diseño; el botón interno no seguía al HWND. Ademá
 **Validado por el usuario:** ciclo 125→100→150→125 OK. El único solape (borde inferior de
 “Cancelar” con “Eliminar”) es de layout del form (no hay grid), no del DPI.
 
+**Rendimiento:** `DpiTrace` quedó **apagado por defecto** (`FWF_DIAG_LOG=1` para activarlo).
+Antes escribía al Escritorio y construía un `StackTrace` en **cada `SetBoundsCore`** (hot path
+de hover/animación); era un stutter real. `AutoSetBlackBackground` y `BlurAmount` siguen
+funcionales (el segundo alimenta el blur CPU).
+
 ### Tarea 7e — Overlay Skia: prototipo commiteado (opt-in, `f0fd531`)
 
 **Estado:** prototipo aprobado por revisor+rompedor y commiteado; `ModernGlowOverlay.Enabled`
@@ -141,7 +146,8 @@ validación visual y sin revisión de ciclo de vida (overlay/DPI/dispose).
   `Ripple(string, double)` + `Ripple(string, double, double)` y `.RippleDuration(ms)`.
   Test: 900 ms, radio/max 0.55 a 450 ms, fin tras 900+540 ms. El fade corre **también con el
   clic mantenido** (1.4× la duración) y el `dt` real se capea a 50 ms para que un frame largo no
-  complete el ripple de golpe (destello); test de clic mantenido 1600 ms.
+  complete el ripple de golpe (destello). Un `MouseDown` durante una onda activa **no la
+  reinicia** (test `radio 31.0 → 39.1`), así los clics rápidos no se “suman”.
 - Hit-test: `WM_NCHITTEST` incluye la base del árbol (`CalculateBaseOverflow`) y, en
   `VisualNode`, ignora la escala del control (no dibujada); la sombra sigue fuera del área.
 - Evidencia: build 0/0; 3 ciclos `fallos=0`; `translate` host 11 px; **control+nodo+badge
