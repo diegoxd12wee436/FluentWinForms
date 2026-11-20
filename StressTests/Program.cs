@@ -888,6 +888,15 @@ namespace FluentWinForms.StressTests
                 Console.WriteLine($"[assert] {(finished ? "OK" : "FALLO")} ripple fin: isRippling={!finished} tras 900+540ms");
                 if (!finished) failures++;
 
+                // Clic mantenido: el fade debe correr igual y no dejar el botón
+                // teñido para siempre.
+                OnMouseDown?.Invoke(b, new object[] { new MouseEventArgs(MouseButtons.Left, 1, 40, 24, 0) });
+                Pump(1600);
+                bool heldFinished = ripField?.GetValue(b) is false;
+                Console.WriteLine($"[assert] {(heldFinished ? "OK" : "FALLO")} ripple mantenido: isRippling={!heldFinished} tras 1600ms");
+                if (!heldFinished) failures++;
+                OnMouseUp?.Invoke(b, new object[] { new MouseEventArgs(MouseButtons.Left, 1, 40, 24, 0) });
+
                 form.Close();
                 form.Dispose();
             }

@@ -388,10 +388,17 @@ namespace FluentWinForms.Core
                 if (maxRadius <= startRadius)
                     maxRadius = (float)Math.Sqrt(Width * Width + Height * Height);
                 maxRadius = Math.Max(maxRadius, startRadius);
+
+                // Cap del dt real: un frame largo no debe completar el ripple
+                // de golpe (destello). A 15-60 fps el desvío es mínimo.
+                float rippleDt = Math.Min(rawDt, 50f);
                 float rate = (maxRadius - startRadius) / duration;
-                _rippleRadius = Math.Min(maxRadius, _rippleRadius + rawDt * rate);
-                if (!_isMouseDownInternal)
-                    _rippleOpacity = Math.Max(0f, _rippleOpacity - rawDt / (duration * 0.6f));
+                _rippleRadius = Math.Min(maxRadius, _rippleRadius + rippleDt * rate);
+
+                // Fade SIEMPRE (también con el mouse apretado): si se mantiene
+                // el clic, el círculo no deja el botón teñido para siempre.
+                float fadeTime = _isMouseDownInternal ? duration * 1.4f : duration * 0.6f;
+                _rippleOpacity = Math.Max(0f, _rippleOpacity - rippleDt / fadeTime);
 
                 if (_rippleOpacity <= 0) { _isRippling = false; _rippleNode = null; }
                 isMoving = true;
