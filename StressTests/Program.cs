@@ -104,6 +104,9 @@ namespace FluentWinForms.StressTests
                 warmFailures += RunPathCacheCheck();
                 warmFailures += RunRippleFadeCheck();
                 warmFailures += RunHitTestCheck();
+                warmFailures += RunOverlayCheck();
+                if (Environment.GetEnvironmentVariable("FWF_OVERLAY_PIXEL") == "1")
+                    warmFailures += RunOverlayPixelCheck();
                 RunModernMassScenario();
                 RunCycle(0, extremes: false);
                 RunCycle(0, extremes: false);
@@ -929,6 +932,128 @@ namespace FluentWinForms.StressTests
             {
                 Console.WriteLine($"[assert] FALLO hit-test: {ex.Message}");
                 failures++;
+            }
+            return failures;
+        }
+
+        /// <summary>
+        /// Overlay Skia opt-in: se adjunta al padre, queda detrás de los
+        /// controles y el HWND deja de expandirse por la sombra (la dibuja el
+        /// overlay). No se puede validar el píxel con DrawToBitmap (layered).
+        /// </summary>
+        private static int RunOverlayCheck()
+        {
+            int failures = 0;
+            ModernGlowOverlay.Enabled = true;
+            try
+            {
+                using var form = new Form { Size = new Size(520, 320) };
+                var b = FluentElement.Design("overlay").Layout(120, 100, 160, 48)
+                    .Glow("#ff00ff", 14).Apply(form);
+                form.Show();
+                Pump(500);
+                // Segundo control añadido DESPUÉS del overlay: debe quedar
+                // delante (overlay al fondo) y no tapar el cuerpo.
+                var b2 = FluentElement.Design("overlay2").Layout(120, 190, 160, 48)
+                    .Glow("#00ff00", 14).Apply(form);
+                Pump(300);
+
+                bool attached = ModernGlowOverlay.IsAttached(form);
+                bool behind = ModernGlowOverlay.IsBehindControls(form);
+                bool layeredOk = ModernGlowOverlay.LastUpdateSucceeded;
+                bool positionOk = ModernGlowOverlay.LastOverlayScreen == form.PointToScreen(Point.Empty);
+                int shadowExpansion = b.LogicalBounds.Top - b.Bounds.Top;
+                bool contentOnly = shadowExpansion <= 3;
+                Console.WriteLine($"[assert] {(attached && behind && contentOnly && layeredOk && positionOk ? "OK" : "FALLO")} overlay Skia: adjunto={attached}, z-order={behind}, UpdateLayered={layeredOk} (err={ModernGlowOverlay.LastUpdateError}), posición={positionOk} {ModernGlowOverlay.LastOverlayScreen}, expansión superior={shadowExpansion}px (<=3)");
+                if (!attached || !behind || !contentOnly || !layeredOk || !positionOk) failures++;
+
+                // Un control añadido después también debe dejar el overlay al fondo.
+                var b3 = FluentElement.Design("overlay3").Layout(300, 100, 140, 48)
+                    .Glow("#00aaff", 14).Apply(form);
+                Pump(200);
+                bool behindAfter = ModernGlowOverlay.IsBehindControls(form);
+                Console.WriteLine($"[assert] {(behindAfter ? "OK" : "FALLO")} overlay z-order tras alta: {behindAfter}");
+                if (!behindAfter) failures++;
+
+                form.Close();
+                form.Dispose();
+
+                // Enabled=false no debe crear overlay.
+                ModernGlowOverlay.Enabled = false;
+                using var plain = new Form { Size = new Size(300, 200) };
+                FluentElement.Design("plain").Layout(60, 60, 120, 40).Glow("#ff00ff", 10).Apply(plain);
+                plain.Show();
+                Pump(150);
+                bool notAttached = !ModernGlowOverlay.IsAttached(plain);
+                Console.WriteLine($"[assert] {(notAttached ? "OK" : "FALLO")} overlay desactivado: no se adjunta");
+                if (!notAttached) failures++;
+                plain.Close();
+                plain.Dispose();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[assert] FALLO overlay: {ex.Message}");
+                failures++;
+            }
+            finally
+            {
+                ModernGlowOverlay.Enabled = false;
+            }
+            return failures;
+        }
+
+        /// <summary>
+        /// Captura de pantalla opcional (FWF_OVERLAY_PIXEL=1) para validar que
+        /// el overlay layered está en la posición correcta y el halo se ve
+        /// fuera del HWND. No corre en la suite normal (depende del escritorio).
+        /// </summary>
+        private static int RunOverlayPixelCheck()
+        {
+            int failures = 0;
+            ModernGlowOverlay.Enabled = true;
+            ModernGlowOverlay.EnableRenderDiagnostics = true;
+            try
+            {
+                using var form = new Form
+                {
+                    StartPosition = FormStartPosition.Manual,
+                    Location = new Point(100, 100),
+                    ClientSize = new Size(420, 280),
+                    BackColor = Color.Black,
+                    TopMost = true,
+                    ShowInTaskbar = false
+                };
+                var b = FluentElement.Design("overlay-pixel").Layout(160, 120, 140, 44)
+                    .Glow("#ff00ff", 30).Apply(form);
+                form.Show();
+                Pump(700);
+
+                using var shot = new Bitmap(form.ClientSize.Width, form.ClientSize.Height);
+                using (var g = Graphics.FromImage(shot))
+                    g.CopyFromScreen(form.PointToScreen(Point.Empty), Point.Empty, form.ClientSize);
+
+                Rectangle lb = b.LogicalBounds;
+                int px = lb.Left - 20, py = lb.Top + lb.Height / 2;
+                Color halo = shot.GetPixel(px, py);
+                Color far = shot.GetPixel(Math.Max(0, lb.Left - 55), py);
+                bool haloOk = (halo.R > 10 || halo.B > 10) && halo.G < 80;
+                bool farOk = far.R < 10 && far.G < 10 && far.B < 10;
+
+                Console.WriteLine($"[assert] {(haloOk && farOk ? "OK" : "FALLO")} overlay pixel: halo({px},{py})={halo.R},{halo.G},{halo.B} (visible={haloOk}); lejos={far.R},{far.G},{far.B} (fondo={farOk}); dibujados={ModernGlowOverlay.LastGlowControls} alphaPx={ModernGlowOverlay.LastPaintedPixels} bounds={ModernGlowOverlay.LastOverlayBounds} screen={ModernGlowOverlay.LastOverlayScreen}");
+                if (!(haloOk && farOk)) failures++;
+
+                form.Close();
+                form.Dispose();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[assert] FALLO overlay pixel: {ex.Message}");
+                failures++;
+            }
+            finally
+            {
+                ModernGlowOverlay.Enabled = false;
+                ModernGlowOverlay.EnableRenderDiagnostics = false;
             }
             return failures;
         }

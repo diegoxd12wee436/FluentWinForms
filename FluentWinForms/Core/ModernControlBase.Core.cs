@@ -373,6 +373,6 @@ namespace FluentWinForms.Core
             base.Dispose(disposing);
         }
 
-        public void RefreshVisuals() => InvalidateIfVisible();
+        public void RefreshVisuals() { InvalidateIfVisible(); NotifyGlowOverlay(); }
     }
 }

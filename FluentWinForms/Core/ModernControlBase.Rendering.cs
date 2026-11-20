@@ -340,10 +340,7 @@ namespace FluentWinForms.Core
             // 6. SOMBRA — horneada UNA VEZ a una imagen cacheada. Por frame solo se blitea (sin recomponer el blur)
             if (sh.Radius > 0 && sh.Color.A > 0)
             {
-                Color stepColor = node.Shadow.Color;
-                if (node.HoverState.Shadow.HasValue && node.HoverProgress >= 0.5f) stepColor = node.HoverState.Shadow.Value.Color;
-                if (node.PressState.Shadow.HasValue && node.PressProgress >= 0.5f) stepColor = node.PressState.Shadow.Value.Color;
-                if (!node.Enabled && node.DisabledState.Shadow.HasValue) stepColor = node.DisabledState.Shadow.Value.Color;
+                Color stepColor = GetGlowStepColor(node);
 
                 bool filterDirty = node._cachedShadowFilter == null ||
                     node._lastShadowColor != stepColor ||
@@ -398,8 +395,12 @@ namespace FluentWinForms.Core
                     node._lastShadowCorner = node.Corners.TopLeft;
                     node._lastShadowImagePadLeft = padLeft;
                     node._lastShadowImagePadTop = padTop;
+
+                    if (ReferenceEquals(node, _visualNode) && UsesSkiaGlowOverlay)
+                        NotifyGlowOverlay();
                 }
-                if (node._cachedShadowImage != null)
+                if (node._cachedShadowImage != null &&
+                    !(ReferenceEquals(node, _visualNode) && UsesSkiaGlowOverlay))
                     canvas.DrawImage(node._cachedShadowImage, rect.Left - node._lastShadowImagePadLeft, rect.Top - node._lastShadowImagePadTop, new SKSamplingOptions(SKFilterMode.Linear));
             }
             // 🔥 INYECCIÓN 2: CRISTAL ÓPTICO — ZERO-ALLOC: paints/clip cacheados por nodo

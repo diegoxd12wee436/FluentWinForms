@@ -28,6 +28,7 @@ namespace FluentWinForms.Core
                 _logicalBounds = new Rectangle(x, y, width, height);
             }
             base.SetBoundsCore(x, y, width, height, specified);
+            if (!_logicalBounds.IsEmpty) NotifyGlowOverlay();
         }
 
         // Configuraciones de Animación
@@ -149,8 +150,19 @@ namespace FluentWinForms.Core
             CalculateBadgeOverflow(_visualNode,
                 ref badgeLeft, ref badgeRight, ref badgeTop, ref badgeBottom);
 
-            // Overflow por sombra/glow — SIEMPRE, se SUMA al contenido.
-            CalculateShadowOverflow(_visualNode, ref shLeft, ref shRight, ref shTop, ref shBottom);
+            // Overflow por sombra/glow — SIEMPRE, se SUMA al contenido. Con el
+            // overlay Skia, el halo de la raíz lo dibuja el overlay: no infla
+            // el HWND; los nodos hijos siguen con su sombra en el canvas.
+            if (UsesSkiaGlowOverlay)
+            {
+                for (int i = 0; i < _visualNode.Children.Count; i++)
+                    CalculateShadowOverflow(_visualNode.Children[i],
+                        ref shLeft, ref shRight, ref shTop, ref shBottom);
+            }
+            else
+            {
+                CalculateShadowOverflow(_visualNode, ref shLeft, ref shRight, ref shTop, ref shBottom);
+            }
 
             float scaleExW = _logicalBounds.Width * (maxScaleX - 1f) / 2f;
             float scaleExH = _logicalBounds.Height * (maxScaleY - 1f) / 2f;
@@ -416,6 +428,7 @@ namespace FluentWinForms.Core
             // 8. Gestión de Renderizado
             if (isMoving)
             {
+                NotifyGlowOverlay();
                 this.Invalidate();
             }
             else
