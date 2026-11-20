@@ -23,8 +23,9 @@
 - **Harness:** 500/200/150/3 ciclos verdes; el gate de memoria usa el máximo de las muestras
   intermedias (un pico 4000×3000 no cuenta como fuga); `StressTests/` commiteado en `b3150cb`.
 - **Ronda Skia rápida + infra (2026-11-19):** aprobada por revisor+rompedor y commiteada
-  (`d8d650d` librería, `b3150cb` harness/slnx, `0c49546` RippleDuration). Translate/escala base,
-  badge, ripple y hit-test corregidos; build 0/0 y 3 ciclos `fallos=0`.
+  (`d8d650d` librería, `b3150cb` harness/slnx, `0c49546` RippleDuration, `f0fd531` overlay
+  Skia opt-in). Translate/escala base, badge, ripple y hit-test corregidos; build 0/0 y 3 ciclos
+  `fallos=0`.
 - **Archivos del usuario:** `Form1.Designer.cs`, `opencode.json`, `.opencode/` no se tocan.
 
 ### Decisiones nuevas (2026-11-19)
@@ -44,12 +45,42 @@
 2. ~~Infraestructura: harness, slnx, controles reales~~ (hecho: `b3150cb`).
 3. ~~Skia rápido: translate/escala, badge, ripple~~ (hecho: `d8d650d` + `0c49546`).
 4. ~~Skia medio: hit-test~~ (hecho: `d8d650d`; queda ampliar tests de esquina/clamp).
-5. **Skia grande:** overlay Skia único para glow CSS con overflow (sin GDI) — siguiente.
+5. **Skia grande:** ~~overlay Skia único para glow CSS con overflow (sin GDI)~~ (prototipo
+   commiteado `f0fd531`, opt-in; falta validación visual/DPI/coste).
 6. **Nodos desprendidos:** liberar cachés al quitar/reemplazar nodos del árbol.
 7. Tests pendientes no bloqueantes: clamp al parent con badge negativo, badge de hijo no 0×0,
    alpha de ripple por píxel, escala del control en VisualNode.
 
-### Tarea 7e — Glow CSS 100 % Skia (diseño, pendiente)
+### Tarea 7e — Overlay Skia: prototipo commiteado (opt-in, `f0fd531`)
+
+**Estado:** prototipo aprobado por revisor+rompedor y commiteado; `ModernGlowOverlay.Enabled`
+por defecto **false**. Pendiente: validación visual del usuario, DPI real, coste con varios
+controles y resize ×50.
+
+- `ModernGlowOverlay` (fachada pública) + `ModernSkiaGlowOverlay` (ventana hija
+  `WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_NOACTIVATE`): cubre el cliente del padre y queda
+  **detrás** de los controles. Dibuja los halos con un `SKSurface` sobre un DIB (BGRA premul) y
+  `UpdateLayeredWindow`; el mouse pasa a través (`WM_NCHITTEST = HTTRANSPARENT`).
+- `ModernControlBase.TryGetRootGlow` entrega el bake del nodo raíz con la misma transformación
+  que el canvas (translate/scale/hover/press/disabled). Con overlay activo, el nodo raíz **no**
+  dibuja su sombra en el canvas ni infla el HWND por sombra; el overlay la dibuja completa.
+- Se activa antes de crear los forms: `ModernGlowOverlay.Enabled = true;`.
+- Evidencia del harness: `overlay Skia: adjunto=True, z-order=True, UpdateLayered=True (err=0),
+  posición=True {X=105,Y=134}, expansión superior=1px (<=3)`, z-order tras alta OK,
+  `Enabled=false` no adjunta; 3 ciclos `fallos=0`, sin `ThreadException`. La posición se mide
+  sin captura: `LastOverlayScreen == form.PointToScreen(empty)`. El DIB tiene 27.840 píxeles con
+  alpha (botón `Glow(30)`) cuando se activa el diagnóstico (el escaneo está gateado, no corre
+  en el camino normal).
+- **`pptDst` en ventana hija:** empíricamente es relativo al cliente del padre, no coordenadas
+  de pantalla. Con `(Left,Top)` el overlay queda en `screen=(109,138)` = origen del cliente del
+  form; con `PointToScreen` se movía a `(218,276)` y el halo quedaba fuera. Se usa `(Left,Top)`.
+- **Z-order:** `ControlAdded` reenvía el overlay al fondo (`SetChildIndex(Count-1)`) cuando se
+  añaden controles después; verificado con 2 controles + una alta posterior.
+- La captura `CopyFromScreen` del sandbox devuelve contenido ajeno (teal), así que el píxel
+  final (anillo de 1 px incluido) lo valida el usuario.
+- Limitaciones a validar: posible anillo de 1 px entre el botón y el halo (el HWND conserva el
+  margen de seguridad), DPI/multimonitor, z-order con paneles anidados y coste de
+  `UpdateLayeredWindow` con bitmap completo. La capa es de un nivel por padre.
 
 **Objetivo:** que el halo salga completo fuera del HWND sin composición GDI+ y sin que los
 hermanos lo borren. Debe ser una sola superficie Skia.
