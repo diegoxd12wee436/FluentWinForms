@@ -383,6 +383,7 @@ namespace FluentWinForms.Core
         {
             if (disposing)
             {
+                UnhookOverlayAttach();
                 // 🔥 FIX TEMAS: Limpiamos la suscripción para evitar Memory Leaks
                 AppTheme.ThemeChanged -= OnThemeChanged;
                 if (_themeUpdater != null) AppTheme.ThemeChanged -= _themeUpdater;

@@ -9,6 +9,9 @@
     <LangVersion>12</LangVersion>
     <AssemblyName>FluentWinForms.StressTests</AssemblyName>
     <RootNamespace>FluentWinForms.StressTests</RootNamespace>
+    <!-- El overlay usa ventanas hijas layered: el proceso debe declarar
+         Windows 10/11 en el manifiesto o Windows aplica el modo Win7. -->
+    <ApplicationManifest>..\FluentWinForms\app.manifest</ApplicationManifest>
   </PropertyGroup>
 
   <ItemGroup>

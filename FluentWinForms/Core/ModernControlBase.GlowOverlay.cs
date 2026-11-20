@@ -10,14 +10,91 @@ namespace FluentWinForms.Core
     {
         /// <summary>El overlay Skia está activo para este control/padre.</summary>
         internal bool UsesSkiaGlowOverlay =>
-            ModernGlowOverlay.Enabled && ModernGlowOverlay.IsAttached(Parent);
+            ModernGlowOverlay.IsAttached(Parent);
+
+        private Control? _overlayAttachParent;
+        private EventHandler? _overlayAttachHandler;
 
         protected override void OnParentChanged(EventArgs e)
         {
             base.OnParentChanged(e);
+            // Si el padre anterior aún no tenía handle, no dejar el hook.
+            UnhookOverlayAttach();
             if (ModernGlowOverlay.Enabled && Parent != null)
-                ModernGlowOverlay.Attach(Parent);
+            {
+                Control parent = Parent;
+                if (parent.IsHandleCreated)
+                {
+                    // Fallback por si el handle se recrea antes del callback.
+                    HookOverlayAttach(parent);
+                    // El padre ya existe: adjuntar después del evento actual.
+                    try { parent.BeginInvoke(new Action(() => AttachDeferred(parent))); }
+                    catch { AttachDeferred(parent); }
+                }
+                else
+                {
+                    HookOverlayAttach(parent);
+                }
+            }
+            // Al cambiar de padre hay que recalcular el margen: si el nuevo
+            // padre no tiene overlay, el control debe volver a dibujar la
+            // sombra completa en su HWND (y viceversa).
+            try
+            {
+                if (Parent != null && !Parent.IsDisposed &&
+                    Parent.ClientSize.Width > 0 && Parent.ClientSize.Height > 0)
+                    RefreshPhysicalBounds();
+            }
+            catch { }
             NotifyGlowOverlay();
+        }
+
+        private void HookOverlayAttach(Control parent)
+        {
+            UnhookOverlayAttach();
+            _overlayAttachParent = parent;
+            EventHandler? handler = null;
+            handler = (s, args) =>
+            {
+                if (ReferenceEquals(_overlayAttachHandler, handler))
+                {
+                    parent.HandleCreated -= handler;
+                    _overlayAttachParent = null;
+                    _overlayAttachHandler = null;
+                }
+                AttachDeferred(parent);
+            };
+            _overlayAttachHandler = handler;
+            parent.HandleCreated += handler;
+        }
+
+        private void UnhookOverlayAttach()
+        {
+            if (_overlayAttachParent != null && _overlayAttachHandler != null)
+            {
+                try { _overlayAttachParent.HandleCreated -= _overlayAttachHandler; }
+                catch { }
+            }
+            _overlayAttachParent = null;
+            _overlayAttachHandler = null;
+        }
+
+        private void AttachDeferred(Control parent)
+        {
+            if (!ModernGlowOverlay.Enabled || parent.IsDisposed || IsDisposed)
+            {
+                UnhookOverlayAttach();
+                return;
+            }
+            if (!ReferenceEquals(Parent, parent)) return;
+            if (!parent.IsHandleCreated)
+            {
+                // El handle se destruyó entre el BeginInvoke y el callback.
+                HookOverlayAttach(parent);
+                return;
+            }
+            ModernGlowOverlay.Attach(parent);
+            if (ModernGlowOverlay.IsAttached(parent)) UnhookOverlayAttach();
         }
 
         protected override void OnVisibleChanged(EventArgs e)
@@ -28,7 +105,7 @@ namespace FluentWinForms.Core
 
         internal void NotifyGlowOverlay()
         {
-            if (ModernGlowOverlay.Enabled && Parent != null)
+            if (Parent != null)
                 ModernGlowOverlay.Request(Parent);
         }
 

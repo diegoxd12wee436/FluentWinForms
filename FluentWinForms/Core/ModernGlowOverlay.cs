@@ -147,7 +147,43 @@ namespace FluentWinForms.Core
             parent.Disposed += overlay.ParentDisposed;
             // Si se añaden controles después, el overlay debe seguir al fondo.
             parent.ControlAdded += overlay.ParentControlAdded;
+            // Los controles ya existentes se layoutearon sin overlay (HWND
+            // inflado por la sombra): al adjuntarlo tarde hay que recomputar.
+            RefreshChildren(parent);
             overlay.RequestRender();
+        }
+
+        private static void RefreshChildren(Control parent)
+        {
+            // Solo hijos directos: UsesSkiaGlowOverlay consulta el padre
+            // inmediato; los nietos conservan la sombra de su contenedor.
+            var children = new System.Collections.Generic.List<Control>(parent.Controls.Count);
+            foreach (Control child in parent.Controls) children.Add(child);
+            foreach (Control child in children) RefreshChild(child);
+        }
+
+        private static void RefreshChild(Control child)
+        {
+            if (child.IsDisposed || !(child is ModernControlBase control)) return;
+            // Sin handle, el propio OnHandleCreated del control llama a
+            // UpdatePhysicalBounds con el overlay ya adjunto.
+            if (!control.IsHandleCreated) return;
+            RefreshControl(control);
+        }
+
+        private static void RefreshControl(ModernControlBase control)
+        {
+            if (control.IsDisposed) return;
+            try
+            {
+                control.RefreshPhysicalBounds();
+                control.RefreshVisuals();
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine(
+                    $"ModernGlowOverlay: no se pudo refrescar {control.Name}: {ex}");
+            }
         }
 
         private void ParentControlAdded(object? sender, ControlEventArgs e)
@@ -158,6 +194,9 @@ namespace FluentWinForms.Core
                 _parent.Controls.SetChildIndex(this, _parent.Controls.Count - 1);
             }
             catch { }
+            // Un control reparentado a un padre que ya tiene overlay no dispara
+            // otro attach; hay que devolverle el tamaño de contenido.
+            if (e.Control != null) RefreshChild(e.Control);
             RequestRender();
         }
 
@@ -188,7 +227,7 @@ namespace FluentWinForms.Core
                 BeginInvoke(new Action(() =>
                 {
                     System.Threading.Interlocked.Exchange(ref _renderQueuedFlag, 0);
-                    if (!IsDisposed) RenderGlows();
+                    if (!IsDisposed && IsHandleCreated) RenderGlows();
                 }));
             }
             catch
@@ -200,12 +239,29 @@ namespace FluentWinForms.Core
         protected override void OnHandleCreated(EventArgs e)
         {
             base.OnHandleCreated(e);
+            // Si el BeginInvoke pendiente se perdió con el handle anterior,
+            // el flag habría quedado en 1 y el overlay no volvería a pintar.
+            System.Threading.Interlocked.Exchange(ref _renderQueuedFlag, 0);
             Bounds = new Rectangle(0, 0, Math.Max(1, _parent.ClientSize.Width), Math.Max(1, _parent.ClientSize.Height));
             RequestRender();
         }
 
+        protected override void OnHandleDestroyed(EventArgs e)
+        {
+            System.Threading.Interlocked.Exchange(ref _renderQueuedFlag, 0);
+            ReleaseSurface();
+            base.OnHandleDestroyed(e);
+        }
+
         protected override void OnPaintBackground(PaintEventArgs pevent) { /* layered: lo maneja UpdateLayeredWindow */ }
         protected override void OnPaint(PaintEventArgs e) { /* idem */ }
+
+        protected override void OnDpiChangedAfterParent(EventArgs e)
+        {
+            base.OnDpiChangedAfterParent(e);
+            ReleaseSurface();
+            RequestRender();
+        }
 
         protected override void WndProc(ref Message m)
         {

@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
+using System.Drawing.Drawing2D;
 using System.Linq;
 using System.Reflection;
 using System.Runtime.InteropServices;
@@ -366,10 +367,16 @@ namespace FluentWinForms.StressTests
         private static void InvokeDpiChange(int cycle)
         {
             using var form = new Form1();
+            // El Form1 del usuario puede estar en Backdrop=None: este test
+            // necesita Blur para comprobar la cobertura del backdrop tras DPI.
+            object? manager = GetManager(form);
+            var backdrop = manager?.GetType().GetProperty("BackdropType");
+            if (backdrop != null)
+                backdrop.SetValue(manager, Enum.Parse(backdrop.PropertyType, "Blur"));
+            manager?.GetType().GetProperty("AutoSetBlackBackground")?.SetValue(manager, true);
             form.Show();
             Pump(900); // el backdrop se asigna async desde el worker
 
-            object? manager = GetManager(form);
             var method = manager?.GetType().GetMethod(
                 "HandleDpiChange", BindingFlags.Instance | BindingFlags.NonPublic);
             if (manager == null || method == null)
@@ -999,6 +1006,124 @@ namespace FluentWinForms.StressTests
                 Console.WriteLine($"[assert] {(behindAfter ? "OK" : "FALLO")} overlay z-order tras alta: {behindAfter}");
                 if (!behindAfter) failures++;
 
+                // Enabled=false solo gatea altas nuevas: un overlay ya adjunto
+                // sigue pintando y el control no debe reinflarse.
+                ModernGlowOverlay.Enabled = false;
+                typeof(ModernControlBase).GetMethod("RefreshPhysicalBounds",
+                    BindingFlags.Instance | BindingFlags.NonPublic)?.Invoke(b, null);
+                Pump(100);
+                bool toggleAttached = ModernGlowOverlay.IsAttached(form);
+                int toggleExpansion = b.LogicalBounds.Top - b.Bounds.Top;
+                bool toggleContent = toggleExpansion <= 3;
+                ModernGlowOverlay.Enabled = true;
+                Console.WriteLine($"[assert] {(toggleAttached && toggleContent ? "OK" : "FALLO")} overlay Enabled=false con overlay adjunto: adjunto={toggleAttached}, expansión={toggleExpansion}px (<=3)");
+                if (!toggleAttached || !toggleContent) failures++;
+
+                // Adjuntado realmente tardío: form ya visible sin overlay; al
+                // agregar el primer control Modern el overlay se adjunta después
+                // y RefreshChildren debe devolver el HWND a tamaño de contenido.
+                using (var lateForm = new Form { Size = new Size(420, 260) })
+                {
+                    lateForm.Show();
+                    Pump(200);
+                    bool noOverlayYet = !ModernGlowOverlay.IsAttached(lateForm);
+                    var late = FluentElement.Design("late-attach").Layout(80, 60, 160, 48)
+                        .Glow("#ff00ff", 14).Apply(lateForm);
+                    Pump(300);
+                    bool lateAttached = ModernGlowOverlay.IsAttached(lateForm);
+                    int lateExpansion = late.LogicalBounds.Top - late.Bounds.Top;
+                    bool lateContent = lateExpansion <= 3;
+                    Console.WriteLine($"[assert] {(noOverlayYet && lateAttached && lateContent ? "OK" : "FALLO")} overlay adjuntado tarde: sin-overlay-previo={noOverlayYet}, adjunto={lateAttached}, expansión={lateExpansion}px (<=3)");
+                    if (!noOverlayYet || !lateAttached || !lateContent) failures++;
+                    lateForm.Close();
+                    lateForm.Dispose();
+                }
+
+                // Reparentado a un padre que ya tiene overlay: ParentControlAdded
+                // debe recomputar el tamaño de contenido sin otro attach.
+                using (var host = new Form { Size = new Size(360, 240) })
+                using (var other = new Form { Size = new Size(300, 200) })
+                {
+                    try
+                    {
+                        host.Show();
+                        FluentElement.Design("host").Layout(60, 60, 140, 44).Glow("#00ff00", 14).Apply(host);
+                        Pump(300);
+                        bool hostAttached = ModernGlowOverlay.IsAttached(host);
+
+                        ModernGlowOverlay.Enabled = false;
+                        other.Show();
+                        var moved = FluentElement.Design("moved").Layout(50, 50, 140, 44)
+                            .Glow("#ff00ff", 14).Apply(other);
+                        Pump(150);
+                        bool otherAttached = ModernGlowOverlay.IsAttached(other);
+                        ModernGlowOverlay.Enabled = true;
+
+                        host.Controls.Add(moved);
+                        Pump(300);
+                        int movedExpansion = moved.LogicalBounds.Top - moved.Bounds.Top;
+                        bool movedContent = movedExpansion <= 3;
+                        Console.WriteLine($"[assert] {(hostAttached && !otherAttached && movedContent ? "OK" : "FALLO")} overlay control reparentado: host={hostAttached}, otro={otherAttached}, expansión={movedExpansion}px (<=3)");
+                        if (!hostAttached || otherAttached || !movedContent) failures++;
+                        host.Close();
+                        host.Dispose();
+                        other.Close();
+                        other.Dispose();
+                    }
+                    finally
+                    {
+                        ModernGlowOverlay.Enabled = true;
+                    }
+                }
+
+                // Reparentar FUERA de un padre con overlay: el control debe
+                // recuperar el margen de sombra en su propio HWND.
+                using (var source = new Form { Size = new Size(360, 240) })
+                using (var bare = new Form { Size = new Size(360, 240) })
+                {
+                    try
+                    {
+                        source.Show();
+                        var movedOut = FluentElement.Design("out").Layout(60, 60, 140, 44)
+                            .Glow("#ff00ff", 14).Apply(source);
+                        Pump(300);
+                        int insideExpansion = movedOut.LogicalBounds.Top - movedOut.Bounds.Top;
+                        ModernGlowOverlay.Enabled = false;
+                        bare.Show();
+                        bare.Controls.Add(movedOut);
+                        Pump(300);
+                        int outsideExpansion = movedOut.LogicalBounds.Top - movedOut.Bounds.Top;
+                        bool ok = insideExpansion <= 3 && outsideExpansion >= 10;
+                        Console.WriteLine($"[assert] {(ok ? "OK" : "FALLO")} overlay reparentado fuera: dentro={insideExpansion}px (<=3), fuera={outsideExpansion}px (>=10)");
+                        if (!ok) failures++;
+                    }
+                    finally
+                    {
+                        ModernGlowOverlay.Enabled = true;
+                    }
+                }
+
+                // Recrear el handle con un render pendiente no debe dejar el
+                // overlay sin pintar (flag _renderQueuedFlag atascado).
+                using (var rec = new Form { Size = new Size(420, 260) })
+                {
+                    FluentElement.Design("recreate").Layout(80, 60, 160, 48)
+                        .Glow("#ff00ff", 14).Apply(rec);
+                    rec.Show();
+                    Pump(300);
+                    rec.Size = new Size(520, 320);
+                    typeof(Control).GetMethod("RecreateHandle",
+                        BindingFlags.Instance | BindingFlags.NonPublic)?.Invoke(rec, null);
+                    Pump(500);
+                    bool recAttached = ModernGlowOverlay.IsAttached(rec);
+                    bool recBounds = ModernGlowOverlay.LastOverlayBounds.Width == rec.ClientSize.Width &&
+                                     ModernGlowOverlay.LastOverlayBounds.Height == rec.ClientSize.Height;
+                    Console.WriteLine($"[assert] {(recAttached && recBounds ? "OK" : "FALLO")} overlay tras recrear handle: adjunto={recAttached}, bounds={ModernGlowOverlay.LastOverlayBounds} cliente={rec.ClientSize}");
+                    if (!recAttached || !recBounds) failures++;
+                    rec.Close();
+                    rec.Dispose();
+                }
+
                 form.Close();
                 form.Dispose();
 
@@ -1013,6 +1138,80 @@ namespace FluentWinForms.StressTests
                 if (!notAttached) failures++;
                 plain.Close();
                 plain.Dispose();
+
+                // Variante borderless + Region redondeado (como Form1).
+                try
+                {
+                    ModernGlowOverlay.Enabled = true;
+                    using var borderless = new Form
+                    {
+                        FormBorderStyle = FormBorderStyle.None,
+                        StartPosition = FormStartPosition.Manual,
+                        Location = new Point(50, 50),
+                        Size = new Size(420, 280),
+                        BackColor = Color.Teal
+                    };
+                    using (var rp = new GraphicsPath())
+                    {
+                        int rr = 24;
+                        rp.AddArc(0, 0, rr, rr, 180, 90);
+                        rp.AddArc(420 - rr - 1, 0, rr, rr, 270, 90);
+                        rp.AddArc(420 - rr - 1, 280 - rr - 1, rr, rr, 0, 90);
+                        rp.AddArc(0, 280 - rr - 1, rr, rr, 90, 90);
+                        rp.CloseFigure();
+                        borderless.Region = new Region(rp);
+                    }
+                    FluentElement.Design("overlay-borderless").Layout(80, 60, 160, 44)
+                        .Glow("#ff00ff", 14).Apply(borderless);
+                    borderless.Show();
+                    Pump(400);
+                    bool bAttached = ModernGlowOverlay.IsAttached(borderless);
+                    Console.WriteLine($"[assert] {(bAttached ? "OK" : "FALLO")} overlay borderless+region: adjunto={bAttached}");
+                    if (!bAttached) failures++;
+                    borderless.Close();
+                    borderless.Dispose();
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[assert] FALLO overlay borderless+region: {ex.Message}");
+                    failures++;
+                }
+
+                // Churn: 30 forms con overlay, altas/bajas y repintado.
+                int churnOk = 0, churnFail = 0;
+                using (var proc0 = Process.GetCurrentProcess())
+                {
+                    int gdi0 = GetGuiResources(proc0.Handle, 0);
+                    int user0 = GetGuiResources(proc0.Handle, 1);
+                    int handles0 = proc0.HandleCount;
+                    for (int i = 0; i < 30; i++)
+                    {
+                        using (var churn = new Form { Size = new Size(320, 220) })
+                        {
+                            FluentElement.Design($"churn{i}").Layout(70, 60, 150, 44)
+                                .Glow("#00aaff", 12).Apply(churn);
+                            churn.Show();
+                            Pump(50);
+                            if (ModernGlowOverlay.IsAttached(churn) && ModernGlowOverlay.LastUpdateSucceeded)
+                                churnOk++;
+                            else
+                                churnFail++;
+                            churn.Close();
+                            churn.Dispose();
+                        }
+                    }
+                    Pump(200);
+                    GC.Collect();
+                    GC.WaitForPendingFinalizers();
+                    GC.Collect();
+                    using var proc1 = Process.GetCurrentProcess();
+                    int gdi1 = GetGuiResources(proc1.Handle, 0);
+                    int user1 = GetGuiResources(proc1.Handle, 1);
+                    int handles1 = proc1.HandleCount;
+                    bool churnClean = handles1 - handles0 <= 30 && gdi1 - gdi0 <= 10 && user1 - user0 <= 10;
+                    Console.WriteLine($"[assert] {(churnFail == 0 && churnClean ? "OK" : "FALLO")} overlay churn 30 forms: adjuntos={churnOk}, fallos={churnFail}, handles={handles0}->{handles1}, GDI={gdi0}->{gdi1}, USER={user0}->{user1}");
+                    if (churnFail != 0 || !churnClean) failures++;
+                }
             }
             catch (Exception ex)
             {
