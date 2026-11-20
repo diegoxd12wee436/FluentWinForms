@@ -127,11 +127,42 @@ namespace FluentWinForms.Core
 
         protected override void OnDpiChangedAfterParent(EventArgs e)
         {
-            DpiTrace.Log($"OnDpiChangedAfterParent {Name} dpiScaleAntes={_dpiScale * 96f:0} dpiControl={DeviceDpi} bounds={Bounds} logical={_logicalBounds}");
+            float oldScale = _dpiScale;
+            DpiTrace.Log($"OnDpiChangedAfterParent {Name} dpiScaleAntes={_dpiScale * 96f:0} dpiControl={DeviceDpi} bounds={Bounds} logical={_logicalBounds} autoScale={FindForm()?.AutoScaleMode}");
             _dpiScale = DeviceDpi / 96f;   // FASE 1b
+
+            // El HWND lo escala WinForms, pero el árbol visual (Layout de los
+            // nodos) conserva el tamaño de diseño. Escalarlo por el factor
+            // real evita el recorte a DPI menor y el texto "chico" a DPI mayor.
+            float factor = oldScale > 0f ? _dpiScale / oldScale : 1f;
+            if (_visualNode != null && Math.Abs(factor - 1f) > 0.001f)
+                ScaleNodeLayout(_visualNode, factor);
+
             ClearCaches();
             UpdatePhysicalBounds();        // FASE 1: recalcula el margen desde el tamaño LÓGICO
             RebuildCanvas();
+            base.OnDpiChangedAfterParent(e);
+        }
+
+        private static void ScaleNodeLayout(RenderNode node, float factor)
+        {
+            var l = node.Layout;
+            node.Layout = new RectangleF(l.X * factor, l.Y * factor, l.Width * factor, l.Height * factor);
+
+            if (node.Badge.IsVisible)
+            {
+                var b = node.Badge;
+                b.Size = (float)(b.Size * factor);
+                b.OffsetX = (float)(b.OffsetX * factor);
+                b.OffsetY = (float)(b.OffsetY * factor);
+                node.Badge = b;
+            }
+
+            node.Spacing *= factor;
+            node.GridMinColumnWidth *= factor;
+
+            for (int i = 0; i < node.Children.Count; i++)
+                ScaleNodeLayout(node.Children[i], factor);
         }
 
         // FASE 1: WinForms debe escalar el rectángulo LÓGICO (el del botón), no el inflado con margen.

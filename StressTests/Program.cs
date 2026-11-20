@@ -107,6 +107,7 @@ namespace FluentWinForms.StressTests
                 warmFailures += RunOverlayCheck();
                 if (Environment.GetEnvironmentVariable("FWF_OVERLAY_PIXEL") == "1")
                     warmFailures += RunOverlayPixelCheck();
+                warmFailures += RunDpiLayoutCheck();
                 RunModernMassScenario();
                 RunCycle(0, extremes: false);
                 RunCycle(0, extremes: false);
@@ -1054,6 +1055,53 @@ namespace FluentWinForms.StressTests
             {
                 ModernGlowOverlay.Enabled = false;
                 ModernGlowOverlay.EnableRenderDiagnostics = false;
+            }
+            return failures;
+        }
+
+        /// <summary>
+        /// Verifica el helper de DPI: el Layout de los nodos escala por el
+        /// factor real del monitor (160x48 → 128x38.4 en 125%→100%).
+        /// El evento real WM_DPICHANGED lo valida el usuario.
+        /// </summary>
+        private static int RunDpiLayoutCheck()
+        {
+            int failures = 0;
+            try
+            {
+                using var form = new Form { Size = new Size(520, 360) };
+                var c = FluentElement.Design("dpi-scale").Layout(120, 100, 160, 48).Apply(form);
+                form.Show();
+                Pump(250);
+
+                var t = typeof(ModernControlBase);
+                var nodeField = t.GetField("_visualNode", BindingFlags.Instance | BindingFlags.NonPublic);
+                var scaleMethod = t.GetMethod("ScaleNodeLayout", BindingFlags.Static | BindingFlags.NonPublic);
+                var node = nodeField?.GetValue(c) as RenderNode;
+                if (node == null || scaleMethod == null)
+                {
+                    Console.WriteLine("[assert] FALLO dpi layout: nodo/método no disponible");
+                    failures++;
+                }
+                else
+                {
+                    scaleMethod.Invoke(null, new object[] { node, 0.8f });
+                    bool shrunk = Math.Abs(node.Layout.Width - 128f) <= 0.2f &&
+                                  Math.Abs(node.Layout.Height - 38.4f) <= 0.2f;
+                    scaleMethod.Invoke(null, new object[] { node, 1.25f });
+                    bool restored = Math.Abs(node.Layout.Width - 160f) <= 0.2f &&
+                                    Math.Abs(node.Layout.Height - 48f) <= 0.2f;
+                    Console.WriteLine($"[assert] {(shrunk && restored ? "OK" : "FALLO")} dpi layout: 160x48 -> 128x38.4 -> 160x48 (ok={shrunk && restored})");
+                    if (!(shrunk && restored)) failures++;
+                }
+
+                form.Close();
+                form.Dispose();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[assert] FALLO dpi layout: {ex.Message}");
+                failures++;
             }
             return failures;
         }
