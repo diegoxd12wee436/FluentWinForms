@@ -847,23 +847,42 @@ namespace FluentWinForms.StressTests
             {
                 using var form = new Form { Size = new Size(400, 240) };
                 var b = FluentElement.Design("ripple").Layout(80, 80, 160, 48)
-                    .Ripple("#40FF0000").Apply(form);
+                    .Ripple("#40FF0000").RippleDuration(900).Apply(form);
                 form.Show();
                 Pump(300);
+                bool durationOk = Math.Abs(b.RippleDuration - 900f) < 0.1f;
+                Console.WriteLine($"[assert] {(durationOk ? "OK" : "FALLO")} ripple duration={b.RippleDuration:0}ms (900)");
+                if (!durationOk) failures++;
 
                 OnMouseDown?.Invoke(b, new object[] { new MouseEventArgs(MouseButtons.Left, 1, 40, 24, 0) });
-                Pump(120);
-                OnMouseUp?.Invoke(b, new object[] { new MouseEventArgs(MouseButtons.Left, 1, 40, 24, 0) });
-                Pump(60);
+                Pump(450);
 
                 var t = typeof(ModernControlBase);
                 var nodeField = t.GetField("_rippleNode", BindingFlags.Instance | BindingFlags.NonPublic);
                 var ripField = t.GetField("_isRippling", BindingFlags.Instance | BindingFlags.NonPublic);
+                var radiusField = t.GetField("_rippleRadius", BindingFlags.Instance | BindingFlags.NonPublic);
+                var maxField = t.GetField("_maxRippleRadius", BindingFlags.Instance | BindingFlags.NonPublic);
+                float radius = radiusField?.GetValue(b) is float r ? r : -1f;
+                float max = maxField?.GetValue(b) is float m && m > 0f
+                    ? m : (float)Math.Sqrt(b.Width * b.Width + b.Height * b.Height);
+                float ratio = max > 0f ? radius / max : 0f;
+                bool timingOk = ratio >= 0.3f && ratio <= 0.8f;
+                Console.WriteLine($"[assert] {(timingOk ? "OK" : "FALLO")} ripple timing: radio/max={ratio:0.00} a 450ms de 900 (0.30..0.80)");
+                if (!timingOk) failures++;
+
+                OnMouseUp?.Invoke(b, new object[] { new MouseEventArgs(MouseButtons.Left, 1, 40, 24, 0) });
+                Pump(60);
+
                 object? node = nodeField?.GetValue(b);
                 bool rippling = ripField?.GetValue(b) is true;
 
                 Console.WriteLine($"[assert] {(rippling && node != null ? "OK" : "FALLO")} ripple fade: isRippling={rippling} nodo={node != null}");
                 if (!(rippling && node != null)) failures++;
+
+                Pump(700);
+                bool finished = ripField?.GetValue(b) is false;
+                Console.WriteLine($"[assert] {(finished ? "OK" : "FALLO")} ripple fin: isRippling={!finished} tras 900+540ms");
+                if (!finished) failures++;
 
                 form.Close();
                 form.Dispose();

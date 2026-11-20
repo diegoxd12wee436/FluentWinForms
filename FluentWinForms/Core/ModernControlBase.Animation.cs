@@ -71,6 +71,22 @@ namespace FluentWinForms.Core
         private float _maxRippleRadius = 0f;
         private RenderNode? _rippleNode;
 
+        private float _rippleDuration = 600f;
+        [Category("Modern -  Animations")]
+        [Description("Duración del ripple en milisegundos (80–10000). Más alto = onda más lenta y visible.")]
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Visible)]
+        public float RippleDuration
+        {
+            get => SanitizeRippleDuration(_rippleDuration);
+            set => _rippleDuration = SanitizeRippleDuration(value);
+        }
+
+        private static float SanitizeRippleDuration(float value)
+        {
+            if (!float.IsFinite(value)) return 600f;
+            return Math.Clamp(value, 80f, 10000f);
+        }
+
         protected bool _isHoveringInternal = false;
         protected bool _isMouseDownInternal = false;
         private bool _isAnimating = false;
@@ -326,6 +342,7 @@ namespace FluentWinForms.Core
             }
 
             // 2. Normalización de tiempo
+            float rawDt = dt; // ripple en ms reales; hover/press usa el clamp
             dt = Math.Min(dt, 32f);
             bool isMoving = false;
             float step = dt / AnimationSpeed;
@@ -350,11 +367,19 @@ namespace FluentWinForms.Core
                 if (_pressProgress > 0f) { _pressProgress = Math.Max(0f, _pressProgress - step); isMoving = true; }
             }
 
-            // 5. Easing de Ripple
+            // 5. Easing de Ripple (duración configurable en ms)
             if (_isRippling)
             {
-                _rippleRadius += (dt * S(1.2f));
-                if (!_isMouseDownInternal) _rippleOpacity -= (step * 1.5f);
+                float duration = SanitizeRippleDuration(_rippleDuration);
+                float startRadius = S(10f);
+                float maxRadius = _maxRippleRadius;
+                if (maxRadius <= startRadius)
+                    maxRadius = (float)Math.Sqrt(Width * Width + Height * Height);
+                maxRadius = Math.Max(maxRadius, startRadius);
+                float rate = (maxRadius - startRadius) / duration;
+                _rippleRadius = Math.Min(maxRadius, _rippleRadius + rawDt * rate);
+                if (!_isMouseDownInternal)
+                    _rippleOpacity = Math.Max(0f, _rippleOpacity - rawDt / (duration * 0.6f));
 
                 if (_rippleOpacity <= 0) { _isRippling = false; _rippleNode = null; }
                 isMoving = true;

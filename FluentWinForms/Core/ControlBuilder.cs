@@ -260,6 +260,9 @@ namespace FluentWinForms.Core
         public ControlBuilder<T> OnHoverLeave(Action<RenderNode> a) { _node.OnHoverLeaveAction = a; return this; }
 
         public ControlBuilder<T> Ripple(string hexColor = "#40000000", double opacity = 1.0)
+            => Ripple(hexColor, opacity, 600);
+
+        public ControlBuilder<T> Ripple(string hexColor, double opacity, double durationMs)
         {
             var rp = _node.Ripple;
             try { rp.Color = ParseHex(hexColor); } catch { }
@@ -267,7 +270,19 @@ namespace FluentWinForms.Core
             _node.Ripple = rp;
             // El builder debe activar el ripple del control; antes solo
             // configuraba el nodo y `UseRipple` quedaba en false.
-            if (_hostControl != null) _hostControl.UseRipple = true;
+            if (_hostControl != null)
+            {
+                _hostControl.UseRipple = true;
+                _hostControl.RippleDuration = (float)durationMs;
+            }
+            return this;
+        }
+
+        /// <summary>Duración del ripple en milisegundos (onda más lenta/visible).</summary>
+        public ControlBuilder<T> RippleDuration(double durationMs)
+        {
+            if (_hostControl != null)
+                _hostControl.RippleDuration = (float)durationMs;
             return this;
         }
         public ControlBuilder<T> NoRipple()
