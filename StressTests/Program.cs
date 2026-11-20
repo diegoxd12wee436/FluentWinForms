@@ -69,6 +69,7 @@ namespace FluentWinForms.StressTests
         private static readonly List<(int Cycle, long Ws, long Private, long Managed, int Gdi, int User, int Threads, int Handles)> Samples = new();
 
         private static int _threadExceptions;
+        private static int _skips;
 
         [STAThread]
         private static int Main(string[] args)
@@ -151,6 +152,8 @@ namespace FluentWinForms.StressTests
                 RunResizeStress();
                 warmFailures += RunSiblingOverlapCheck();
                 warmFailures += RunBadgeLayoutCheck();
+                warmFailures += RunControlChurnCheck();
+                warmFailures += RunDisposedBeforeHandleCheck();
                 warmFailures += RunGcCostCheck();
                 warmFailures += RunPathCacheCheck();
                 warmFailures += RunRippleFadeCheck();
@@ -282,7 +285,7 @@ namespace FluentWinForms.StressTests
             }
 
             failures += _threadExceptions;
-            Console.WriteLine($"[stress] duración={sw.Elapsed.TotalSeconds:0.0}s fallos={failures}");
+            Console.WriteLine($"[stress] duración={sw.Elapsed.TotalSeconds:0.0}s fallos={failures} skips={_skips}");
             Console.WriteLine($"[stress] Δ vs calentamiento: WS={final.Ws - baseline.Ws} MB  Private={final.Private - baseline.Private} MB  " +
                               $"GDI={final.Gdi - baseline.Gdi}  USER={final.User - baseline.User}  Threads={final.Threads - baseline.Threads}  Handles={final.Handles - baseline.Handles}");
             if (firstError != null) Console.WriteLine($"[stress] primer error: {firstError}");
@@ -1065,6 +1068,154 @@ namespace FluentWinForms.StressTests
         }
 
         /// <summary>
+        /// 100 ciclos de alta + paint + remove + dispose de controles con glow:
+        /// comprueba que WS/GDI/handles no crecen (sin tocar el árbol visual).
+        /// </summary>
+        private static int RunControlChurnCheck()
+        {
+            int failures = 0;
+            try
+            {
+                using var form = new Form { Size = new Size(420, 300) };
+                form.Show();
+                Pump(300);
+
+                int gdi0 = 0, handles0 = 0;
+                long ws0 = 0, priv0 = 0;
+                bool baselineSet = false;
+                var shadowField = typeof(RenderNode).GetField("_cachedShadowImage",
+                    BindingFlags.Instance | BindingFlags.NonPublic);
+                bool bakeOk = true;
+                bool releaseOk = true;
+                for (int i = 0; i < 100; i++)
+                {
+                    var c = FluentElement.Design($"churn-glow{i}").Layout(80, 80, 160, 48)
+                        .Glow("#00aaff", 12).Apply(form);
+                    PaintOnce(c);
+                    var node = c.VisualNode;
+                    if (node == null || shadowField?.GetValue(node) == null)
+                        bakeOk = false;
+                    form.Controls.Remove(c);
+                    c.Dispose();
+                    if (node != null && shadowField?.GetValue(node) != null)
+                        releaseOk = false;
+
+                    // Baseline tras 10 ciclos de calentamiento **post-GC**:
+                    // la caída de handles del settle no debe enmascarar leaks.
+                    if (i == 10)
+                    {
+                        GC.Collect();
+                        GC.WaitForPendingFinalizers();
+                        GC.Collect();
+                        Pump(100);
+                        using var proc = Process.GetCurrentProcess();
+                        proc.Refresh();
+                        gdi0 = GetGuiResources(proc.Handle, 0);
+                        handles0 = proc.HandleCount;
+                        ws0 = proc.WorkingSet64;
+                        priv0 = proc.PrivateMemorySize64;
+                        baselineSet = true;
+                    }
+                }
+                Pump(200);
+                GC.Collect();
+                GC.WaitForPendingFinalizers();
+                GC.Collect();
+
+                int gdi1, handles1;
+                long ws1, priv1;
+                using (var proc = Process.GetCurrentProcess())
+                {
+                    proc.Refresh();
+                    gdi1 = GetGuiResources(proc.Handle, 0);
+                    handles1 = proc.HandleCount;
+                    ws1 = proc.WorkingSet64;
+                    priv1 = proc.PrivateMemorySize64;
+                }
+
+                bool ok = baselineSet && bakeOk && releaseOk &&
+                          gdi1 - gdi0 <= 4 &&
+                          handles1 - handles0 <= 8 &&
+                          ws1 - ws0 <= 12L * 1024 * 1024 &&
+                          priv1 - priv0 <= 4L * 1024 * 1024;
+                Console.WriteLine($"[assert] {(ok ? "OK" : "FALLO")} churn 100 controles glow: bake={bakeOk}, release={releaseOk}, baseline=10, GDI={gdi0}->{gdi1}, handles={handles0}->{handles1}, WS={ws0 / 1048576}->{ws1 / 1048576} MB, Private={priv0 / 1048576}->{priv1 / 1048576} MB");
+                if (!ok) failures++;
+                form.Close();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[assert] FALLO churn 100 controles: {ex.Message}");
+                failures++;
+            }
+            return failures;
+        }
+
+        /// <summary>WeakReference: dispose antes de que el padre cree handle.</summary>
+        private static int RunDisposedBeforeHandleCheck()
+        {
+            int failures = 0;
+            bool wasEnabled = ModernGlowOverlay.Enabled;
+            try
+            {
+                ModernGlowOverlay.Enabled = true;
+                using var parent = new Form();
+                var weak = CreateDisposedHookedControl(parent,
+                    out bool installed, out bool cleared,
+                    out bool subscribedBefore, out bool subscribedAfter);
+                bool unsubscribed = subscribedBefore && !subscribedAfter;
+
+                // Sin crear el handle del padre: si el hook siguiera suscrito,
+                // el evento mantendría vivo al control y el WeakReference no moriría.
+                GC.Collect();
+                GC.WaitForPendingFinalizers();
+                GC.Collect();
+                bool collected = !weak.IsAlive;
+                GC.KeepAlive(parent);
+
+                // Segunda comprobación: crear el handle no debe adjuntar nada.
+                _ = parent.Handle;
+                Pump(100);
+                bool notAttached = !ModernGlowOverlay.IsAttached(parent);
+
+                bool ok = installed && cleared && unsubscribed &&
+                          collected && notAttached;
+                Console.WriteLine($"[assert] {(ok ? "OK" : "FALLO")} dispose antes de handle: instalado={installed}, limpio={cleared}, evento={subscribedBefore}->{subscribedAfter}, recolectado={collected}, sin_attach={notAttached}");
+                if (!ok) failures++;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[assert] FALLO dispose antes de handle: {ex.Message}");
+                failures++;
+            }
+            finally
+            {
+                ModernGlowOverlay.Enabled = wasEnabled;
+            }
+            return failures;
+        }
+
+        private static WeakReference CreateDisposedHookedControl(Form parent,
+            out bool installed, out bool cleared,
+            out bool subscribedBefore, out bool subscribedAfter)
+        {
+            var c = FluentElement.Design("weak-hook").Layout(30, 30, 100, 40)
+                .Glow("#ff00ff", 8).Apply(parent);
+            var handlerField = typeof(ModernControlBase).GetField("_overlayAttachHandler",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            var parentField = typeof(ModernControlBase).GetField("_overlayAttachParent",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            var hookHandler = handlerField?.GetValue(c) as Delegate;
+            installed = hookHandler != null && parentField?.GetValue(c) != null;
+            subscribedBefore = OverlayHookSubscribed(parent, hookHandler);
+            c.Dispose();
+            parent.Controls.Remove(c);
+            cleared = handlerField?.GetValue(c) == null &&
+                      parentField?.GetValue(c) == null;
+            subscribedAfter = OverlayHookSubscribed(parent, hookHandler);
+            return new WeakReference(c);
+        }
+
+        /// <summary>
         /// El ripple debe conservar el nodo después de MouseUp para dibujar el
         /// fade (antes _currentPressedNode=null lo cortaba de golpe).
         /// </summary>
@@ -1833,6 +1984,7 @@ namespace FluentWinForms.StressTests
 
                 if (GetForegroundWindow() != form.Handle)
                 {
+                    _skips++;
                     Console.WriteLine("[assert] SKIP overlay pixel: la ventana de prueba no está al frente");
                     form.Close();
                     form.Dispose();
@@ -1981,6 +2133,9 @@ namespace FluentWinForms.StressTests
 
                 form.Show();
                 Pump(900);
+                form.Activate();
+                form.BringToFront();
+                Pump(200);
 
                 var img1 = form.BackgroundImage;
                 if (img1 == null)
@@ -2016,13 +2171,31 @@ namespace FluentWinForms.StressTests
                     return 1;
                 }
                 long h2 = ImageHash(img2);
+                // Reintento por si el worker tarda en recalcular con la máquina
+                // cargada; si el form no está al frente, es SKIP (no pase).
+                for (int retry = 0; retry < 3 && h1 == h2; retry++)
+                {
+                    Pump(600);
+                    var retryImg = form.BackgroundImage;
+                    if (retryImg != null) h2 = ImageHash(retryImg);
+                }
 
                 bool liveMove = h1 != h2;
-                Console.WriteLine($"[assert] {(liveMove ? "OK" : "FALLO")} blur live (mover): hash {h1:X8} -> {h2:X8}");
+                if (!liveMove && GetForegroundWindow() != form.Handle)
+                {
+                    _skips++;
+                    liveMove = true;
+                    Console.WriteLine("[assert] SKIP blur live (mover): el form no está al frente");
+                }
+                else
+                {
+                    Console.WriteLine($"[assert] {(liveMove ? "OK" : "FALLO")} blur live (mover): hash {h1:X8} -> {h2:X8}");
+                }
 
                 // Segunda prueba: ventana QUIETA y fondo cambiando. Es lo que
                 // distingue "live" de una foto recapturada solo al mover.
                 bool liveStatic = false;
+                bool skipped = false;
                 using (var cover = new Form
                 {
                     FormBorderStyle = FormBorderStyle.None,
@@ -2042,21 +2215,33 @@ namespace FluentWinForms.StressTests
                     cover.Activate();
                     Pump(1200);
 
-                    var img3 = form.BackgroundImage;
-                    if (img3 == null)
+                    if (GetForegroundWindow() != cover.Handle)
                     {
-                        Console.WriteLine("[assert] FALLO blur live (quieto): BackgroundImage nulo");
+                        // Sesión bloqueada/otra app al frente: la sonda no se
+                        // captura; se marca SKIP, no se cuenta como validado.
+                        skipped = true;
+                        _skips++;
+                        Console.WriteLine("[assert] SKIP blur live (quieto): la cobertura no está al frente");
                     }
                     else
                     {
-                        long h3 = ImageHash(img3);
-                        liveStatic = h3 != h2;
-                        Console.WriteLine($"[assert] {(liveStatic ? "OK" : "FALLO")} blur live (quieto, fondo cambia): hash {h2:X8} -> {h3:X8}");
+                        var img3 = form.BackgroundImage;
+                        if (img3 == null)
+                        {
+                            Console.WriteLine("[assert] FALLO blur live (quieto): BackgroundImage nulo");
+                        }
+                        else
+                        {
+                            long h3 = ImageHash(img3);
+                            liveStatic = h3 != h2;
+                            Console.WriteLine($"[assert] {(liveStatic ? "OK" : "FALLO")} blur live (quieto, fondo cambia): hash {h2:X8} -> {h3:X8}");
+                        }
                     }
                     cover.Close();
                     Pump(300);
                 }
 
+                if (skipped) return liveMove ? 0 : 1;
                 return liveMove && liveStatic ? 0 : 1;
             }
             catch (Exception ex)
