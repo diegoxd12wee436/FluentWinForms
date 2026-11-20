@@ -46,7 +46,8 @@
 3. ~~Skia rápido: translate/escala, badge, ripple~~ (hecho: `d8d650d` + `0c49546`).
 4. ~~Skia medio: hit-test~~ (hecho: `d8d650d`; queda ampliar tests de esquina/clamp).
 5. **Skia grande:** ~~overlay Skia único para glow CSS con overflow (sin GDI)~~ (prototipo
-   commiteado `f0fd531`, opt-in; falta validación visual/DPI/coste).
+   commiteado `f0fd531`, opt-in; funcionando en la demo con `app.manifest`, falta validación
+   visual final y coste).
 6. **Nodos desprendidos:** liberar cachés al quitar/reemplazar nodos del árbol.
 7. Tests pendientes no bloqueantes: clamp al parent con badge negativo, badge de hijo no 0×0,
    alpha de ripple por píxel, escala del control en VisualNode.
@@ -76,8 +77,9 @@ funcionales (el segundo alimenta el blur CPU).
 ### Tarea 7e — Overlay Skia: prototipo commiteado (opt-in, `f0fd531`)
 
 **Estado:** prototipo aprobado por revisor+rompedor y commiteado; `ModernGlowOverlay.Enabled`
-por defecto **false**. Pendiente: validación visual del usuario, DPI real, coste con varios
-controles y resize ×50.
+por defecto **false** (la demo lo activa en `Program.cs`). El bloqueo del overlay en el main form
+está resuelto (ver más abajo). Pendiente: validación visual final del usuario, DPI real, coste
+con varios controles y resize ×50.
 
 - `ModernGlowOverlay` (fachada pública) + `ModernSkiaGlowOverlay` (ventana hija
   `WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_NOACTIVATE`): cubre el cliente del padre y queda
@@ -89,6 +91,8 @@ controles y resize ×50.
 - Se activa antes de crear los forms: `ModernGlowOverlay.Enabled = true;`.
 - Evidencia del harness: `overlay Skia: adjunto=True, z-order=True, UpdateLayered=True (err=0),
   posición=True {X=105,Y=134}, expansión superior=1px (<=3)`, z-order tras alta OK,
+  `overlay adjuntado tarde: sin-overlay-previo=True, adjunto=True, expansión=1px`,
+  `overlay control reparentado: host=True, otro=False, expansión=1px`,
   `Enabled=false` no adjunta; 3 ciclos `fallos=0`, sin `ThreadException`. La posición se mide
   sin captura: `LastOverlayScreen == form.PointToScreen(empty)`. El DIB tiene 27.840 píxeles con
   alpha (botón `Glow(30)`) cuando se activa el diagnóstico (el escaneo está gateado, no corre
@@ -103,6 +107,21 @@ controles y resize ×50.
 - Limitaciones a validar: posible anillo de 1 px entre el botón y el halo (el HWND conserva el
   margen de seguridad), DPI/multimonitor, z-order con paneles anidados y coste de
   `UpdateLayeredWindow` con bitmap completo. La capa es de un nivel por padre.
+
+**Main form bloqueado (RESUELTO):** en la app, `Controls.Add(overlay)` fallaba con
+`Win32Exception (0x80004005): Error creating window handle`; el mismo `Form1` creado dentro del
+harness funcionaba. Prueba cruda: `CreateWindowEx(WS_EX_LAYERED, child)` devolvía `err=87`
+(`ERROR_INVALID_PARAMETER`) en el apphost y `err=0` bajo `dotnet.exe`. Causa: el apphost que
+genera el SDK embebe un manifiesto **sin `<supportedOS>` Windows 10/11**, así que Windows aplica
+el modo de compatibilidad de Windows 7 y rechaza `WS_EX_LAYERED` en ventanas hijas. Fix:
+`FluentWinForms/app.manifest` + `<ApplicationManifest>` en el csproj de la demo y del harness.
+**Cualquier app que active el overlay debe declarar Windows 10/11 en su manifiesto.**
+
+- El overlay se adjunta al `HandleCreated` del padre (o con `BeginInvoke` si el handle ya
+  existía). Al adjuntarlo tarde, `RefreshChildren` recalcula `UpdatePhysicalBounds` de los
+  controles ya existentes para que el HWND vuelva a tamaño de contenido (antes quedaba inflado
+  19 px por la sombra).
+- `OnDpiChangedAfterParent` del overlay libera la superficie y repinta al cambiar de DPI.
 
 **Objetivo:** que el halo salga completo fuera del HWND sin composición GDI+ y sin que los
 hermanos lo borren. Debe ser una sola superficie Skia.
