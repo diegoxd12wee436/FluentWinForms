@@ -139,7 +139,9 @@ validación visual y sin revisión de ciclo de vida (overlay/DPI/dispose).
   **saneada a 80–10000**, NaN/∞ → 600): el radio llega a la diagonal en esa duración usando
   `dt` real (no el clamp de 32 ms) y el fade dura `0.6 * duración`. Overload binario
   `Ripple(string, double)` + `Ripple(string, double, double)` y `.RippleDuration(ms)`.
-  Test: 900 ms, radio/max 0.55 a 450 ms, fin tras 900+540 ms.
+  Test: 900 ms, radio/max 0.55 a 450 ms, fin tras 900+540 ms. El fade corre **también con el
+  clic mantenido** (1.4× la duración) y el `dt` real se capea a 50 ms para que un frame largo no
+  complete el ripple de golpe (destello); test de clic mantenido 1600 ms.
 - Hit-test: `WM_NCHITTEST` incluye la base del árbol (`CalculateBaseOverflow`) y, en
   `VisualNode`, ignora la escala del control (no dibujada); la sombra sigue fuera del área.
 - Evidencia: build 0/0; 3 ciclos `fallos=0`; `translate` host 11 px; **control+nodo+badge
