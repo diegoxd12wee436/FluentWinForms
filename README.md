@@ -62,6 +62,22 @@ btn.Design()
 
 ---
 
+## ✨ Glow CSS con overlay Skia (opt-in)
+
+El glow de los `FluentElement` puede dibujarse en una **ventana hija layered** detrás de los controles, con Skia y sin GDI+. Se activa una vez, antes de crear los forms:
+
+```csharp
+ModernGlowOverlay.Enabled = true;
+```
+
+Requisitos y límites:
+- El ejecutable debe declarar **Windows 10/11 en su manifiesto** (`supportedOS`). Sin eso Windows aplica el modo de compatibilidad de Windows 7 y `WS_EX_LAYERED` falla en ventanas hijas (error 87). `FluentWinForms/app.manifest` es el ejemplo; el harness usa el mismo archivo. Para visual styles nativos, el manifiesto incluye además la dependencia `Microsoft.Windows.Common-Controls` v6.
+- Una capa por padre. El coste es un bitmap del tamaño del cliente y un `UpdateLayeredWindow` por repintado.
+- `Enabled = false` solo impide adjuntar overlays nuevos; los ya adjuntos siguen activos.
+- El overlay va **detrás** de los controles: el cuerpo tapa su parte del halo y el borde exterior del control queda visible dentro del cliente del padre.
+
+---
+
 ## 🌌 FluentWinUiVerse: Comunidad Abierta
 Inspirado en páginas brutales como *uiverse.io*, este proyecto va a tener **FluentWinUiVerse**: un catálogo de componentes en GitHub Pages donde cualquiera de la comunidad va a poder subir sus controles personalizados y estilos creados con este motor. ¡La idea es aprender y armar cosas tuani entre todos!
 
@@ -203,6 +219,22 @@ btn.Design()
    .Apply(this);                  // Apply to the current form
 
 ```
+
+---
+
+## ✨ CSS glow with a Skia overlay (opt-in)
+
+The glow of `FluentElement` controls can be drawn on a **layered child window** behind the controls, using Skia and no GDI+. Enable it once, before creating the forms:
+
+```csharp
+ModernGlowOverlay.Enabled = true;
+```
+
+Requirements and limits:
+- The executable must declare **Windows 10/11 in its manifest** (`supportedOS`). Otherwise Windows applies Windows 7 compatibility mode and `WS_EX_LAYERED` fails on child windows (error 87). `FluentWinForms/app.manifest` is the reference; the harness uses the same file. For native visual styles, the manifest also includes the `Microsoft.Windows.Common-Controls` v6 dependency.
+- One layer per parent. The cost is a client-sized bitmap and one `UpdateLayeredWindow` per repaint.
+- `Enabled = false` only prevents attaching new overlays; already attached ones stay active.
+- The overlay sits **behind** the controls: the body hides its part of the halo and the control's outer edge remains visible inside the parent client area.
 
 ---
 

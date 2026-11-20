@@ -46,13 +46,17 @@
 3. ~~Skia rápido: translate/escala, badge, ripple~~ (hecho: `d8d650d` + `0c49546`).
 4. ~~Skia medio: hit-test~~ (hecho: `d8d650d`; queda ampliar tests de esquina/clamp).
 5. **Skia grande:** ~~overlay Skia único para glow CSS con overflow (sin GDI)~~ (prototipo
-   commiteado `f0fd531`, opt-in; funcionando en la demo con `app.manifest`, falta validación
-   visual final y coste).
-6. **Nodos desprendidos:** liberar cachés al quitar/reemplazar nodos del árbol.
-7. Tests pendientes no bloqueantes: clamp al parent con badge negativo, badge de hijo no 0×0,
-   alpha de ripple por píxel, escala del control en VisualNode.
+   commiteado `f0fd531`, opt-in; funcionando en la demo con `app.manifest`, validación visual
+   final del usuario pendiente; coste medido en el harness).
+6. **Nodos desprendidos:** pendiente de rediseño. Se intentó dos veces y se revirtió (ver
+   “Nodos desprendidos: bloqueado tras 2 intentos”); no reintentar sin resolver la propiedad
+   del árbol y las notificaciones de nietos.
+7. **Tests pendientes no bloqueantes:** clamp al parent con badge negativo, badge de hijo 0×0,
+   alpha de ripple por píxel y escala del control en VisualNode: hechos en
+   `TEST: alpha del ripple, badge/layout y manifiesto`. Queda pendiente **badge de hijo no 0×0**
+   (el test actual cubre un hijo 0×0).
 
-### Tarea 8 — DPI en caliente (fix en working tree)
+### Tarea 8 - DPI en caliente (fix commiteado y validado)
 
 **Síntoma del usuario:** al pasar 125→100 los controles se recortan; a 150 el texto queda
 pequeño respecto al botón; el ciclo 125→100→150→125 no vuelve igual.
@@ -122,6 +126,56 @@ el modo de compatibilidad de Windows 7 y rechaza `WS_EX_LAYERED` en ventanas hij
   controles ya existentes para que el HWND vuelva a tamaño de contenido (antes quedaba inflado
   19 px por la sombra).
 - `OnDpiChangedAfterParent` del overlay libera la superficie y repinta al cambiar de DPI.
+
+**Validación ampliada (2026-11-19/20):**
+- DPI del overlay: `OnDpiChangedAfterParent` recrea la `SKSurface` y pinta; 20 cambios
+  seguidos con `Private` 49→48 MB (sin retención de superficies).
+- Blur/Acrylic con un `ModernFormManager` propio (sin depender de `Form1`): overlay adjunto,
+  `UpdateLayered`, bounds/screen; Blur con `BackgroundImage` y DWM=1, Acrylic sin
+  `BackgroundImage` y DWM=3 en Win11 22H2+ (en builds menores se omite el assert DWM).
+- 150 ciclos con overlay activo en Form1 (`FWF_OVERLAY_STRESS=1`): `fallos=0 skips=1`,
+  WS 101→89 MB, Private 55→32 MB, GDI 24→24, USER 11→11, handles 380→371; pendiente negativa.
+  Antes del lote de churn también dio `fallos=0` con Blur+overlay (WS 98→87, Private 43→32).
+- Churn de 30 forms (tamaño distinto por form) y hook `antes=True/despues=False` en el
+  `EventHandlerList` del padre.
+- Resize ×80 + hover en 3 controles y GDI estable; carga del overlay medida (ver coste).
+- Churn de 100 controles con glow (alta + paint + remove + dispose): bake y release en los
+  100 nodos, baseline post-GC tras 10 de calentamiento; GDI 27→27, handles 370→370, WS 89→90 MB,
+  Private 51→51 MB; WeakReference del control dispuesto antes del handle del padre →
+  recolectado y evento `True→False`.
+- Los checks dependientes del escritorio (`blur live (mover/quieto)`, pixel opt-in) incrementan
+  `skips` y no se cuentan como validados; el move reintenta 3×, el quieto hace skip si la
+  cobertura no está al frente. El resumen muestra `fallos=N skips=M`.
+- El check de píxel es opt-in y hace `SKIP` **solo** si la ventana no está al frente; con la
+  ventana al frente, un fondo no negro es **FALLO**. El pixel real lo valida el usuario en un
+  escritorio limpio.
+- `blur live (quieto)` hace `SKIP` si la cobertura no está al frente (sesión bloqueada/otra app);
+  el check `blur live (mover)` sigue validando que el backdrop se actualiza.
+
+**Coste medido del overlay:** 80 resizes + hover en 3 controles ≈ 3 s en el harness
+(incluye `Pump`); el bitmap completo se reenvía en cada repintado. No se implementaron dirty
+rects: el coste es aceptable para el uso actual y el foco era la corrección/estabilidad.
+
+### Nodos desprendidos: bloqueado tras 2 intentos (revertido)
+
+**Intento 1:** `Children.Remove/Clear/SetItem` y el setter `VisualNode` llamaban
+`ReleaseNativeResources()`. El revisor lo rechazó: destruía `SvgPicture` y el subárbol, impedía
+reinsertar el nodo y, al promover un hijo a root, liberaba el árbol nuevo.
+
+**Intento 2:** `ReleaseReconstructibleCaches(except)` (solo cachés, sin `SvgPicture`), `Contains`
+para reentrancia y limpieza de `_currentHoveredNode/_currentPressedNode/_rippleNode`. El revisor
+encontró más casos: `VisualNode = null` no limpia punteros; el control solo escucha el
+`CollectionChanged` del root (un nieto removido no lo notifica); `SetItem` no pasa `except`; el
+árbol viejo pierde su `SvgPicture` sin dispose determinista; el release doble recorre O(n²).
+
+**Decisión:** revertido el producto y los tests; no se reintenta sin un rediseño de propiedad
+del árbol. Propuesta para una sesión dedicada:
+- Back-reference nodo→control o notificación recursiva de `Children` (no solo el root).
+- API explícita `Detach` vs `Dispose`; `VisualNode` con `ReleaseNativeResources(except: newRoot)`
+  para el SVG del árbol viejo.
+- `SetItem(old.ReleaseReconstructibleCaches(item))`.
+- Tests de `VisualNode=null`, pressed/hover en un nieto, `SetItem` descendiente y `SvgPicture`.
+- Un solo recorrido de cachés; el bucle de hijos libera solo lo no reconstruible.
 
 **Objetivo:** que el halo salga completo fuera del HWND sin composición GDI+ y sin que los
 hermanos lo borren. Debe ser una sola superficie Skia.
