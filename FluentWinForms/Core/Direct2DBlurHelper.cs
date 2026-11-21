@@ -61,6 +61,25 @@ namespace FluentWinForms.Core
         private ID2D1Effect? _blurEffect;
         private ID2D1SolidColorBrush? _tintBrush;
 
+        // Blur GPU del backdrop (D2D 1.1 offscreen): DC libre + superficies
+        // pequeñas, independientes del hwnd target del camino directo.
+        private ID2D1DeviceContext? _blurContext;
+        private ID2D1Effect? _backdropBlurEffect;
+        private ID2D1Bitmap? _blurUpload;
+        private ID2D1Bitmap1? _blurOut;
+        private ID2D1Bitmap1? _blurRead;
+        private int _blurW, _blurH;
+        private long _gpuRetryTicks;
+        private long _gpuFrames, _cpuFrames;
+        private string? _gpuLastError;
+        private readonly object _gpuLogLock = new();
+        private string? _gpuLastLoggedReason;
+        private long _gpuLastLoggedTicks;
+
+        /// <summary>Fuerza el fallback CPU para pruebas (FWF_BLUR_FORCE_CPU=1).</summary>
+        private static readonly bool _forceCpu =
+            Environment.GetEnvironmentVariable("FWF_BLUR_FORCE_CPU") == "1";
+
         private IntPtr _dibBitmap = IntPtr.Zero;
         private IntPtr _dibBits = IntPtr.Zero;
         private IntPtr _dibDc = IntPtr.Zero;
@@ -416,7 +435,24 @@ namespace FluentWinForms.Core
             _backdropEnabled = sink != null;
             _bdLastSignature = 0;
             _bdLastCaptureSignature = 0;
-            if (sink == null) ResetBackdropSlots();
+            if (sink == null)
+            {
+                // Liberar el contexto GPU del backdrop. El worker puede estar
+                // a mitad de un Map/readback (o ya detenido por Stop()): el
+                // lock lo serializa con RenderFrame. ModernFormManager llama
+                // Stop() antes, así que la espera es de como mucho el frame en
+                // curso (no hay device creation nueva en juego).
+                lock (_renderLock)
+                {
+                    ReleaseGpuBlurResources();
+                }
+                ResetBackdropSlots();
+            }
+            else
+            {
+                // Reactivar sin arrastrar un cooldown de un fallo anterior.
+                Interlocked.Exchange(ref _gpuRetryTicks, 0);
+            }
         }
 
         /// <summary>
@@ -560,12 +596,20 @@ namespace FluentWinForms.Core
 
             if (blur)
             {
-                // Dos pasadas de caja ≈ gaussiana (la segunda suaviza las
-                // esquinas del kernel). El radio es O(1) por píxel, así que
-                // subir BlurAmount no encarece el frame.
+                // Blur en GPU (D2D GaussianBlur, sigma en píxeles de trabajo).
+                // El fallback CPU (dos pasadas de caja ≈ gaussiana) cubre
+                // Win7 sin D2D 1.1 o un dispositivo D3D caído. Nota: dos
+                // pasadas de caja de radio r equivalen a σ ≈ 0.82·r, así que
+                // el fallback difumina ~20% menos que la GPU con el mismo
+                // BlurAmount (documentado; no se recalibra para conservar la
+                // apariencia CPU histórica).
                 int r = Math.Max(1, (int)Math.Round(sigma / d));
-                StackBlurUltra.BlurInPlace(_bdWork!, sw, sh, r);
-                StackBlurUltra.BlurInPlace(_bdWork!, sw, sh, r);
+                if (!TryGpuBlur(_bdBits, sw, sh, sigma / d))
+                {
+                    StackBlurUltra.BlurInPlace(_bdWork!, sw, sh, r);
+                    StackBlurUltra.BlurInPlace(_bdWork!, sw, sh, r);
+                    _cpuFrames++;
+                }
                 _bdLastRadius = r;
             }
 
@@ -627,6 +671,239 @@ namespace FluentWinForms.Core
             {
                 AbandonSlot(slot);
             }
+        }
+
+        /// <summary>
+        /// Blur GPU del backdrop (Direct2D 1.1): sube los píxeles pequeños
+        /// (BGRA) a una ID2D1Bitmap, aplica GaussianBlur (sigma en DIPs) sobre
+        /// una ID2D1Bitmap1 legible por CPU y copia el resultado a _bdWork.
+        /// Devuelve false para que el llamador use el fallback CPU.
+        /// </summary>
+        private bool TryGpuBlur(IntPtr srcBits, int w, int h, float sigma)
+        {
+            long now = Stopwatch.GetTimestamp();
+            // Tras un fallo (driver perdido, creación fallida) no se reintenta
+            // la creación en cada frame: cooldown de 2 s.
+            if (now < Interlocked.Read(ref _gpuRetryTicks)) return false;
+            // Pruebas del fallback CPU.
+            if (_forceCpu) { MarkGpuFailed(now, "FWF_BLUR_FORCE_CPU=1"); return false; }
+
+            try
+            {
+                if (!EnsureGpuBlurResources(w, h))
+                {
+                    MarkGpuFailed(now, _gpuLastError ?? "recursos no creados");
+                    return false;
+                }
+
+                // Subida directa desde el DIB pequeño (BGRA, alpha ignorada:
+                // la captura GDI trae alpha=0 y el tinte la fija a 255 después).
+                _blurUpload!.CopyFromMemory(srcBits, (uint)(w * 4));
+
+                // Sigma en DIPs; DC y bitmaps a 96 DPI → 1 DIP = 1 px.
+                _backdropBlurEffect!.SetValue(0, Math.Max(0.1f, sigma));
+                _backdropBlurEffect.SetInput(0, _blurUpload, true);
+
+                _blurContext!.BeginDraw();
+                // Clear defensivo: con BorderMode.Hard la salida es opaca y
+                // pisa todo, pero el clear evita cualquier composición con el
+                // frame anterior si un futuro cambio introduce alpha < 1.
+                _blurContext.Clear(new Color4(0f, 0f, 0f, 0f));
+                _blurContext.DrawImage(_backdropBlurEffect);
+                if (_blurContext.EndDraw().Failure)
+                {
+                    ReleaseGpuBlurResources();
+                    MarkGpuFailed(now, "EndDraw falló (device perdido?)");
+                    return false;
+                }
+
+                // El bitmap de destino (Target) es dibujable pero no mapeable;
+                // D2D exige CpuRead|CannotDraw para Map(Read). Se copia en GPU
+                // al bitmap de readback y de ahí a CPU.
+                _blurRead!.CopyFromBitmap(_blurOut!);
+
+                MappedRectangle mapped = _blurRead.Map(MapOptions.Read);
+                if (mapped.Bits == IntPtr.Zero)
+                {
+                    // Sin bits mapeados: desmapear (por si llegó a engancharse)
+                    // antes de liberar el bitmap.
+                    try { _blurRead.Unmap(); } catch { }
+                    ReleaseGpuBlurResources();
+                    MarkGpuFailed(now, "MapRead devolvió Bits=0");
+                    return false;
+                }
+
+                try
+                {
+                    int pitch = (int)mapped.Pitch;
+                    int rowBytes = w * 4;
+                    byte[] work = _bdWork!;
+                    if (pitch == rowBytes)
+                    {
+                        Marshal.Copy(mapped.Bits, work, 0, rowBytes * h);
+                    }
+                    else
+                    {
+                        for (int y = 0; y < h; y++)
+                            Marshal.Copy(IntPtr.Add(mapped.Bits, y * pitch), work, y * rowBytes, rowBytes);
+                    }
+                }
+                finally
+                {
+                    _blurRead.Unmap();
+                }
+
+                _gpuLastError = null;
+                _gpuFrames++;
+                return true;
+            }
+            catch (Exception ex)
+            {
+                ReleaseGpuBlurResources();
+                MarkGpuFailed(now, ex.ToString());
+                return false;
+            }
+        }
+
+        /// <summary>Registra un fallo del camino GPU y espacia los reintentos.</summary>
+        private void MarkGpuFailed(long now, string reason)
+        {
+            Interlocked.Exchange(ref _gpuRetryTicks, now + Stopwatch.Frequency * 2);
+            _gpuLastError = reason;
+            if (Environment.GetEnvironmentVariable("FWF_DUMP_BACKDROP") != "1") return;
+
+            // Dedupe: el mismo motivo se loguea una vez cada 30 s (el cooldown
+            // reintenta cada 2 s y un fallo repetido no debe llenar el log).
+            lock (_gpuLogLock)
+            {
+                if (reason == _gpuLastLoggedReason &&
+                    now - _gpuLastLoggedTicks < Stopwatch.Frequency * 30) return;
+                _gpuLastLoggedReason = reason;
+                _gpuLastLoggedTicks = now;
+            }
+            try
+            {
+                System.IO.File.AppendAllText(
+                    System.IO.Path.Combine(System.IO.Path.GetTempPath(), "fwf-backdrop-log.txt"),
+                    $"{DateTime.Now:HH:mm:ss.fff} gpu-fail: {reason}{Environment.NewLine}");
+            }
+            catch { }
+        }
+
+        /// <summary>
+        /// Crea (una vez, o al cambiar el tamaño) el contexto D2D offscreen y
+        /// las superficies del blur GPU: DC libre desde un dispositivo D3D11
+        /// hardware, bitmap de subida y bitmap de salida CPU-readable. No toca
+        /// el hwnd target del camino directo. Devuelve false (con _gpuLastError
+        /// informado) para que el llamador use el blur CPU.
+        /// La factory es SingleThreaded: las llamadas D2D se serializan con
+        /// _renderLock (mismo patrón que el camino directo), así que crear
+        /// recursos desde el hilo de render es seguro.
+        /// </summary>
+        private bool EnsureGpuBlurResources(int w, int h)
+        {
+            if (_blurW == w && _blurH == h && _blurContext != null &&
+                _backdropBlurEffect != null && _blurUpload != null &&
+                _blurOut != null && _blurRead != null) return true;
+            if (_factory == null || w <= 0 || h <= 0) { _gpuLastError = "factory null o tamaño 0"; return false; }
+
+            // En un resize solo se recrean las superficies: el device/DC/efecto
+            // sobreviven (recrear el device D3D11 por frame de resize costaría
+            // ~100 ms y memoria de driver por frame).
+            _blurUpload?.Dispose(); _blurUpload = null;
+            _blurOut?.Dispose(); _blurOut = null;
+            _blurRead?.Dispose(); _blurRead = null;
+            _blurW = _blurH = 0;
+
+            try
+            {
+                if (_blurContext == null || _backdropBlurEffect == null)
+                {
+                    Vortice.Direct3D11.ID3D11Device? d3dDevice = null;
+                    IDXGIDevice? dxgiDevice = null;
+                    ID2D1Device? d2dDevice = null;
+                    try
+                    {
+                        d3dDevice = Vortice.Direct3D11.D3D11.D3D11CreateDevice(
+                            Vortice.Direct3D.DriverType.Hardware,
+                            Vortice.Direct3D11.DeviceCreationFlags.BgraSupport,
+                            new[] { Vortice.Direct3D.FeatureLevel.Level_11_0, Vortice.Direct3D.FeatureLevel.Level_10_1, Vortice.Direct3D.FeatureLevel.Level_10_0 });
+                        dxgiDevice = d3dDevice.QueryInterface<IDXGIDevice>();
+                        d2dDevice = _factory.CreateDevice(dxgiDevice);
+                        _blurContext = d2dDevice.CreateDeviceContext(DeviceContextOptions.None);
+
+                        IntPtr fxPtr = IntPtr.Zero;
+                        try
+                        {
+                            fxPtr = _blurContext.CreateEffect(EffectGuids.GaussianBlur);
+                            _backdropBlurEffect = new ID2D1Effect(fxPtr);
+                        }
+                        catch
+                        {
+                            if (fxPtr != IntPtr.Zero) Marshal.Release(fxPtr);
+                            throw;
+                        }
+                        _backdropBlurEffect.SetValue(1, GaussianBlurOptimization.Speed); // Optimization
+                        // BorderMode.Hard: replica el píxel del borde hacia
+                        // afuera (clamp). Con Soft el kernel muestrea negro
+                        // transparente fuera de la entrada y el borde sale con
+                        // alpha < 1: al componer sobre el bitmap de destino sin
+                        // limpiar quedaba una banda "fantasma" del frame
+                        // anterior. Hard da salida opaca (la entrada se trata
+                        // opaca vía AlphaMode.Ignore) y coincide con el clamp
+                        // del fallback CPU.
+                        _backdropBlurEffect.SetValue(2, BorderMode.Hard); // BorderMode
+                    }
+                    finally
+                    {
+                        // Los recursos D2D creados retienen el device por COM:
+                        // nuestras referencias a d3dDevice/dxgiDevice/d2dDevice
+                        // se sueltan siempre, en éxito y en fallo.
+                        d2dDevice?.Dispose();
+                        dxgiDevice?.Dispose();
+                        d3dDevice?.Dispose();
+                    }
+                }
+
+                // AlphaMode.Ignore: la captura trae alpha=0 (GDI) y el tinte la
+                // fija a 255 al final; tratar los píxeles como opacos evita que
+                // el modo premultiplicado interprete RGB con alpha 0.
+                var pf = new PixelFormat(Format.B8G8R8A8_UNorm, AlphaMode.Ignore);
+                _blurUpload = _blurContext.CreateBitmap(new SizeI(w, h), new BitmapProperties(pf));
+
+                // Salida en Premultiplied (contenido opaco ⇒ igual a directo).
+                // D2D solo permite Map(Read) con CpuRead|CannotDraw (CpuRead
+                // solo se rechaza: E_INVALIDARG), y CannotDraw no puede ser
+                // target: por eso hay DOS bitmaps (destino dibujable + copia
+                // de readback en GPU).
+                SizeI outSize = new SizeI(w, h);
+                var pfOut = new PixelFormat(Format.B8G8R8A8_UNorm, AlphaMode.Premultiplied);
+                _blurOut = _blurContext.CreateBitmap(outSize,
+                    new BitmapProperties1(pfOut, 96f, 96f, BitmapOptions.Target));
+                _blurRead = _blurContext.CreateBitmap(outSize,
+                    new BitmapProperties1(pfOut, 96f, 96f, BitmapOptions.CpuRead | BitmapOptions.CannotDraw));
+                _blurContext.Target = _blurOut;
+
+                _blurW = w; _blurH = h;
+                _gpuLastError = null;
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _gpuLastError = ex.ToString();
+                ReleaseGpuBlurResources();
+                return false;
+            }
+        }
+
+        private void ReleaseGpuBlurResources()
+        {
+            _backdropBlurEffect?.Dispose(); _backdropBlurEffect = null;
+            _blurUpload?.Dispose(); _blurUpload = null;
+            _blurOut?.Dispose(); _blurOut = null;
+            _blurRead?.Dispose(); _blurRead = null;
+            _blurContext?.Dispose(); _blurContext = null;
+            _blurW = _blurH = 0;
         }
 
         /// <summary>
@@ -719,7 +996,7 @@ namespace FluentWinForms.Core
 
                 System.IO.File.AppendAllText(
                     System.IO.Path.Combine(System.IO.Path.GetTempPath(), "fwf-backdrop-log.txt"),
-                    $"{DateTime.Now:HH:mm:ss.fff} dump {w}x{h} sigma={_blurAmount:0.##} rPx={_bdLastRadius}{Environment.NewLine}");
+                    $"{DateTime.Now:HH:mm:ss.fff} dump {w}x{h} sigma={_blurAmount:0.##} rPx={_bdLastRadius} gpu={_gpuFrames} cpu={_cpuFrames}{Environment.NewLine}");
             }
             catch (Exception ex)
             {
@@ -746,6 +1023,7 @@ namespace FluentWinForms.Core
             _tintBrush?.Dispose(); _tintBrush = null; // 🔥 MUY IMPORTANTE PARA EVITAR LEAKS DE GPU
             _blurEffect?.Dispose(); _blurEffect = null;
             _bgBitmap?.Dispose(); _bgBitmap = null;
+            ReleaseGpuBlurResources();
             _context?.Dispose(); _context = null;
             _hwndTarget?.Dispose(); _hwndTarget = null;
             _rtW = 0; _rtH = 0;

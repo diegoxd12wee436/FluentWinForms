@@ -163,6 +163,7 @@ namespace FluentWinForms.StressTests
                 warmFailures += RunOverlayCheck();
                 warmFailures += RunOverlayLoadCheck();
                 warmFailures += RunOverlayBackdropCheck();
+                warmFailures += RunBackdropToggleCheck();
                 if (Environment.GetEnvironmentVariable("FWF_OVERLAY_PIXEL") == "1")
                     warmFailures += RunOverlayPixelCheck();
                 warmFailures += RunDpiLayoutCheck();
@@ -2240,6 +2241,78 @@ namespace FluentWinForms.StressTests
             finally
             {
                 ModernGlowOverlay.Enabled = false;
+            }
+            return failures;
+        }
+
+        /// <summary>
+        /// Toggle Blur→Acrylic→Blur en vivo: al desactivar el sink, los recursos
+        /// GPU del backdrop deben liberarse (Stop + SetBackdropSink(null) en
+        /// ModernFormManager) y al reactivar Blur el BackgroundImage debe
+        /// volver a producirse. Mide handles/Private para detectar retención.
+        /// </summary>
+        private static int RunBackdropToggleCheck()
+        {
+            using var envScope = new DiagnosticEnvScope();
+            int failures = 0;
+            try
+            {
+                using var form = new Form
+                {
+                    FormBorderStyle = FormBorderStyle.None,
+                    StartPosition = FormStartPosition.Manual,
+                    Location = new Point(120, 120),
+                    Size = new Size(430, 270),
+                    BackColor = Color.Teal
+                };
+                using var mgr = new ModernFormManager { TargetForm = form };
+                mgr.BackdropType = (FormBackdropType)Enum.Parse(typeof(FormBackdropType), "Blur");
+                form.Show();
+                Pump(1500); // el worker crea el device D3D11 + superficies y emite
+
+                int h1; long p1;
+                using (var proc = Process.GetCurrentProcess())
+                {
+                    proc.Refresh();
+                    h1 = proc.HandleCount;
+                    p1 = proc.PrivateMemorySize64;
+                }
+
+                // Blur → Acrylic: Stop() + SetBackdropSink(null) liberan el
+                // contexto GPU del backdrop (device D3D11 incluido).
+                mgr.BackdropType = (FormBackdropType)Enum.Parse(typeof(FormBackdropType), "Acrylic");
+                Pump(900);
+                GC.Collect();
+                GC.WaitForPendingFinalizers();
+                GC.Collect();
+                Pump(200);
+
+                int h2; long p2;
+                using (var proc = Process.GetCurrentProcess())
+                {
+                    proc.Refresh();
+                    h2 = proc.HandleCount;
+                    p2 = proc.PrivateMemorySize64;
+                }
+
+                // Acrylic → Blur: el backdrop vuelve a producirse.
+                mgr.BackdropType = (FormBackdropType)Enum.Parse(typeof(FormBackdropType), "Blur");
+                Pump(1200);
+                bool backdropBack = form.BackgroundImage != null;
+
+                // La liberación se ve sobre todo en handles (el device D3D11
+                // abría ~60); Private puede no bajar por cachés del driver.
+                bool released = h2 <= h1 + 4 && p2 <= p1 + 2L * 1024 * 1024;
+                bool ok = released && backdropBack;
+                Console.WriteLine($"[assert] {(ok ? "OK" : "FALLO")} backdrop toggle Blur→Acrylic→Blur: handles {h1}->{h2}, Private {p1 / 1048576}->{p2 / 1048576} MB, BackgroundImage de vuelta={backdropBack}");
+                if (!ok) failures++;
+
+                form.Close();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[assert] FALLO backdrop toggle: {ex.Message}");
+                failures++;
             }
             return failures;
         }

@@ -159,24 +159,52 @@ el modo de compatibilidad de Windows 7 y rechaza `WS_EX_LAYERED` en ventanas hij
 (incluye `Pump`); el bitmap completo se reenvía en cada repintado. No se implementaron dirty
 rects: el coste es aceptable para el uso actual y el foco era la corrección/estabilidad.
 
-### Plan: Blur GPU (Direct2D GaussianBlur) — checkpoint
+### Blur GPU (Direct2D GaussianBlur) — implementado
 
 **Decisión del usuario:** `BackdropType.Blur` pasa a GPU con el efecto `ID2D1Effect`
 GaussianBlur de Direct2D (ajustable con `BlurAmount`); Acrylic no se toca; CPU (`StackBlurUltra`)
-solo como fallback Win7/8 o si el dispositivo D2D falla. Modo normal = VSync nativo; 30/60 =
+solo como fallback Win7/8 o si el dispositivo D3D/D2D falla. Modo normal = VSync nativo; 30/60 =
 cadencia de recaptura/blur. Objetivo: menos CPU y menos RAM (downsample 1/2 como ahora).
 
-- **Punto de retorno:** este commit (y `a56ddf9`) es el estado antes de tocar el motor del blur.
-- Cambio previsto en `Direct2DBlurHelper.TryProduceBackdrop`: tras el downscale GDI, subir los
-  píxeles a una `ID2D1Bitmap` pequeña, aplicar `_blurEffect` (sigma = `BlurAmount*dpi/d`) sobre un
-  `ID2D1Bitmap1` de salida, `Map(MapOptions.Read)` y copiar a `_bdWork`; el upscale/tinte/firma/
-  sink quedan iguales. Reemplaza las dos pasadas de `StackBlurUltra`.
-- Recursos nuevos: `_blurUpload` (ID2D1Bitmap) y `_blurOut` (ID2D1Bitmap1) a `sw×sh`, con
-  save/restore del target del `_context`; liberados en `ReleaseDeviceResources`.
-- `EnsureDeviceResources(w,h)` se llama también en el camino del backdrop (crea `_context`/
-  `_blurEffect`; en Win7 `_context` es null → fallback CPU).
-- Validación: `RunLiveBlurCheck` (hash del `BackgroundImage`) debe seguir OK; `FWF_DUMP_BACKDROP=1`
-  vuelca el primer backdrop a PNG para inspeccionar el blur; harness 10/150 y Blur+stress.
+- **Checkpoint de retorno:** `4c881da` (docs del plan); estado previo del motor en `a56ddf9`.
+- **Diseño final en `Direct2DBlurHelper`:** en el camino del backdrop, tras el downscale GDI,
+  `TryGpuBlur` sube el DIB pequeño a una `ID2D1Bitmap` (AlphaMode.Ignore: la captura trae alpha=0
+  y el tinte la fija a 255), aplica `GaussianBlur` (sigma = `BlurAmount*dpi/d` en DIPs) y lee el
+  resultado de vuelta a `_bdWork`; el upscale/tinte/firma/sink quedan intactos. `StackBlurUltra`
+  queda solo como fallback.
+- **Contexto offscreen independiente:** DC libre creado desde un dispositivo D3D11 hardware
+  (`D3D11CreateDevice` + `ID2D1Factory1.CreateDevice` + `CreateDeviceContext(None)`); NO se toca
+  el hwnd target del camino directo. Los `ID3D11Device/IDXGIDevice/ID2D1Device` se sueltan tras
+  crear los recursos (D2D los retiene por COM).
+- **Readback:** D2D rechaza `CpuRead` solo (`E_INVALIDARG`) y `CannotDraw` no puede ser target:
+  se usan DOS bitmaps — destino `Target` (Premultiplied) + copia `CpuRead|CannotDraw` con
+  `CopyFromBitmap` en GPU — y `Map(MapOptions.Read)` + `Marshal.Copy` (con manejo de pitch).
+  Las propiedades enum del efecto van tipadas (`GaussianBlurOptimization.Speed`,
+  `BorderMode.Hard`): `SetValue(1, 0)` con Int32 falla con E_INVALIDARG, y `Soft` en el borde
+  compone alpha < 1 sobre el frame anterior (banda fantasma); `Hard` clampa (opaco, igual que
+  el fallback CPU) + `Clear` defensivo antes de `DrawImage`.
+- **Ciclo de vida:** `SetBackdropSink(null)` libera síncrono bajo `_renderLock` (el flujo real
+  es `Stop()` → `SetBackdropSink(null)`, así que el worker ya no procesaría un flag). En resize
+  solo se recrean las 3 superficies: device/DC/efecto sobreviven (recrear el device D3D11 por
+  frame de resize costaría ~100 ms + memoria de driver). Fallos: cooldown 2 s + `EndDraw()`
+  verificado + log dedupe (mismo motivo 1 vez/30 s).
+- **Degradación:** cualquier fallo (creación, device perdido, Map con Bits=0) libera los
+  recursos, registra `gpu-fail` en el log (con `FWF_DUMP_BACKDROP=1`) y reintenta con cooldown
+  de 2 s; mientras tanto, CPU. Contadores `gpu=`/`cpu=` en la línea de dump. `FWF_BLUR_FORCE_CPU=1`
+  fuerza el fallback para pruebas. Nota: el fallback CPU (2 pasadas de caja, σ≈0.82·r) difumina
+  ~20 % menos que la GPU con el mismo `BlurAmount`; no se recalibra para conservar la apariencia
+  CPU histórica.
+- **Quirk preexistente (no tocado):** el camino directo hace `_blurEffect.SetValue(1, 0)` con
+  Int32 → lanza en la primera creación, se traga en `ExecuteRender` y se auto-sana porque los
+  defaults del efecto ya son Speed/Soft.
+- **Validado:** dump `gpu=1 cpu=0`; suavidad por píxeles (maxDelta adyacente 185 con blur=1 vs
+  3 con blur=30); borde Hard sin banda fantasma (borde sup. == interior; borde izq. coincide
+  con el baseline CPU); harness 10 y 150 `fallos=0 skips=1`, `blur live (mover)` OK (hash
+  cambiante), **toggle Blur→Acrylic→Blur: handles 503→443, Private 37→33 MB** (liberación real
+  del device D3D11); WS/Private planos; `blur live (quieto)` y pixel tests siguen con skip por
+  sesión bloqueada.
+- **Pendiente del usuario:** validación visual real (desktop desbloqueado), DPI entre monitores
+  y el push de la rama.
 
 ### Nodos desprendidos: implementado (3.er diseño)
 
