@@ -403,8 +403,14 @@ namespace FluentWinForms.Core
                     if (ReferenceEquals(node, _visualNode) && UsesSkiaGlowOverlay)
                         NotifyGlowOverlay();
                 }
-                if (node._cachedShadowImage != null &&
-                    !(ReferenceEquals(node, _visualNode) && UsesSkiaGlowOverlay))
+                // La sombra de la raíz se dibuja SIEMPRE en el canvas del
+                // control, aunque el overlay esté activo. El canvas recorta la
+                // parte que cae fuera del HWND y el overlay pinta esa parte por
+                // detrás: las dos copias se encuentran en el borde del HWND y
+                // el halo queda continuo. Sin esto, el fondo opaco del HWND
+                // (badge/translate) tapaba el halo del overlay y dejaba el
+                // "marco" rectangular con hueco en el borde superior.
+                if (node._cachedShadowImage != null)
                     canvas.DrawImage(node._cachedShadowImage, rect.Left - node._lastShadowImagePadLeft, rect.Top - node._lastShadowImagePadTop, new SKSamplingOptions(SKFilterMode.Linear));
             }
             // 🔥 INYECCIÓN 2: CRISTAL ÓPTICO — ZERO-ALLOC: paints/clip cacheados por nodo

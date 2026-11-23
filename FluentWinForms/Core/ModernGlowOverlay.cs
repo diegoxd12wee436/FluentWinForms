@@ -66,6 +66,13 @@ namespace FluentWinForms.Core
 
         internal static void Attach(Control parent) => ModernSkiaGlowOverlay.Attach(parent);
         internal static void Request(Control? parent) => ModernSkiaGlowOverlay.Request(parent);
+
+        /// <summary>
+        /// Re-evalúa los overlays del árbol: se usa al cambiar el BackdropType.
+        /// En None se desenganchan (el halo se dibuja dentro del HWND
+        /// expandido); en Blur/Acrylic se vuelven a enganchar.
+        /// </summary>
+        public static void Refresh(Control? parent) => ModernSkiaGlowOverlay.Refresh(parent);
     }
 
     /// <summary>
@@ -128,6 +135,15 @@ namespace FluentWinForms.Core
             if (!ModernGlowOverlay.Enabled || parent == null || parent.IsDisposed) return;
             if (Overlays.TryGetValue(parent, out _)) return;
 
+            // En None el halo se dibuja completo dentro del HWND expandido
+            // (comportamiento 1710be2). El overlay solo aporta valor cuando
+            // hay backdrop: su cola de sombra extra se funde con el blur, pero
+            // sobre el color plano de None se percibe como un marco.
+            Form? form = parent.FindForm();
+            if (form != null &&
+                ModernFormManager.GetBackdropType(form) == FormBackdropType.None)
+                return;
+
             var overlay = new ModernSkiaGlowOverlay(parent);
             try
             {
@@ -184,6 +200,45 @@ namespace FluentWinForms.Core
                 System.Diagnostics.Debug.WriteLine(
                     $"ModernGlowOverlay: no se pudo refrescar {control.Name}: {ex}");
             }
+        }
+
+        /// <summary>Re-evalúa overlays de todo el árbol del padre.</summary>
+        internal static void Refresh(Control? parent)
+        {
+            if (parent == null || parent.IsDisposed) return;
+            RefreshRecursive(parent);
+        }
+
+        private static void RefreshRecursive(Control parent)
+        {
+            if (parent.IsDisposed) return;
+
+            Detach(parent);
+            if (ModernGlowOverlay.Enabled && HasModernChild(parent))
+                Attach(parent);
+
+            // Snapshot: Attach/Detach modifican Controls durante el recorrido.
+            var children = new System.Collections.Generic.List<Control>(parent.Controls.Count);
+            foreach (Control child in parent.Controls)
+                if (!child.IsDisposed) children.Add(child);
+            foreach (Control child in children)
+                RefreshRecursive(child);
+        }
+
+        private static bool HasModernChild(Control parent)
+        {
+            foreach (Control child in parent.Controls)
+                if (child is ModernControlBase) return true;
+            return false;
+        }
+
+        private static void Detach(Control parent)
+        {
+            if (Overlays.TryGetValue(parent, out ModernSkiaGlowOverlay? overlay))
+                overlay.Dispose();
+            // Al quitar el overlay, los controles vuelven a expandir el HWND
+            // para que el halo se dibuje dentro del canvas del control.
+            RefreshChildren(parent);
         }
 
         private void ParentControlAdded(object? sender, ControlEventArgs e)

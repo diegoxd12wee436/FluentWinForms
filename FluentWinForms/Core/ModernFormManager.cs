@@ -62,6 +62,20 @@ namespace FluentWinForms.Core
     [Description("Gestor avanzado del Formulario: Motor Inteligente, Acrílico Multi-SO y bordes Skia HD.")]
     public class ModernFormManager : Component
     {
+        // Registro form -> manager para que el overlay de glow pueda saber si
+        // el form está en BackdropType.None. En None el halo se dibuja dentro
+        // del HWND expandido (como en 1710be2); el overlay solo se usa cuando
+        // hay backdrop (Blur/Acrylic), donde su cola extra no se ve como caja.
+        private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<Form, ModernFormManager> Managers = new();
+
+        internal static FormBackdropType? GetBackdropType(Form? form)
+        {
+            if (form == null) return null;
+            return Managers.TryGetValue(form, out ModernFormManager? manager)
+                ? manager._backdropType
+                : null;
+        }
+
         private Form? _targetForm;
         private Control? _dragControl;
         private double _originalOpacity = 1.0;
@@ -123,6 +137,7 @@ namespace FluentWinForms.Core
         private void UnsubscribeTargetForm()
         {
             if (_targetForm == null) return;
+            Managers.Remove(_targetForm);
             try
             {
                 _targetForm.ResizeBegin -= TargetForm_ResizeBegin;
@@ -152,6 +167,17 @@ namespace FluentWinForms.Core
             {
                 UnsubscribeTargetForm();
                 _targetForm = value;
+                if (_targetForm != null)
+                {
+                    // Un form solo puede tener un manager activo. Remove+Add
+                    // evita la excepción de clave duplicada si se reasigna.
+                    Managers.Remove(_targetForm);
+                    Managers.Add(_targetForm, this);
+                    // Si el manager se asigna después de crear los controles,
+                    // pudo engancharse un overlay antes de conocer el backdrop.
+                    if (_backdropType == FormBackdropType.None)
+                        ModernGlowOverlay.Refresh(_targetForm);
+                }
 
                 if (_targetForm != null)
                 {
@@ -239,7 +265,9 @@ namespace FluentWinForms.Core
             get => _backdropType;
             set
             {
+                bool wasNone = _backdropType == FormBackdropType.None;
                 _backdropType = value;
+                bool isNone = _backdropType == FormBackdropType.None;
                 if (_backdropType != FormBackdropType.None)
                 {
                     _transparentStyle = false;
@@ -259,6 +287,10 @@ namespace FluentWinForms.Core
 
                 UpdateFormBackground();
                 ApplyModernEffects();
+                // Solo al cruzar None<->backdrop: en None el overlay se apaga
+                // y el HWND vuelve a expandirse para dibujar el halo completo.
+                if (wasNone != isNone)
+                    ModernGlowOverlay.Refresh(_targetForm);
                 if (DesignMode)
                 {
                     _targetForm?.Refresh();

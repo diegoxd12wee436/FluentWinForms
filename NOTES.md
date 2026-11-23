@@ -159,6 +159,46 @@ el modo de compatibilidad de Windows 7 y rechaza `WS_EX_LAYERED` en ventanas hij
 (incluye `Pump`); el bitmap completo se reenvía en cada repintado. No se implementaron dirty
 rects: el coste es aceptable para el uso actual y el foco era la corrección/estabilidad.
 
+### Glow en None: halo continuo sin marco (fix 1710be2)
+
+**Síntoma:** en `BackdropType=None` el glow se veía como un marco/cuadro
+rectangular alrededor de la píldora, con un hueco teal entre el botón y el
+halo. En Blur/Acrylic se veía bien porque el fondo oscuro disimulaba el hueco.
+
+**Causa reproducida con sonda externa (form real, DPI 120):** el overlay Skia
+estaba adjunto (`attached=True`, `UpdateLayered=True`, ~74k píxeles pintados) y
+dibujaba el halo DETRÁS de los controles. Pero cada HWND de control pinta el
+fondo del padre (teal) sobre todo su rectángulo, tapando la parte del halo que
+cae dentro. El HWND de `btn-gradient` medía 180x54 (la píldora 180x48 + 6 px
+del badge), así que el overlay solo se veía fuera del HWND: quedaba un marco
+con hueco teal arriba, justo donde el badge agranda el HWND.
+
+**Fix (dos capas que se encuentran en el borde del HWND):**
+
+1. `ModernControlBase.Rendering.cs`: la sombra de la raíz se dibuja SIEMPRE en
+   el canvas del control, aunque el overlay esté activo. El canvas recorta la
+   parte que cae fuera del HWND; el overlay pinta esa parte por detrás. Las dos
+   copias usan la misma imagen cacheada, el mismo pad y la misma transformación,
+   así que el alpha es continuo en el borde.
+2. En `None` el overlay ya no se adjunta. El HWND vuelve a expandirse por el
+   overflow de la sombra (como en `1710be2`) y el control dibuja el halo
+   completo dentro de su canvas. El overlay dibujaba la cola de 40 px completa;
+   sobre el teal plano esa cola extra se percibía como una caja más grande. En
+   Blur/Acrylic el overlay se conserva: su cola se funde con el backdrop y el
+   fix (1) rellena el hueco interior.
+
+**Implementación:** `ModernFormManager` registra cada `Form` en un
+`ConditionalWeakTable`; `ModernGlowOverlay.Attach` consulta el `BackdropType` y
+no se adjunta en `None`. Al cambiar `None`↔Blur/Acrylic en runtime,
+`ModernGlowOverlay.Refresh` desengancha/engancha los overlays del árbol y
+recalcula los HWND (`RefreshPhysicalBounds`). En el diseñador el manager se
+asigna antes de crear los controles, que es el orden normal.
+
+**Validado:** build 0/0; sonda a DPI 120 sin hueco (perfil vertical continuo
+`#026C6F → #3661B0 → píldora`); harness 10 `fallos=0 skips=0`; harness 10 con
+`FWF_OVERLAY_STRESS=1 FWF_BACKDROP=Blur` `fallos=0`; harness 50 con Blur
+`fallos=0 skips=1`, GDI 24→24, Private 62→45 MB.
+
 ### Blur GPU (Direct2D GaussianBlur) — implementado
 
 **Decisión del usuario:** `BackdropType.Blur` pasa a GPU con el efecto `ID2D1Effect`
