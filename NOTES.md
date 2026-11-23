@@ -199,6 +199,41 @@ asigna antes de crear los controles, que es el orden normal.
 `FWF_OVERLAY_STRESS=1 FWF_BACKDROP=Blur` `fallos=0`; harness 50 con Blur
 `fallos=0 skips=1`, GDI 24→24, Private 62→45 MB.
 
+### Render solo Skia (sin GDI) + throttle de arrastre
+
+**Pedido del usuario:** eliminar TODO el GDI del render (se veía mal; antes se veía bien) y
+arreglar el entrecortado al mover la ventana con el blur GPU.
+
+- **Throttle de arrastre (`ModernFormManager`):** con el blur GPU la cadencia normal (8 ms a
+  120 Hz) se alcanza de verdad y cada frame repinta el form entero en el hilo UI — durante el
+  arrastre saturaba la UI. Ahora `WM_ENTERSIZEMOVE`/`WM_EXITSIZEMOVE` (bucle modal real, no
+  z-order) bajan el backdrop a 33 ms durante el arrastre y lo restauran al refresco del monitor
+  350 ms tras soltar; `TargetForm_Resize` no fuerza `RequestRender` mientras dura el arrastre;
+  modo rendimiento cancela el throttle. Test `RunBackdropThrottleCheck` (8→33→8 ms).
+- **Motor Skia-only (`ModernControlBase` y afines):** eliminado el fallback GDI completo:
+  `PaintGDI`/`PaintGDIPipeline`, el "Render Error (OOM)" con GDI, el switch `_useSkiaGraphics =
+  false` al fallar Skia (ahora se registra y se reintenta en el próximo paint; el control queda
+  transparente), `PaintGdiSmoothing`/`CreateRoundedPath` del borde (borde solo Skia), los estilos
+  GDI del `ModernThemeToggle` (queda solo el camino Skia), el purge timer del `GdiRenderer` y el
+  archivo `GdiRenderer.cs` entero. En el diseñador los controles quedan vacíos (solo se editan por
+  código). Se conserva ÚNICAMENTE la presentación zero-copy (blit 1:1 del buffer Skia vía
+  `DrawImageUnscaled` y `UpdateLayeredWindow` del overlay): no es dibujo GDI, es el único medio
+  que WinForms ofrece para mostrar píxeles en HWND hijos. `AcrylicHelper` NO se tocó (Acrylic
+  intacto, como pidió el usuario).
+- **Validado:** build 0/0; app en None renderiza teal + botones + glow (píxeles verificados);
+  harness 10 `fallos=0 skips=1` (churn GDI 24→24, toggle, throttle, blur live).
+- **Nota:** el problema "el glow se veía feo" probablemente era el fallback GDI activado por un
+  fallo transitorio de Skia (OOM): el catch permanente cambiaba de motor y ya no volvía. Con el
+  fallback eliminado, Skia es el único motor y un fallo no degrada el control.
+- **API eliminada (breaking para subclases externas):** `GdiRenderer` (clase pública),
+  `ModernControlBase.PaintGDI`/`PaintGDIPipeline` (protected virtual), los métodos/campos GDI de
+  `ModernThemeToggle` y `ModernFormManager.PaintGdiSmoothing`/`CreateRoundedPath`. Las propiedades
+  `UseSkiaGraphics`/`UseSkia` siguen existiendo como no-op (Skia es el único motor).
+- **GDI que SÍ permanece (fuera del render de controles/borde, por diseño):** el blit zero-copy
+  de presentación, la región de la ventana (`CreateRoundRectRgn`), el fallback Acrylic de W7/8
+  (Bitmap GDI) y la captura del backdrop (`BitBlt`/`StretchBlt` — parte del motor de blur, que el
+  usuario aprobó). `AcrylicHelper` moderno no se tocó.
+
 ### Blur GPU (Direct2D GaussianBlur) — implementado
 
 **Decisión del usuario:** `BackdropType.Blur` pasa a GPU con el efecto `ID2D1Effect`

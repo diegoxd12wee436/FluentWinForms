@@ -358,7 +358,7 @@ namespace FluentWinForms.Core
 
         private bool _useSkiaGraphics = true;
         [Category("Modern - Engine")]
-        [Description("Habilita o deshabilita el uso de SkiaSharp para renderizar el control. Deshabilitarlo puede mejorar la compatibilidad en entornos de diseño, pero reducirá la calidad visual y el rendimiento.\nEnable or disable the use of SkiaSharp for rendering the control. Disabling it may improve compatibility in design environments but will reduce visual quality and performance.")]
+        [Description("Compatibilidad de API: el motor es SIEMPRE Skia (el fallback GDI se eliminó). Asignar false no cambia de motor.")]
         [DesignerSerializationVisibility(DesignerSerializationVisibility.Visible)]
         public bool UseSkiaGraphics { get => _useSkiaGraphics; set { _useSkiaGraphics = value; ClearCaches(); RefreshVisuals(); } }
         #endregion
@@ -438,10 +438,9 @@ namespace FluentWinForms.Core
 
             if (isDesignTime)
             {
-                // Designer host is sensitive to native Skia allocations; keep a safe GDI-only path.
-                _useSkiaGraphics = false;
-                _isRenderable = true;
-                UpdateCachedClipPath();
+                // Designer host: sin Skia ni GDI — el control queda vacío en el
+                // diseñador (solo se edita por código). No se cambia de motor.
+                _isRenderable = false;
                 RefreshVisuals();
                 return;
             }
@@ -499,6 +498,13 @@ namespace FluentWinForms.Core
                 SafeDispose(ref _skBitmap);
                 SafeDispose(ref _cachedClipPath);
                 SafeDispose(ref _cachedFillPath);
+
+                if (_paintRetryTimer != null)
+                {
+                    _paintRetryTimer.Stop();
+                    _paintRetryTimer.Dispose();
+                    _paintRetryTimer = null;
+                }
             }
             base.Dispose(disposing);
         }

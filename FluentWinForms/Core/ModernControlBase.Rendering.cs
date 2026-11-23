@@ -29,11 +29,18 @@ namespace FluentWinForms.Core
         {
             if (Width <= 0 || Height <= 0) return;
 
-            if (!_isRenderable || (_useSkiaGraphics && (_gdiWrapper == null || _skCanvas == null || _skBitmap == null)))
+            // Skia es el ÚNICO motor de render (sin fallback GDI). Si los
+            // buffers no existen todavía, se intenta reconstruirlos (debounce
+            // de 500 ms) y se programa un repintado de recuperación: un fallo
+            // transitorio no degrada el control a un motor GDI feo ni lo deja
+            // vacío para siempre. En el diseñador no se pinta ni se reintenta.
+            if (!_isRenderable || _gdiWrapper == null || _skCanvas == null || _skBitmap == null)
             {
-                e.Graphics.Clear(Color.FromArgb(240, 240, 240));
-                using (var pen = new Pen(Color.Red, 2)) e.Graphics.DrawRectangle(pen, 1, 1, Width - 3, Height - 3);
-                e.Graphics.DrawString("Render Error (OOM)", SystemFonts.DefaultFont, Brushes.Red, 5, 5);
+                if (!DesignMode)
+                {
+                    RebuildCanvas();
+                    RetryPaintSoon();
+                }
                 return;
             }
 
@@ -67,11 +74,16 @@ namespace FluentWinForms.Core
             var contentRectSK = shadowRectSK; contentRectSK.Inflate(-(activeBorder / 2f), -(activeBorder / 2f));
             var paddedRectSK = new SKRect(contentRectSK.Left + S(Padding.Left), contentRectSK.Top + S(Padding.Top), contentRectSK.Right - S(Padding.Right), contentRectSK.Bottom - S(Padding.Bottom));
 
-            if (UseSkiaGraphics)
+            // Skia SIEMPRE (sin motor GDI alternativo). El try/catch solo
+            // protege al hilo UI: un fallo se registra, el canvas se restaura
+            // a su estado inicial y se programa un repintado de recuperación.
+            // NUNCA se cambia de motor.
+            try
             {
+                int saveCount = _skCanvas!.SaveCount;
                 try
                 {
-                    _skCanvas!.Clear(SKColors.Transparent);
+                    _skCanvas.Clear(SKColors.Transparent);
                     _skCanvas.Save();
                     // =========================================================
                     // 🔥 EL ANCLA MÓVIL: Centrado automático + Traslación CSS
@@ -141,29 +153,62 @@ namespace FluentWinForms.Core
 
                     // 🔥 CRUCIAL: Obligar a Skia a mandar sus pixeles a la memoria RAM
                     _skCanvas.Flush();
-
-                    e.Graphics.CompositingMode = CompositingMode.SourceOver;
-                    e.Graphics.CompositingQuality = CompositingQuality.HighSpeed;
-                    e.Graphics.InterpolationMode = InterpolationMode.Low;
-
-                    // 🔥 MÉTODO ZERO-COPY (.NET 8/10): Al dibujar el GDI Wrapper, ya contiene los pixeles mágicos de Skia.
-                    if (_gdiWrapper != null)
-                    {
-                        e.Graphics.DrawImageUnscaled(_gdiWrapper, 0, 0);
-                    }
                 }
-                catch (Exception ex)
+                finally
                 {
-                    // 🔥 FIX BUCLE INFINITO DE LA MUERTE: Eliminado el Invalidate()
-                    Trace.TraceError($"[ModernForms] Fallo SkiaRender, cambiando a GDI: {ex}");
-                    _useSkiaGraphics = false;
-                    e.Graphics.DrawString("OOM Interceptado. Cambiando motor...", SystemFonts.DefaultFont, Brushes.Red, 0, 0);
+                    // Un fallo a mitad no deja saves/transform/clip colgados
+                    // para el siguiente paint: se vuelve al estado inicial.
+                    _skCanvas.RestoreToCount(saveCount);
                 }
+
+                e.Graphics.CompositingMode = CompositingMode.SourceOver;
+                e.Graphics.CompositingQuality = CompositingQuality.HighSpeed;
+                e.Graphics.InterpolationMode = InterpolationMode.Low;
+
+                // Presentación zero-copy de los píxeles de Skia (blit 1:1,
+                // sin dibujo GDI): es el único punto de contacto con el
+                // paint de WinForms, requerido por la arquitectura HWND.
+                if (_gdiWrapper != null)
+                {
+                    e.Graphics.DrawImageUnscaled(_gdiWrapper, 0, 0);
+                }
+
+                // Paint exitoso: cancela un reintento pendiente para no
+                // provocar un repintado sobrante a los 500 ms.
+                _paintRetryTimer?.Stop();
             }
-            else
+            catch (Exception ex)
             {
-                PaintGDIPipeline(e.Graphics, contentRectF, paddedRectF);
+                // Sin fallback GDI: un fallo se registra y se programa un
+                // repintado de recuperación (con backoff para evitar el bucle
+                // infinito de paints). Nunca se cambia de motor ni se dibuja
+                // el error con GDI.
+                Trace.TraceError($"[ModernForms] Fallo SkiaRender (se reintentará): {ex}");
+                RetryPaintSoon();
             }
+        }
+
+        private System.Windows.Forms.Timer? _paintRetryTimer;
+
+        /// <summary>
+        /// Programa un repintado de recuperación a 500 ms tras un fallo de Skia
+        /// (coalescido por control). Si el fallo persiste, cada paint fallido
+        /// re-arma el timer: la cadena de reintentos continúa sin bucle
+        /// caliente y sin dejar el control transparente para siempre.
+        /// </summary>
+        private void RetryPaintSoon()
+        {
+            if (_paintRetryTimer == null)
+            {
+                _paintRetryTimer = new System.Windows.Forms.Timer { Interval = 500 };
+                _paintRetryTimer.Tick += (s, e) =>
+                {
+                    (s as System.Windows.Forms.Timer)?.Stop();
+                    if (!IsDisposed && IsHandleCreated) Invalidate();
+                };
+            }
+            _paintRetryTimer.Stop();
+            _paintRetryTimer.Start();
         }
 
         // 🔥 FIX DEBILIDAD 1: Renderizado Interpolado (Suavizado de estados)
@@ -983,19 +1028,6 @@ namespace FluentWinForms.Core
         protected virtual void DrawRipple(SKCanvas canvas) { /* tu implementación existente */ }
         protected virtual void PaintSkia(SKCanvas canvas, SKRect contentRect, SKRect paddedRect) { /* tu implementación existente */ }
 
-        protected virtual void PaintGDI(Graphics g, RectangleF contentRect, RectangleF paddedRect)
-        {
-            if (g == null) return;
-            using (var brush = new SolidBrush(BackgroundColor))
-            {
-                g.FillRectangle(brush, contentRect);
-            }
-        }
-
-        protected virtual void PaintGDIPipeline(Graphics g, RectangleF contentRect, RectangleF paddedRect)
-        {
-            using (var brush = new SolidBrush(BackgroundColor)) g.FillRectangle(brush, contentRect);
-        }
         // =========================================================
         // 🔥 PASO FINAL: MODO FANTASMA (HIT-TESTING A NIVEL OS CON SCALE)
         // =========================================================

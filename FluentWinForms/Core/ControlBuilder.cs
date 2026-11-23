@@ -188,6 +188,7 @@ namespace FluentWinForms.Core
         { _node.Opacity = (float)Math.Max(0.0, Math.Min(1.0, o)); return this; }
         public ControlBuilder<T> Visible(bool v = true) { _node.IsVisible = v; return this; }
         public ControlBuilder<T> Enabled(bool e = true) { _node.Enabled = e; return this; }
+        /// <summary>Compatibilidad de API: el motor es SIEMPRE Skia (no-op).</summary>
         public ControlBuilder<T> UseSkia(bool enabled = true)
         {
             if (_hostControl != null) _hostControl.UseSkiaGraphics = enabled;

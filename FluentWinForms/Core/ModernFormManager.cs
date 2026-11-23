@@ -236,6 +236,7 @@ namespace FluentWinForms.Core
 
         private bool _useSkia = true;
         [Category("Modern Form - Engine")]
+        [Description("Compatibilidad de API: el render es SIEMPRE Skia (el motor GDI se eliminó). Asignar false no cambia de motor.")]
         public bool UseSkia
         {
             get => _useSkia;
@@ -392,8 +393,128 @@ namespace FluentWinForms.Core
                 if (_backdropPerformanceMode == value) return;
                 _backdropPerformanceMode = value;
                 _backdropCalibrated = false;
-                ApplyBackdropRefreshMode();
+                if (value)
+                {
+                    // El modo rendimiento usa su propia cadencia calibrada:
+                    // cancela el throttle de arrastre (si estaba activo) para
+                    // que el Tick no dispare una calibración a mitad de arrastre.
+                    _moveThrottleActive = false;
+                    _moveThrottleWatchdog = false;
+                    _moveThrottleTimer?.Stop();
+                }
+                else if (!_moveThrottleActive)
+                {
+                    // Volver al refresco del monitor; si seguimos arrastrando,
+                    // OnMoveEnd restaurará al soltar.
+                    ApplyBackdropRefreshMode();
+                }
             }
+        }
+
+        private System.Windows.Forms.Timer? _moveThrottleTimer;
+        private bool _moveThrottleActive;
+        private bool _moveThrottleWatchdog;
+        private bool _inMoveLoop;
+
+        /// <summary>
+        /// Arrastre/redimensionado iniciado (WM_ENTERSIZEMOVE): marca el bucle
+        /// modal y, en modo normal con Blur, baja la cadencia del backdrop a
+        /// ~30 fps. Con el blur GPU la cadencia normal (8 ms a 120 Hz) SÍ se
+        /// alcanza, y cada frame repinta el form entero en el hilo UI: durante
+        /// el arrastre eso satura la UI (movimiento entrecortado) y el halo
+        /// semitransparente parece desfasar sobre el fondo que cambia a cada
+        /// frame.
+        /// </summary>
+        private void OnMoveBegin()
+        {
+            _inMoveLoop = true;
+
+            if (_backdropType != FormBackdropType.Blur || _d2dBlurHelper == null || _backdropPerformanceMode)
+            {
+                // No dejar un watchdog pendiente si el modo ya no aplica.
+                _moveThrottleTimer?.Stop();
+                return;
+            }
+
+            _moveThrottleActive = true;
+            _moveThrottleWatchdog = false;
+            _d2dBlurHelper.BackdropIntervalMs = 33;
+            _moveThrottleTimer?.Stop();
+        }
+
+        /// <summary>
+        /// Arrastre finalizado (WM_EXITSIZEMOVE): restaura la cadencia del
+        /// monitor 350 ms después de soltar (deja margen para el repintado
+        /// final y evita restaurar si el usuario re-agarra).
+        /// </summary>
+        private void OnMoveEnd()
+        {
+            _inMoveLoop = false;
+            _moveThrottleActive = false;
+            _moveThrottleWatchdog = false;
+
+            if (_backdropType != FormBackdropType.Blur || _d2dBlurHelper == null || _backdropPerformanceMode)
+            {
+                // No dejar un watchdog corriendo si el modo ya no aplica.
+                _moveThrottleTimer?.Stop();
+                return;
+            }
+
+            EnsureMoveThrottleTimer();
+            _moveThrottleTimer!.Start();
+        }
+
+        /// <summary>
+        /// Respaldo por si WM_ENTERSIZEMOVE se perdió: mensajes del bucle modal
+        /// de arrastre con el throttle aún inactivo lo activan igual, en modo
+        /// watchdog (el timer restaura a los 350 ms sin actividad de arrastre).
+        /// </summary>
+        private void OnMoveActivity()
+        {
+            _inMoveLoop = true;
+
+            if (_backdropType != FormBackdropType.Blur || _d2dBlurHelper == null || _backdropPerformanceMode)
+                return;
+
+            if (!_moveThrottleActive)
+            {
+                _moveThrottleActive = true;
+                _moveThrottleWatchdog = true;
+                _d2dBlurHelper.BackdropIntervalMs = 33;
+            }
+
+            // Re-armar el watchdog en CADA mensaje del bucle (solo en modo
+            // watchdog): el timer solo dispara cuando el arrastre se detiene
+            // de verdad, aunque WM_EXITSIZEMOVE se haya perdido.
+            if (_moveThrottleWatchdog)
+            {
+                EnsureMoveThrottleTimer();
+                _moveThrottleTimer!.Stop();
+                _moveThrottleTimer.Start();
+            }
+        }
+
+        private void EnsureMoveThrottleTimer()
+        {
+            if (_moveThrottleTimer != null) return;
+            _moveThrottleTimer = new System.Windows.Forms.Timer { Interval = 350 };
+            _moveThrottleTimer.Tick += OnMoveThrottleElapsed;
+        }
+
+        private void OnMoveThrottleElapsed(object? sender, EventArgs e)
+        {
+            // Tick obsoleto encolado justo antes de un nuevo ENTER: el arrastre
+            // sigue vivo, no restaurar (OnMoveEnd volverá a armar el timer).
+            if (_moveThrottleActive && !_moveThrottleWatchdog) return;
+
+            bool wasWatchdog = _moveThrottleWatchdog;
+            _moveThrottleTimer?.Stop();
+            _moveThrottleActive = false;
+            _moveThrottleWatchdog = false;
+            // Watchdog disparado = el arrastre terminó sin WM_EXITSIZEMOVE:
+            // el bucle modal ya no está activo.
+            if (wasWatchdog) _inMoveLoop = false;
+            ApplyBackdropRefreshMode();
         }
 
         /// <summary>
@@ -456,31 +577,15 @@ namespace FluentWinForms.Core
             if (_backdropType == FormBackdropType.Blur && _borderThickness <= 0 &&
                 (_overlayWindow == null || _overlayWindow.IsDisposed))
                 return;
-            if (DesignMode)
-            {
-                e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
-                float drawThick = _borderThickness > 0 ? _borderThickness : 1.5f;
-                Color drawColor = _borderThickness > 0 ? _borderColor : Color.DarkGray;
-                using (var path = CreateRoundedPath(new RectangleF(drawThick / 2, drawThick / 2, _targetForm.Width - drawThick - 1f, _targetForm.Height - drawThick - 1f), _borderRadius))
-                using (var pen = new Pen(drawColor, drawThick) { DashStyle = _borderThickness > 0 ? DashStyle.Solid : DashStyle.Dash })
-                {
-                    e.Graphics.DrawPath(pen, path);
-                }
-                return;
-            }
+            // Sin GDI: el diseñador ya no previsualiza el borde (solo Skia en runtime).
+            if (DesignMode) return;
 
-            if (UseSkia)
+            // Borde SOLO Skia. Sin fallback GDI: un fallo se registra y el
+            // borde se omite en ese frame (se reintenta en el próximo).
+            try { PaintSkiaSmoothing(e.Graphics); }
+            catch (Exception ex)
             {
-                try { PaintSkiaSmoothing(e.Graphics); }
-                catch (Exception ex)
-                {
-                    System.Diagnostics.Debug.WriteLine($"PaintSkiaSmoothing failed: {ex.Message}");
-                    PaintGdiSmoothing(e.Graphics);
-                }
-            }
-            else
-            {
-                PaintGdiSmoothing(e.Graphics);
+                System.Diagnostics.Debug.WriteLine($"PaintSkiaSmoothing failed: {ex.Message}");
             }
         }
 
@@ -616,41 +721,6 @@ namespace FluentWinForms.Core
             }
         }
 
-        private void PaintGdiSmoothing(Graphics g)
-        {
-            if (_targetForm == null) return;
-            g.SmoothingMode = SmoothingMode.AntiAlias;
-            g.InterpolationMode = InterpolationMode.HighQualityBicubic;
-
-            int w = _targetForm.Width;
-            int h = _targetForm.Height;
-            float actualThickness = _borderThickness > 0 ? _borderThickness : 2f;
-            Color actualColor = _borderThickness > 0 ? _borderColor : _targetForm.BackColor;
-            float scale = GetScaleFactor();
-            float rad = Math.Max(0, (_borderRadius * scale) - ((actualThickness + 1f) / 2f));
-            float inset = (actualThickness + 1f) / 2f;
-
-            using (var path = CreateRoundedPath(new RectangleF(inset, inset, w - actualThickness - 1f, h - actualThickness - 1f), rad))
-            using (var pen = new Pen(actualColor, actualThickness + 1f))
-            {
-                g.DrawPath(pen, path);
-            }
-        }
-
-        private GraphicsPath CreateRoundedPath(RectangleF rect, float radius)
-        {
-            GraphicsPath path = new GraphicsPath();
-            float d = radius * 2;
-            if (d <= 0) return path;
-
-            path.AddArc(rect.X, rect.Y, d, d, 180, 90);
-            path.AddArc(rect.Right - d, rect.Y, d, d, 270, 90);
-            path.AddArc(rect.Right - d, rect.Bottom - d, d, d, 0, 90);
-            path.AddArc(rect.Left, rect.Bottom - d, d, d, 90, 90);
-            path.CloseFigure();
-            return path;
-        }
-
         private void UpdateFormBackground()
         {
             if (_targetForm == null || DesignMode) return;
@@ -710,12 +780,15 @@ namespace FluentWinForms.Core
                     else
                         _d2dBlurHelper.CurrentState = _targetForm.Focused ? BlurRenderState.HighPerformance : BlurRenderState.PowerSaving;
 
-                    _d2dBlurHelper.RequestRender();
+                    // Con el bucle modal de arrastre activo, el loop a 33 ms ya
+                    // refresca; forzar aquí saltaría la cadencia y saturaría la
+                    // UI durante el resize interactivo (en cualquier modo).
+                    if (!_inMoveLoop)
+                        _d2dBlurHelper.RequestRender();
                 }
             }
             ApplyCustomRegion();
         }
-
         private void ApplyCustomRegion()
         {
             if (_targetForm == null || DesignMode) return;
@@ -1373,6 +1446,10 @@ namespace FluentWinForms.Core
         private void CalibrateBackdropInterval(Form form)
         {
             if (_backdropCalibrated) return;
+            // No calibrar a mitad de un arrastre: los 4 form.Update() de la
+            // medición harían un hitch justo mientras el usuario mueve la
+            // ventana. Se difiere al siguiente frame (o al soltar).
+            if (_inMoveLoop) return;
             _backdropCalibrated = true;
 
             try
@@ -1459,6 +1536,13 @@ namespace FluentWinForms.Core
                     _overlayWindow = null;
                 }
 
+                if (_moveThrottleTimer != null)
+                {
+                    _moveThrottleTimer.Stop();
+                    _moveThrottleTimer.Dispose();
+                    _moveThrottleTimer = null;
+                }
+
                 GC.SuppressFinalize(this);
             }
             base.Dispose(disposing);
@@ -1468,8 +1552,10 @@ namespace FluentWinForms.Core
         private class FormMessageHook : NativeWindow
         {
             private readonly ModernFormManager _manager;
-            private const int WM_WINDOWPOSCHANGED = 0x0047;
             private const int WM_SIZING = 0x0214;
+            private const int WM_MOVING = 0x0216;
+            private const int WM_ENTERSIZEMOVE = 0x0231;
+            private const int WM_EXITSIZEMOVE = 0x0232;
 
             public FormMessageHook(Form form, ModernFormManager manager)
             {
@@ -1481,6 +1567,14 @@ namespace FluentWinForms.Core
 
             protected override void WndProc(ref Message m)
             {
+                // Durante el movimiento/redimensionado, el blur GPU alcanza el
+                // refresco del monitor (8 ms a 120 Hz) y cada frame repinta el
+                // form entero en el hilo UI: se baja la cadencia del backdrop
+                // mientras dura el arrastre y se restaura al soltar.
+                if (m.Msg == WM_ENTERSIZEMOVE) _manager.OnMoveBegin();
+                else if (m.Msg == WM_EXITSIZEMOVE) _manager.OnMoveEnd();
+                else if (m.Msg == WM_MOVING || m.Msg == WM_SIZING) _manager.OnMoveActivity();
+
                 // No forzamos un render sincrónico aquí: ExecuteRender toma el
                 // lock del motor y bloqueaba el hilo UI detrás del blur en cada
                 // mensaje de movimiento. El hilo de render ya corre a 8 ms y su

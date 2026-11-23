@@ -164,6 +164,7 @@ namespace FluentWinForms.StressTests
                 warmFailures += RunOverlayLoadCheck();
                 warmFailures += RunOverlayBackdropCheck();
                 warmFailures += RunBackdropToggleCheck();
+                warmFailures += RunBackdropThrottleCheck();
                 if (Environment.GetEnvironmentVariable("FWF_OVERLAY_PIXEL") == "1")
                     warmFailures += RunOverlayPixelCheck();
                 warmFailures += RunDpiLayoutCheck();
@@ -2312,6 +2313,82 @@ namespace FluentWinForms.StressTests
             catch (Exception ex)
             {
                 Console.WriteLine($"[assert] FALLO backdrop toggle: {ex.Message}");
+                failures++;
+            }
+            return failures;
+        }
+
+        /// <summary>
+        /// Throttle de arrastre del backdrop: con Blur activo, WM_ENTERSIZEMOVE
+        /// baja BackdropIntervalMs a 33 (~30 fps) y WM_EXITSIZEMOVE lo restaura
+        /// al refresco del monitor tras el timer de 350 ms.
+        /// </summary>
+        private static int RunBackdropThrottleCheck()
+        {
+            using var envScope = new DiagnosticEnvScope();
+            int failures = 0;
+            try
+            {
+                using var form = new Form
+                {
+                    FormBorderStyle = FormBorderStyle.None,
+                    StartPosition = FormStartPosition.Manual,
+                    Location = new Point(40, 40),
+                    Size = new Size(430, 270),
+                    BackColor = Color.Teal
+                };
+                using var mgr = new ModernFormManager { TargetForm = form };
+                mgr.BackdropType = (FormBackdropType)Enum.Parse(typeof(FormBackdropType), "Blur");
+                form.Show();
+                Pump(1200);
+
+                var helperField = typeof(ModernFormManager).GetField("_d2dBlurHelper",
+                    System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+                var helper = helperField?.GetValue(mgr) as Direct2DBlurHelper;
+                if (helper == null)
+                {
+                    Console.WriteLine("[assert] FALLO backdrop throttle: helper no accesible");
+                    form.Close();
+                    return 1;
+                }
+
+                int normal = helper.BackdropIntervalMs;
+                SendMessage(form.Handle, 0x0231, IntPtr.Zero, IntPtr.Zero); // WM_ENTERSIZEMOVE
+                int throttled = helper.BackdropIntervalMs;
+                var inLoopField = typeof(ModernFormManager).GetField("_inMoveLoop",
+                    System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+                bool inLoopDuring = inLoopField != null && (bool)(inLoopField.GetValue(mgr) ?? false);
+                SendMessage(form.Handle, 0x0232, IntPtr.Zero, IntPtr.Zero); // WM_EXITSIZEMOVE
+                Pump(700); // timer de 350 ms + margen
+                int restored = helper.BackdropIntervalMs;
+                bool inLoopAfter = inLoopField != null && (bool)(inLoopField.GetValue(mgr) ?? false);
+
+                // Sin exigir normal != 33: a 30 Hz normal ES 33 y el throttle
+                // es un no-op válido (ENTER=33, EXIT=33).
+                bool ok = throttled == 33 && restored == normal && inLoopDuring && !inLoopAfter;
+
+                // Fallback watchdog: WM_MOVING sin ENTER/EXIT activa el throttle
+                // (33 ms) y el watchdog lo restaura a los 350 ms sin actividad,
+                // limpiando _inMoveLoop.
+                SendMessage(form.Handle, 0x0216, IntPtr.Zero, IntPtr.Zero); // WM_MOVING
+                Pump(60);
+                SendMessage(form.Handle, 0x0216, IntPtr.Zero, IntPtr.Zero);
+                Pump(60);
+                int wdThrottled = helper.BackdropIntervalMs;
+                Pump(700);
+                int wdRestored = helper.BackdropIntervalMs;
+                bool wdInLoop = inLoopField != null && (bool)(inLoopField.GetValue(mgr) ?? false);
+                bool fallbackOk = wdThrottled == 33 && wdRestored == normal && !wdInLoop;
+                ok = ok && fallbackOk;
+
+                Console.WriteLine($"[assert] {(ok ? "OK" : "FALLO")} backdrop throttle arrastre: normal={normal}ms -> ENTER={throttled}ms (inLoop={inLoopDuring}) -> EXIT+700ms={restored}ms (inLoop={inLoopAfter}); fallback WM_MOVING: {wdThrottled}ms -> +700ms={wdRestored}ms (inLoop={wdInLoop})");
+                if (!ok) failures++;
+
+                form.Close();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[assert] FALLO backdrop throttle: {ex.Message}");
                 failures++;
             }
             return failures;
