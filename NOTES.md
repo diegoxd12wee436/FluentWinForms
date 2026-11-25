@@ -234,7 +234,24 @@ arreglar el entrecortado al mover la ventana con el blur GPU.
   (Bitmap GDI) y la captura del backdrop (`BitBlt`/`StretchBlt` — parte del motor de blur, que el
   usuario aprobó). `AcrylicHelper` moderno no se tocó.
 
-### Blur GPU (Direct2D GaussianBlur) — implementado
+### Limpieza de código muerto (autorizada por el usuario)
+
+Se auditaron todas las referencias (código, csproj, docs y StressTests) antes de borrar:
+
+- **`FluentWinForms.Rendering` completo:** `GlassPainter`, `GlassBackdropCache`,
+  `GlassTypes` (`IBackdropSource`, `GlassStyle`). Cero referencias fuera del propio
+  cluster; nunca se conectaron al motor actual. Eliminados los 3 archivos.
+- **`ModernTheme`** (struct en `ModernControlBase.States.cs`): cero referencias.
+- **Se conserva `FluentEngine`:** no tiene referencias textuales porque es un
+  `[ModuleInitializer]` que se ejecuta al cargar el assembly.
+- **Se conserva `ModernFormOverlay`:** sí se usa (borde del form).
+- **Se conservan** los structs de `RenderNode` (`BadgeData`, `FilterData`, etc.):
+  son propiedades públicas del nodo, no clases muertas.
+
+Validado tras el borrado: build 0/0; harness 10 en None `fallos=0 skips=1`;
+harness 10 con `FWF_OVERLAY_STRESS=1 FWF_BACKDROP=Blur` `fallos=0 skips=1`.
+
+### Blur GPU (Direct2D GaussianBlur) - implementado
 
 **Decisión del usuario:** `BackdropType.Blur` pasa a GPU con el efecto `ID2D1Effect`
 GaussianBlur de Direct2D (ajustable con `BlurAmount`); Acrylic no se toca; CPU (`StackBlurUltra`)
