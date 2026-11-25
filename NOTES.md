@@ -234,6 +234,34 @@ arreglar el entrecortado al mover la ventana con el blur GPU.
   (Bitmap GDI) y la captura del backdrop (`BitBlt`/`StretchBlt` — parte del motor de blur, que el
   usuario aprobó). `AcrylicHelper` moderno no se tocó.
 
+### Reorganización de carpetas (namespaces intactos)
+
+Se movieron los archivos por responsabilidad con `git mv` (historial preservado). **No se
+cambió ningún namespace** para no romper `Form1.Designer.cs`, `Form1.resx`, la API pública ni
+los `using` existentes. `Form1.*` sigue en la raíz del proyecto (el usuario lo está editando).
+
+```
+FluentWinForms/
+  Core/
+    FluentEngine.cs            (ModuleInitializer, se queda en la raíz de Core)
+    Forms/                     ModernFormManager, ModernGlowOverlay
+    Controls/                  ModernControlBase.*, ControlBuilder, FluentElement,
+                               F, RenderNode, LayoutEngine, AnimationManager
+    Backdrop/                  Direct2DBlurHelper, StackBlurUltra, AcrylicHelper
+    Theme/                     ThemePalette
+    Diagnostics/               DpiTrace
+  Components/
+    Buttons/                   ModernThemeToggle
+    Panels/                    ModernGlassPanel
+  Form1.cs / Form1.Designer.cs / Form1.resx
+  GalleryForm.cs / Program.cs / Properties/
+```
+
+`FluentWinForms.csproj` usa globbing del SDK, así que no hizo falta tocar rutas. Build 0/0 y
+harness 50 con `FWF_OVERLAY_STRESS=1 FWF_BACKDROP=Blur`: `fallos=0 skips=1`, Private 54→40 MB,
+GDI 24→24, handles 437→436. Las rutas viejas que aparecen en `AUDIT.md`/`PROGRESS.md` son
+históricas.
+
 ### Limpieza de código muerto (autorizada por el usuario)
 
 Se auditaron todas las referencias (código, csproj, docs y StressTests) antes de borrar:
