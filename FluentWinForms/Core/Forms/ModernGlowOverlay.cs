@@ -1,5 +1,6 @@
 #nullable enable
 using System;
+using System.ComponentModel;
 using System.Drawing;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -9,16 +10,19 @@ using SkiaSharp;
 namespace FluentWinForms.Core
 {
     /// <summary>
-    /// Fachada pública del overlay Skia para el glow CSS. Se habilita una vez,
-    /// antes de mostrar los forms: <c>ModernGlowOverlay.Enabled = true;</c>.
-    /// El overlay es una ventana hija layered detrás de los controles; dibuja
-    /// los halos con Skia (sin GDI+) y el mouse pasa a través.
+    /// Fachada pública del overlay Skia para el glow CSS. Se activa solo:
+    /// cuando un control con glow/sombra se agrega a un padre, el overlay se
+    /// crea detrás de los controles y dibuja los halos con Skia (sin GDI+).
+    /// El mouse pasa a través. <c>Enabled = false</c> es el opt-out global.
     /// </summary>
     public static class ModernGlowOverlay
     {
-        private static bool _enabled;
+        private static bool _enabled = true;
 
-        /// <summary>Activa el overlay en los forms que se creen después.</summary>
+        /// <summary>
+        /// Activo por defecto. Ponlo en false antes de crear los forms para
+        /// desactivar el overlay globalmente (opt-out).
+        /// </summary>
         public static bool Enabled
         {
             get => _enabled;
@@ -133,7 +137,9 @@ namespace FluentWinForms.Core
         internal static void Attach(Control parent)
         {
             if (!ModernGlowOverlay.Enabled || parent == null || parent.IsDisposed) return;
+            if (LicenseManager.UsageMode == LicenseUsageMode.Designtime) return;
             if (Overlays.TryGetValue(parent, out _)) return;
+            if (!HasGlowChild(parent)) return;
 
             // En None el halo se dibuja completo dentro del HWND expandido
             // (comportamiento 1710be2). El overlay solo aporta valor cuando
@@ -214,7 +220,7 @@ namespace FluentWinForms.Core
             if (parent.IsDisposed) return;
 
             Detach(parent);
-            if (ModernGlowOverlay.Enabled && HasModernChild(parent))
+            if (ModernGlowOverlay.Enabled && HasGlowChild(parent))
                 Attach(parent);
 
             // Snapshot: Attach/Detach modifican Controls durante el recorrido.
@@ -225,10 +231,11 @@ namespace FluentWinForms.Core
                 RefreshRecursive(child);
         }
 
-        private static bool HasModernChild(Control parent)
+        private static bool HasGlowChild(Control parent)
         {
             foreach (Control child in parent.Controls)
-                if (child is ModernControlBase) return true;
+                if (child is ModernControlBase control && control.HasGlow)
+                    return true;
             return false;
         }
 

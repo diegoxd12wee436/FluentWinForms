@@ -13,8 +13,9 @@
   estable. El Blur por GPU (`42acd5d`) se percibe a ~30 fps frente a Acrylic: **pulir otro día**
   (decisión explícita del usuario, no tocar ahora).
 - **Render Skia-only** (`02d24df`): sin fallback GDI en controles, borde ni glow; Acrylic intacto.
-- **Limpieza:** código muerto fuera (`476bb92`), proyecto reorganizado (`32523ba`) y API no-op
-  `UseSkia`/`UseSkiaGraphics` + andamiaje `DpiTrace` eliminados (ver secciones).
+- **Limpieza:** código muerto fuera (`476bb92`), proyecto reorganizado (`32523ba`), API no-op
+  `UseSkia`/`UseSkiaGraphics` + andamiaje `DpiTrace` eliminados (`ff4138b`) y automatizados
+  `AutoSetBlackBackground` + overlay de glow (ver secciones).
 - **`app.manifest` se conserva:** sin `supportedOS` Win10/11, Windows aplica compatibilidad Win7
   y `CreateWindowEx` rechaza `WS_EX_LAYERED` en ventanas hijas (error 87); el overlay Skia lo
   necesita. También declara Common-Controls v6.
@@ -296,6 +297,28 @@ retirar el andamiaje de diagnóstico que ya no se usa.
   Win7 y rechaza `WS_EX_LAYERED` en ventanas hijas (error 87), rompiendo el overlay del glow.
 - **Validado:** build 0/0; harness 10 None `fallos=0 skips=1` (Private 29→29 MB, GDI 24→24);
   harness 50 overlay+Blur `fallos=0 skips=1` (Private 49→40 MB, GDI 24→24, handles 420→420).
+
+### Automatización: fondo negro y overlay de glow
+
+**Pedido del usuario:** que `AutoSetBlackBackground` funcione solo y que el overlay de glow se
+active al usar `.Glow(...)` sin escribir `ModernGlowOverlay.Enabled = true;`.
+
+- **Fondo automático (`ModernFormManager`):** `AutoSetBlackBackground` pasa a `true` por
+  defecto y se oculta del diseñador (`Browsable(false)`); sigue disponible por código como
+  opt-out. El manager guarda el `BackColor`/`TransparencyKey` originales al asignar
+  `TargetForm` y los restaura al volver a `None` (o Acrylic sin base negra). Antes, cambiar de
+  Blur a None dejaba el form negro. `Blur` sigue forzando negro; `Acrylic` en Win11 también,
+  salvo opt-out. `TransparentStyle` ahora detiene el blur y restaura los controles.
+- **Overlay automático (`ModernGlowOverlay`):** `Enabled` pasa a `true` por defecto. Solo se
+  adjunta a un padre que tenga un control con glow/sombra visible (`HasGlow`); un form con
+  controles modernos sin glow no paga la capa. Si el glow se configura después de estar
+  parentado, `NotifyGlowOverlay` adjunta el overlay. `Enabled=false` sigue siendo opt-out.
+- **Sin código extra:** la demo ya no tiene `ModernGlowOverlay.Enabled = true;` y el diseñador
+  ya no necesita `AutoSetBlackBackground = true;`.
+- **Validado:** build 0/0; harness 10 None `fallos=0`; harness 10 overlay+Blur `fallos=0`;
+  harness 50 overlay+Blur `fallos=0 skips=1`, Private 37→46 MB (1.24x), GDI 24→24,
+  handles 417→420. Sonda: Acrylic/Blur `overlay attached=True`, None `attached=False` y
+  `form.BackColor=Control` (fondo original restaurado).
 
 ### Blur GPU (Direct2D GaussianBlur) - implementado
 

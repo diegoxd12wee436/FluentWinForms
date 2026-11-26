@@ -12,6 +12,15 @@ namespace FluentWinForms.Core
         internal bool UsesSkiaGlowOverlay =>
             ModernGlowOverlay.IsAttached(Parent);
 
+        /// <summary>
+        /// Hay una sombra/glow visible configurado en el nodo raíz. El overlay
+        /// solo se adjunta cuando hace falta, no por tener controles modernos.
+        /// </summary>
+        internal bool HasGlow =>
+            _visualNode is { } node &&
+            node.Shadow.Radius > 0f &&
+            node.Shadow.Color.A > 0;
+
         private Control? _overlayAttachParent;
         private EventHandler? _overlayAttachHandler;
 
@@ -20,7 +29,7 @@ namespace FluentWinForms.Core
             base.OnParentChanged(e);
             // Si el padre anterior aún no tenía handle, no dejar el hook.
             UnhookOverlayAttach();
-            if (ModernGlowOverlay.Enabled && Parent != null)
+            if (!DesignMode && ModernGlowOverlay.Enabled && Parent != null && HasGlow)
             {
                 Control parent = Parent;
                 if (parent.IsHandleCreated)
@@ -81,7 +90,7 @@ namespace FluentWinForms.Core
 
         private void AttachDeferred(Control parent)
         {
-            if (!ModernGlowOverlay.Enabled || parent.IsDisposed || IsDisposed)
+            if (!ModernGlowOverlay.Enabled || DesignMode || !HasGlow || parent.IsDisposed || IsDisposed)
             {
                 UnhookOverlayAttach();
                 return;
@@ -105,8 +114,13 @@ namespace FluentWinForms.Core
 
         internal void NotifyGlowOverlay()
         {
-            if (Parent != null)
-                ModernGlowOverlay.Request(Parent);
+            if (Parent == null) return;
+            ModernGlowOverlay.Request(Parent);
+            // Un glow configurado después de estar parentado también debe
+            // crear el overlay sin intervención del usuario.
+            if (HasGlow && !DesignMode && ModernGlowOverlay.Enabled &&
+                Parent.IsHandleCreated && !ModernGlowOverlay.IsAttached(Parent))
+                ModernGlowOverlay.Attach(Parent);
         }
 
         /// <summary>

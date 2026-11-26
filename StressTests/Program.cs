@@ -160,9 +160,11 @@ namespace FluentWinForms.StressTests
                 warmFailures += RunPathCacheCheck();
                 warmFailures += RunRippleFadeCheck();
                 warmFailures += RunHitTestCheck();
+                warmFailures += RunGlowOverlayAutoCheck();
                 warmFailures += RunOverlayCheck();
                 warmFailures += RunOverlayLoadCheck();
                 warmFailures += RunOverlayBackdropCheck();
+                warmFailures += RunAutoBackgroundCheck();
                 warmFailures += RunBackdropToggleCheck();
                 warmFailures += RunBackdropThrottleCheck();
                 if (Environment.GetEnvironmentVariable("FWF_OVERLAY_PIXEL") == "1")
@@ -967,6 +969,7 @@ namespace FluentWinForms.StressTests
         private static int RunBadgeLayoutCheck()
         {
             int failures = 0;
+            using var overlayScope = new OverlayDisabledScope();
             try
             {
                 using var form = new Form { Size = new Size(400, 260) };
@@ -1581,6 +1584,7 @@ namespace FluentWinForms.StressTests
         private static int RunHitTestCheck()
         {
             int failures = 0;
+            using var overlayScope = new OverlayDisabledScope();
             try
             {
                 using var form = new Form { Size = new Size(500, 320) };
@@ -2159,6 +2163,150 @@ namespace FluentWinForms.StressTests
             finally
             {
                 ModernGlowOverlay.Enabled = false;
+            }
+            return failures;
+        }
+
+        /// <summary>
+        /// El overlay debe activarse solo: default true, se adjunta cuando el
+        /// padre tiene un control con glow/sombra y no se adjunta sin glow.
+        /// </summary>
+        private static int RunGlowOverlayAutoCheck()
+        {
+            int failures = 0;
+            bool wasEnabled = ModernGlowOverlay.Enabled;
+            try
+            {
+                bool defaultOn = wasEnabled;
+
+                using (var glowForm = new Form
+                {
+                    FormBorderStyle = FormBorderStyle.None,
+                    StartPosition = FormStartPosition.Manual,
+                    Location = new Point(60, 60),
+                    Size = new Size(320, 200),
+                    ShowInTaskbar = false
+                })
+                {
+                    FluentElement.Design("auto-glow").Layout(40, 40, 160, 48)
+                        .Glow("#ff00ff", 14).Apply(glowForm);
+                    glowForm.Show();
+                    bool attached = PumpUntil(() => ModernGlowOverlay.IsAttached(glowForm), 1500);
+                    bool behind = ModernGlowOverlay.IsBehindControls(glowForm);
+                    Console.WriteLine($"[assert] {(defaultOn && attached && behind ? "OK" : "FALLO")} overlay auto con glow: default={defaultOn}, adjunto={attached}, z-order={behind}");
+                    if (!defaultOn || !attached || !behind) failures++;
+                    glowForm.Close();
+                }
+
+                using (var plainForm = new Form
+                {
+                    FormBorderStyle = FormBorderStyle.None,
+                    StartPosition = FormStartPosition.Manual,
+                    Location = new Point(60, 280),
+                    Size = new Size(320, 200),
+                    ShowInTaskbar = false
+                })
+                {
+                    FluentElement.Design("auto-plain").Layout(40, 40, 160, 48).Apply(plainForm);
+                    plainForm.Show();
+                    Pump(250);
+                    bool notAttached = !ModernGlowOverlay.IsAttached(plainForm);
+                    Console.WriteLine($"[assert] {(notAttached ? "OK" : "FALLO")} overlay auto sin glow: adjunto={!notAttached}");
+                    if (!notAttached) failures++;
+                    plainForm.Close();
+                }
+
+                ModernGlowOverlay.Enabled = false;
+                using (var disabledForm = new Form
+                {
+                    FormBorderStyle = FormBorderStyle.None,
+                    StartPosition = FormStartPosition.Manual,
+                    Location = new Point(60, 500),
+                    Size = new Size(320, 200),
+                    ShowInTaskbar = false
+                })
+                {
+                    FluentElement.Design("auto-off").Layout(40, 40, 160, 48)
+                        .Glow("#ff00ff", 14).Apply(disabledForm);
+                    disabledForm.Show();
+                    Pump(250);
+                    bool notAttached = !ModernGlowOverlay.IsAttached(disabledForm);
+                    Console.WriteLine($"[assert] {(notAttached ? "OK" : "FALLO")} overlay opt-out: adjunto={!notAttached}");
+                    if (!notAttached) failures++;
+                    disabledForm.Close();
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[assert] FALLO overlay auto: {ex.Message}");
+                failures++;
+            }
+            finally
+            {
+                ModernGlowOverlay.Enabled = wasEnabled;
+            }
+            return failures;
+        }
+
+        /// <summary>
+        /// AutoSetBlackBackground automático: negro en Blur (y Acrylic Win11),
+        /// y restauración del fondo/controles originales al salir del backdrop.
+        /// </summary>
+        private static int RunAutoBackgroundCheck()
+        {
+            using var envScope = new DiagnosticEnvScope();
+            int failures = 0;
+            try
+            {
+                using var form = new Form
+                {
+                    FormBorderStyle = FormBorderStyle.None,
+                    StartPosition = FormStartPosition.Manual,
+                    Location = new Point(80, 300),
+                    Size = new Size(360, 220),
+                    BackColor = Color.Teal
+                };
+                form.Show();
+                Pump(80);
+
+                using var mgr = new ModernFormManager { TargetForm = form };
+                var element = FluentElement.Design("auto-bg").Layout(60, 60, 160, 48).Apply(form);
+                Pump(80);
+
+                bool defaultAuto = mgr.AutoSetBlackBackground;
+
+                mgr.BackdropType = FormBackdropType.Blur;
+                Pump(500);
+                bool blurBlack = form.BackColor.ToArgb() == Color.Black.ToArgb();
+                bool childOpaque = element.BackColor.ToArgb() == Color.Black.ToArgb();
+
+                mgr.BackdropType = FormBackdropType.None;
+                Pump(200);
+                bool noneRestored = form.BackColor.ToArgb() == Color.Teal.ToArgb();
+                bool childRestored = element.BackColor.ToArgb() == Color.Transparent.ToArgb();
+
+                mgr.BackdropType = FormBackdropType.Acrylic;
+                Pump(250);
+                bool win11 = WindowsVersionHelper.IsWindows11OrGreater();
+                bool acrylicExpected = win11
+                    ? form.BackColor.ToArgb() == Color.Black.ToArgb()
+                    : form.BackColor.ToArgb() == Color.Teal.ToArgb();
+
+                mgr.AutoSetBlackBackground = false;
+                bool optOutRestored = form.BackColor.ToArgb() == Color.Teal.ToArgb();
+
+                bool ok = defaultAuto && blurBlack && childOpaque &&
+                          noneRestored && childRestored && acrylicExpected && optOutRestored;
+                Console.WriteLine($"[assert] {(ok ? "OK" : "FALLO")} AutoBlack automático: default={defaultAuto}, Blur={blurBlack}, hijo_opaco={childOpaque}, None_restaura={noneRestored}/{childRestored}, Acrylic={acrylicExpected} (win11={win11}), opt-out={optOutRestored}");
+                if (!ok) failures++;
+
+                mgr.BackdropType = FormBackdropType.None;
+                form.Close();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[assert] FALLO AutoBlack automático: {ex.Message}");
+                failures++;
             }
             return failures;
         }
@@ -2751,6 +2899,23 @@ namespace FluentWinForms.StressTests
                 System.Threading.Thread.Sleep(10);
             }
             return condition();
+        }
+
+        /// <summary>
+        /// Desactiva temporalmente el overlay para tests de geometría/hit-test
+        /// que miden la expansión del HWND sin la capa layered.
+        /// </summary>
+        private sealed class OverlayDisabledScope : IDisposable
+        {
+            private readonly bool _wasEnabled;
+
+            public OverlayDisabledScope()
+            {
+                _wasEnabled = ModernGlowOverlay.Enabled;
+                ModernGlowOverlay.Enabled = false;
+            }
+
+            public void Dispose() => ModernGlowOverlay.Enabled = _wasEnabled;
         }
 
         /// <summary>

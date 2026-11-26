@@ -62,18 +62,18 @@ btn.Design()
 
 ---
 
-## ✨ Glow CSS con overlay Skia (opt-in)
+## ✨ Glow CSS con overlay Skia (automático)
 
-El glow de los `FluentElement` puede dibujarse en una **ventana hija layered** detrás de los controles, con Skia y sin GDI+. Se activa una vez, antes de crear los forms:
+El glow de los `FluentElement` se dibuja en una **ventana hija layered** detrás de los controles, con Skia y sin GDI+. Se activa solo: cuando un control con `.Glow(...)` o una sombra visible se agrega a un padre, el overlay se crea automáticamente. No hace falta configurar nada.
 
 ```csharp
-ModernGlowOverlay.Enabled = true;
+var btn = FluentElement.Design("save").Glow("#0055ff", 14).Apply(this);
 ```
 
 Requisitos y límites:
 - El ejecutable debe declarar **Windows 10/11 en su manifiesto** (`supportedOS`). Sin eso Windows aplica el modo de compatibilidad de Windows 7 y `WS_EX_LAYERED` falla en ventanas hijas (error 87). `FluentWinForms/app.manifest` es el ejemplo; el harness usa el mismo archivo. Para visual styles nativos, el manifiesto incluye además la dependencia `Microsoft.Windows.Common-Controls` v6.
-- Una capa por padre. El coste es un bitmap del tamaño del cliente y un `UpdateLayeredWindow` por repintado.
-- `Enabled = false` solo impide adjuntar overlays nuevos; los ya adjuntos siguen activos.
+- Una capa por padre. El coste es un bitmap del tamaño del cliente y un `UpdateLayeredWindow` por repintado. Solo se crea si ese padre tiene un control con glow/sombra.
+- `ModernGlowOverlay.Enabled = false` antes de crear los forms desactiva el overlay globalmente (opt-out). Los ya adjuntos siguen activos hasta cerrar el form.
 - El overlay va **detrás** de los controles: el cuerpo tapa su parte del halo y el borde exterior del control queda visible dentro del cliente del padre.
 
 ---
@@ -222,18 +222,18 @@ btn.Design()
 
 ---
 
-## ✨ CSS glow with a Skia overlay (opt-in)
+## ✨ CSS glow with a Skia overlay (automatic)
 
-The glow of `FluentElement` controls can be drawn on a **layered child window** behind the controls, using Skia and no GDI+. Enable it once, before creating the forms:
+The glow of `FluentElement` controls is drawn on a **layered child window** behind the controls, using Skia and no GDI+. It turns on by itself: when a control with `.Glow(...)` or a visible shadow is added to a parent, the overlay is created automatically. No setup required.
 
 ```csharp
-ModernGlowOverlay.Enabled = true;
+var btn = FluentElement.Design("save").Glow("#0055ff", 14).Apply(this);
 ```
 
 Requirements and limits:
 - The executable must declare **Windows 10/11 in its manifest** (`supportedOS`). Otherwise Windows applies Windows 7 compatibility mode and `WS_EX_LAYERED` fails on child windows (error 87). `FluentWinForms/app.manifest` is the reference; the harness uses the same file. For native visual styles, the manifest also includes the `Microsoft.Windows.Common-Controls` v6 dependency.
-- One layer per parent. The cost is a client-sized bitmap and one `UpdateLayeredWindow` per repaint.
-- `Enabled = false` only prevents attaching new overlays; already attached ones stay active.
+- One layer per parent. The cost is a client-sized bitmap and one `UpdateLayeredWindow` per repaint. It is only created when that parent has a control with glow/shadow.
+- `ModernGlowOverlay.Enabled = false` before creating the forms disables the overlay globally (opt-out). Already attached overlays stay active until the form closes.
 - The overlay sits **behind** the controls: the body hides its part of the halo and the control's outer edge remains visible inside the parent client area.
 
 ---

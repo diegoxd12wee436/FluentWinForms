@@ -1,7 +1,6 @@
 #nullable enable
 using System;
 using System.Windows.Forms;
-using FluentWinForms.Core;
 
 namespace FluentWinForms
 {
@@ -14,8 +13,6 @@ namespace FluentWinForms
         static void Main()
         {
             ApplicationConfiguration.Initialize();
-            // Glow CSS con overlay Skia (detrás de los controles, sin GDI+).
-            ModernGlowOverlay.Enabled = true;
             Application.Run(new Form1());
         }
     }

@@ -119,8 +119,14 @@ namespace FluentWinForms.Core
         private int _borderRadius = 12;
         private bool _transparentStyle = false;
         private FormBackdropType _backdropType = FormBackdropType.None;
-        private bool _autoSetBlackBackground = false;
+        private bool _autoSetBlackBackground = true;
         private int _blurAmount = 20;
+
+        // Fondo original del form: se restaura al salir de Blur/Acrylic para
+        // no dejar el formulario negro cuando ya no hay backdrop.
+        private Color _originalBackColor = Color.Empty;
+        private Color _originalTransparencyKey = Color.Empty;
+        private bool _hasOriginalBackground;
 
         // Backdrop CPU expuesto como BackgroundImage del form para que los
         // controles hijos pinten blur en sus zonas transparentes (Bug A).
@@ -137,6 +143,11 @@ namespace FluentWinForms.Core
         private void UnsubscribeTargetForm()
         {
             if (_targetForm == null) return;
+
+            // Si este manager cambió el fondo del form, devolverlo antes de
+            // soltarlo (reasignación o dispose del componente).
+            try { RestoreOriginalFormBackground(); } catch { }
+
             Managers.Remove(_targetForm);
             try
             {
@@ -167,16 +178,25 @@ namespace FluentWinForms.Core
             {
                 UnsubscribeTargetForm();
                 _targetForm = value;
+                _hasOriginalBackground = false;
+                if (_targetForm != null)
+                {
+                    // Guardar el fondo de diseño antes de que el backdrop lo
+                    // cambie; así salir de Blur/Acrylic lo restaura tal cual.
+                    _originalBackColor = _targetForm.BackColor;
+                    _originalTransparencyKey = _targetForm.TransparencyKey;
+                    _hasOriginalBackground = true;
+                }
                 if (_targetForm != null)
                 {
                     // Un form solo puede tener un manager activo. Remove+Add
                     // evita la excepción de clave duplicada si se reasigna.
                     Managers.Remove(_targetForm);
                     Managers.Add(_targetForm, this);
-                    // Si el manager se asigna después de crear los controles,
-                    // pudo engancharse un overlay antes de conocer el backdrop.
-                    if (_backdropType == FormBackdropType.None)
-                        ModernGlowOverlay.Refresh(_targetForm);
+                    // Re-evaluar siempre: el manager pudo asignarse después de
+                    // crear los controles y el backdrop pudo cambiar entre
+                    // ambos momentos.
+                    ModernGlowOverlay.Refresh(_targetForm);
                 }
 
                 if (_targetForm != null)
@@ -263,11 +283,6 @@ namespace FluentWinForms.Core
                 if (_backdropType != FormBackdropType.None)
                 {
                     _transparentStyle = false;
-                    _autoSetBlackBackground = true;
-                }
-                else
-                {
-                    _autoSetBlackBackground = false;
                 }
 
                 if (_backdropType != FormBackdropType.Blur && _d2dBlurHelper != null)
@@ -292,8 +307,11 @@ namespace FluentWinForms.Core
             }
         }
 
-        [Category("Modern Form - Visuals")]
-        [RefreshProperties(RefreshProperties.All)]
+        [Browsable(false)]
+        [DefaultValue(true)]
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+        [Description("Automático: usa negro cuando el backdrop lo necesita (Blur siempre; Acrylic en Win11). " +
+                     "Ponlo en false por código para conservar el BackColor original en Acrylic.")]
         public bool AutoSetBlackBackground
         {
             get => _autoSetBlackBackground;
@@ -307,8 +325,15 @@ namespace FluentWinForms.Core
             get => _transparentStyle;
             set
             {
+                bool wasBlur = _backdropType == FormBackdropType.Blur;
                 _transparentStyle = value;
                 if (_transparentStyle) _backdropType = FormBackdropType.None;
+                if (wasBlur && _backdropType != FormBackdropType.Blur)
+                {
+                    _d2dBlurHelper?.Stop();
+                    _d2dBlurHelper?.SetBackdropSink(null);
+                    ClearBlurBackdrop();
+                }
 
                 UpdateFormBackground();
 
@@ -715,30 +740,42 @@ namespace FluentWinForms.Core
         private void UpdateFormBackground()
         {
             if (_targetForm == null || DesignMode) return;
-            if (_backdropType == FormBackdropType.Blur)
+
+            // Negro solo cuando el backdrop lo necesita de verdad:
+            // - Blur compone sobre negro (siempre).
+            // - Acrylic en Win11 usa el base negro salvo opt-out explícito.
+            bool wantsBlack = _backdropType == FormBackdropType.Blur ||
+                              (_backdropType == FormBackdropType.Acrylic &&
+                               WindowsVersionHelper.IsWindows11OrGreater() &&
+                               _autoSetBlackBackground);
+
+            if (wantsBlack)
             {
                 _targetForm.TransparencyKey = Color.Empty;
                 _targetForm.BackColor = Color.Black;
                 return;
             }
 
-            if (BackdropType != FormBackdropType.None && WindowsVersionHelper.IsWindows11OrGreater())
-            {
-                _targetForm.TransparencyKey = Color.Empty;
-                if (_autoSetBlackBackground)
-                {
-                    _targetForm.BackColor = Color.Black;
-                }
-            }
-            else if (_transparentStyle)
+            if (_transparentStyle)
             {
                 _targetForm.BackColor = Color.Fuchsia;
                 _targetForm.TransparencyKey = Color.Fuchsia;
+                return;
             }
-            else
+
+            // None/Acrylic sin base negra: devolver el fondo de diseño.
+            RestoreOriginalFormBackground();
+        }
+
+        private void RestoreOriginalFormBackground()
+        {
+            if (_targetForm == null || !_hasOriginalBackground || DesignMode) return;
+            try
             {
-                _targetForm.TransparencyKey = Color.Empty;
+                _targetForm.TransparencyKey = _originalTransparencyKey;
+                _targetForm.BackColor = _originalBackColor;
             }
+            catch { }
         }
 
         private void TargetForm_ResizeBegin(object? sender, EventArgs e)
