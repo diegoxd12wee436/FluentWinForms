@@ -234,15 +234,6 @@ namespace FluentWinForms.Core
         [Category("Modern Form - Animation")]
         public double DragOpacity { get; set; } = 1.0;
 
-        private bool _useSkia = true;
-        [Category("Modern Form - Engine")]
-        [Description("Compatibilidad de API: el render es SIEMPRE Skia (el motor GDI se eliminó). Asignar false no cambia de motor.")]
-        public bool UseSkia
-        {
-            get => _useSkia;
-            set { _useSkia = value; _targetForm?.Invalidate(); }
-        }
-
         private Color _borderColor = Color.FromArgb(40, 255, 255, 255);
         [Category("Modern Form - Visuals")]
         public Color BorderColor
@@ -861,7 +852,6 @@ namespace FluentWinForms.Core
         /// Permite probar Blur/Acrylic y el overlay sin editar el diseñador:
         ///   FWF_BACKDROP=Blur|Acrylic|None
         ///   FWF_BORDER_THICKNESS=2
-        ///   FWF_USE_SKIA=1|0
         /// Solo diagnóstico: sin variables activas no cambia nada.
         /// </summary>
         private void ApplyDiagnosticOverrides()
@@ -882,10 +872,6 @@ namespace FluentWinForms.Core
                 {
                     _borderThickness = parsedThickness;
                 }
-
-                string? useSkia = Environment.GetEnvironmentVariable("FWF_USE_SKIA");
-                if (useSkia == "1") _useSkia = true;
-                else if (useSkia == "0") _useSkia = false;
 
                 // Simula un cambio de DPI a los 2.5 s para poder verificar la
                 // invalidación de cachés sin cambiar la escala de Windows.

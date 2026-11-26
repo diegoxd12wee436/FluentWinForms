@@ -99,10 +99,6 @@ namespace FluentWinForms
                 .Background("#333")
                 .Shadow(2)
                 .Apply(this);
-
-            Dump("INICIO");
-
-
         }
         private Action<double>? _frameTickedHandler;
 
@@ -111,30 +107,6 @@ namespace FluentWinForms
             if (_frameTickedHandler == null) return;
             AnimationManager.FrameTicked -= _frameTickedHandler;
             _frameTickedHandler = null;
-        }
-
-        void Dump(string tag)
-        {
-            // Diagnóstico opcional: no escribir en el Escritorio en cada
-            // construcción (el harness crea cientos de Form1).
-            if (Environment.GetEnvironmentVariable("FWF_DIAG_LOG") != "1") return;
-            try
-            {
-                var sb = new System.Text.StringBuilder();
-                sb.AppendLine($"== {tag} DeviceDpi={DeviceDpi} controles={Controls.Count}");
-                foreach (Control c in Controls)
-                    if (c is ModernControlBase m)
-                        sb.AppendLine($"{c.Name}: Bounds={m.Bounds} Logical={m.LogicalBounds}");
-                File.AppendAllText(Path.Combine(
-                    Environment.GetFolderPath(Environment.SpecialFolder.Desktop), "dpi-log.txt"), sb.ToString());
-            }
-            catch { }
-        }
-        protected override void OnDpiChanged(DpiChangedEventArgs e)
-        {
-            base.OnDpiChanged(e);
-            DpiTrace.Log($"FORM OnDpiChanged old={e.DeviceDpiOld} new={e.DeviceDpiNew}");
-            Dump("DPI-CAMBIO");
         }
 
         private void Form1_Load(object sender, EventArgs e)

@@ -225,7 +225,6 @@ namespace FluentWinForms.Core
         protected override void OnDpiChangedAfterParent(EventArgs e)
         {
             float oldScale = _dpiScale;
-            DpiTrace.Log($"OnDpiChangedAfterParent {Name} dpiScaleAntes={_dpiScale * 96f:0} dpiControl={DeviceDpi} bounds={Bounds} logical={_logicalBounds} autoScale={FindForm()?.AutoScaleMode}");
             _dpiScale = DeviceDpi / 96f;   // FASE 1b
 
             // El HWND lo escala WinForms, pero el árbol visual (Layout de los
@@ -267,12 +266,10 @@ namespace FluentWinForms.Core
         {
             Rectangle source = _logicalBounds.IsEmpty ? bounds : _logicalBounds;
             Rectangle scaled = base.GetScaledBounds(source, factor, specified);
-            DpiTrace.Log($"GetScaledBounds {Name} in={bounds} logical={_logicalBounds} factor=({factor.Width:0.###},{factor.Height:0.###}) out={scaled}");
             return scaled;
         }
         protected override void ScaleControl(SizeF factor, BoundsSpecified specified)
         {
-            DpiTrace.Log($"ScaleControl {Name} factor=({factor.Width:0.###},{factor.Height:0.###}) specified={specified} bounds={Bounds} logical={_logicalBounds}");
             base.ScaleControl(factor, specified);
         }
         #endregion
@@ -356,11 +353,6 @@ namespace FluentWinForms.Core
         [Browsable(false), EditorBrowsable(EditorBrowsableState.Never)]
         protected PointF EngineOffset => _logicalBounds.IsEmpty ? PointF.Empty : new PointF(_logicalBounds.X - this.Left, _logicalBounds.Y - this.Top);
 
-        private bool _useSkiaGraphics = true;
-        [Category("Modern - Engine")]
-        [Description("Compatibilidad de API: el motor es SIEMPRE Skia (el fallback GDI se eliminó). Asignar false no cambia de motor.")]
-        [DesignerSerializationVisibility(DesignerSerializationVisibility.Visible)]
-        public bool UseSkiaGraphics { get => _useSkiaGraphics; set { _useSkiaGraphics = value; ClearCaches(); RefreshVisuals(); } }
         #endregion
 
         // Invalidación Segura

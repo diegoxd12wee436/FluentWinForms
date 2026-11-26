@@ -188,12 +188,6 @@ namespace FluentWinForms.Core
         { _node.Opacity = (float)Math.Max(0.0, Math.Min(1.0, o)); return this; }
         public ControlBuilder<T> Visible(bool v = true) { _node.IsVisible = v; return this; }
         public ControlBuilder<T> Enabled(bool e = true) { _node.Enabled = e; return this; }
-        /// <summary>Compatibilidad de API: el motor es SIEMPRE Skia (no-op).</summary>
-        public ControlBuilder<T> UseSkia(bool enabled = true)
-        {
-            if (_hostControl != null) _hostControl.UseSkiaGraphics = enabled;
-            return this;
-        }
         public ControlBuilder<T> Cursor(Cursor cursor)
         { if (_hostControl != null) _hostControl.Cursor = cursor; return this; }
         public ControlBuilder<T> HandCursor() => Cursor(Cursors.Hand);
@@ -758,9 +752,6 @@ namespace FluentWinForms.Core
                 _hostControl.Size = new Size((int)_node.Layout.Width, (int)_node.Layout.Height);
                 _node.Layout = new RectangleF(0, 0, _node.Layout.Width, _node.Layout.Height);
             }
-
-            DpiTrace.Log($"Apply {_hostControl.Name} layout=({_node.Layout.X},{_node.Layout.Y},{_node.Layout.Width},{_node.Layout.Height}) parent={parent?.GetType().Name} parentDpi={parent?.DeviceDpi} parentHandle={parent?.IsHandleCreated}");
-            DpiTrace.Log($"Apply {_hostControl.Name} hostBounds={_hostControl.Bounds}");
 
             OnApplied?.Invoke(_node);
 

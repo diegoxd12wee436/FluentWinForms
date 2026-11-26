@@ -50,7 +50,6 @@ namespace FluentWinForms
             modernFormManager1.TargetForm = this;
             modernFormManager1.TransparentStyle = false;
             modernFormManager1.UseModernRoundedCorners = true;
-            modernFormManager1.UseSkia = true;
             // 
             // Form1
             // 

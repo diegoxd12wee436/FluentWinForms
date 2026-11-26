@@ -2761,7 +2761,7 @@ namespace FluentWinForms.StressTests
         {
             private static readonly string[] Keys =
             {
-                "FWF_BACKDROP", "FWF_BORDER_THICKNESS", "FWF_USE_SKIA",
+                "FWF_BACKDROP", "FWF_BORDER_THICKNESS",
                 "FWF_FAKE_DPI", "FWF_BLUR_AMOUNT"
             };
 

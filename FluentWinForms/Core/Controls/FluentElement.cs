@@ -17,9 +17,6 @@ namespace FluentWinForms.Custom_Controls
 
             SetStyle(ControlStyles.SupportsTransparentBackColor, true);
             BackColor = Color.Transparent;
-
-            // Skia por defecto — antialiasing real, bordes perfectos
-            UseSkiaGraphics = true;
         }
 
         /// <summary>

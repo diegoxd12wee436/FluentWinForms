@@ -5,30 +5,25 @@
 
 ---
 
-## ESTADO ACTUAL (2026-11-19)
+## ESTADO ACTUAL (2026-11-25)
 
-- **Rama:** `feature/estabilizacion` (sin push); HEAD `5dc14cb` (docs). `main` intacta.
-- **Tareas 2/4/5: implementadas y aprobadas** por `@revisor` y `@rompedor`; **sin commitear**.
-  - Cachés A1/A2/A4, `RenderNode : IDisposable`, `GC.Collect` global (1 por frame), NaN-safe
-    (incluido el clip del ripple).
-  - Evidencia: build 0/0; 3 ciclos `fallos=0`; 150/200 ciclos verdes; WS/Private a la baja;
-    GDI 24→24; `ThreadException` 0.
-- **Glow tipo CSS (capa en el padre): REVERTIDA.** Usaba composición **GDI+** (`Bitmap` +
-  `Graphics.DrawImage`) sobre controles **Skia**; el usuario reportó sangrado de píxeles en los
-  bordes al cambiar de estado (hover/translate). Decisión: **Skia-only**. El glow volvió al
-  canvas Skia (se recorta en el HWND; comportamiento original).
-- **Parpadeo del glow: resuelto al eliminar la capa.** La causa medida era un `else` que
-  limpiaba el bake en cada paint (~80 rebakes/s); con la capa fuera ya no existe.
-- **Backdrop:** camino CPU **aceptado** (41 MB, 15–17 fps). Acrylic intacto. GPU/DWM: opcional.
-- **Harness:** 500/200/150/3 ciclos verdes; el gate de memoria usa el máximo de las muestras
-  intermedias (un pico 4000×3000 no cuenta como fuga); `StressTests/` commiteado en `b3150cb`.
-- **Ronda Skia rápida + infra (2026-11-19):** aprobada por revisor+rompedor y commiteada
-  (`d8d650d` librería, `b3150cb` harness/slnx, `0c49546` RippleDuration, `f0fd531` overlay
-  Skia opt-in). Translate/escala base, badge, ripple y hit-test corregidos; build 0/0 y 3 ciclos
-  `fallos=0`.
-- **Archivos del usuario:** `Form1.Designer.cs`, `opencode.json`, `.opencode/` no se tocan.
+- **Rama:** `feature/estabilizacion` (sin push); `main` intacta. HEAD incluye la reorganización
+  (`32523ba`); el commit de esta limpieza retira `UseSkia`/`DpiTrace`.
+- **Funcional cerrado:** None, Blur y Acrylic funcionan; glow solucionado (`a0b6fb8`); RAM
+  estable. El Blur por GPU (`42acd5d`) se percibe a ~30 fps frente a Acrylic: **pulir otro día**
+  (decisión explícita del usuario, no tocar ahora).
+- **Render Skia-only** (`02d24df`): sin fallback GDI en controles, borde ni glow; Acrylic intacto.
+- **Limpieza:** código muerto fuera (`476bb92`), proyecto reorganizado (`32523ba`) y API no-op
+  `UseSkia`/`UseSkiaGraphics` + andamiaje `DpiTrace` eliminados (ver secciones).
+- **`app.manifest` se conserva:** sin `supportedOS` Win10/11, Windows aplica compatibilidad Win7
+  y `CreateWindowEx` rechaza `WS_EX_LAYERED` en ventanas hijas (error 87); el overlay Skia lo
+  necesita. También declara Common-Controls v6.
+- **Harness:** 50 ciclos con `FWF_OVERLAY_STRESS=1 FWF_BACKDROP=Blur`: `fallos=0 skips=1`,
+  Private 49→40 MB, GDI 24→24, handles 420→420.
+- **Archivos del usuario:** `Form1.Designer.cs`, `Form1.resx`, `opencode.json`, `.opencode/` no
+  se tocan ni se commitean.
 
-### Decisiones nuevas (2026-11-19)
+### Decisiones nuevas (2026-11-19, históricas)
 
 1. **Skia-only.** Todo el diseño/render nuevo va por Skia. El pipeline GDI queda como legado,
    no se mejora ni se usa para efectos CSS-like (el usuario prioriza Skia).
@@ -75,8 +70,9 @@ conservaba los píxeles de diseño; el botón interno no seguía al HWND. Ademá
 
 **Rendimiento:** `DpiTrace` quedó **apagado por defecto** (`FWF_DIAG_LOG=1` para activarlo).
 Antes escribía al Escritorio y construía un `StackTrace` en **cada `SetBoundsCore`** (hot path
-de hover/animación); era un stutter real. `AutoSetBlackBackground` y `BlurAmount` siguen
-funcionales (el segundo alimenta el blur CPU).
+de hover/animación); era un stutter real. Posteriormente se retiró por completo en la limpieza
+final. `AutoSetBlackBackground` y `BlurAmount` siguen funcionales (el segundo ajusta el blur,
+hoy GPU).
 
 ### Tarea 7e — Overlay Skia: prototipo commiteado (opt-in, `f0fd531`)
 
@@ -228,7 +224,8 @@ arreglar el entrecortado al mover la ventana con el blur GPU.
 - **API eliminada (breaking para subclases externas):** `GdiRenderer` (clase pública),
   `ModernControlBase.PaintGDI`/`PaintGDIPipeline` (protected virtual), los métodos/campos GDI de
   `ModernThemeToggle` y `ModernFormManager.PaintGdiSmoothing`/`CreateRoundedPath`. Las propiedades
-  `UseSkiaGraphics`/`UseSkia` siguen existiendo como no-op (Skia es el único motor).
+  `UseSkiaGraphics`/`UseSkia` existieron como no-op hasta la limpieza final, que las eliminó
+  (Skia es el único motor).
 - **GDI que SÍ permanece (fuera del render de controles/borde, por diseño):** el blit zero-copy
   de presentación, la región de la ventana (`CreateRoundRectRgn`), el fallback Acrylic de W7/8
   (Bitmap GDI) y la captura del backdrop (`BitBlt`/`StretchBlt` — parte del motor de blur, que el
@@ -249,13 +246,14 @@ FluentWinForms/
                                F, RenderNode, LayoutEngine, AnimationManager
     Backdrop/                  Direct2DBlurHelper, StackBlurUltra, AcrylicHelper
     Theme/                     ThemePalette
-    Diagnostics/               DpiTrace
   Components/
     Buttons/                   ModernThemeToggle
     Panels/                    ModernGlassPanel
   Form1.cs / Form1.Designer.cs / Form1.resx
   GalleryForm.cs / Program.cs / Properties/
 ```
+
+`Core/Diagnostics/DpiTrace.cs` se eliminó después, en la limpieza final; la carpeta quedó vacía.
 
 `FluentWinForms.csproj` usa globbing del SDK, así que no hizo falta tocar rutas. Build 0/0 y
 harness 50 con `FWF_OVERLAY_STRESS=1 FWF_BACKDROP=Blur`: `fallos=0 skips=1`, Private 54→40 MB,
@@ -278,6 +276,26 @@ Se auditaron todas las referencias (código, csproj, docs y StressTests) antes d
 
 Validado tras el borrado: build 0/0; harness 10 en None `fallos=0 skips=1`;
 harness 10 con `FWF_OVERLAY_STRESS=1 FWF_BACKDROP=Blur` `fallos=0 skips=1`.
+
+### Limpieza final: `UseSkia` no-op y `DpiTrace`
+
+**Pedido del usuario:** que `UseSkia` deje de aparecer en las propiedades del diseñador y
+retirar el andamiaje de diagnóstico que ya no se usa.
+
+- **Auditoría previa (código, csproj, StressTests y docs):** la única referencia viva a
+  `UseSkia` estaba en `Form1.Designer.cs`; `UseSkiaGraphics` solo se asignaba dentro del
+  propio control; `FWF_USE_SKIA` solo lo leía `ModernFormManager` y lo limpiaba el harness.
+- **Eliminado:** `ModernControlBase.UseSkiaGraphics` y su campo; `ModernFormManager.UseSkia`,
+  `_useSkia` y la lectura de `FWF_USE_SKIA`; `ControlBuilder.UseSkia`; la asignación en
+  `FluentElement`; la línea del diseñador; `FWF_USE_SKIA` en `DiagnosticEnvScope`.
+- **`DpiTrace` completo:** la clase `Core/Diagnostics/DpiTrace.cs`, sus llamadas
+  (`ControlBuilder.Apply`, `SetBoundsCore`, `OnDpiChangedAfterParent`, `GetScaledBounds`,
+  `ScaleControl`) y el diagnóstico de `Form1` (`Dump`, `FWF_DIAG_LOG` y el override
+  `OnDpiChanged` que escribía `dpi-log.txt`). Se conserva la baja del handler en `FormClosed`.
+- **`app.manifest` se queda:** se añadió en `09a6209`; sin él Windows trata el proceso como
+  Win7 y rechaza `WS_EX_LAYERED` en ventanas hijas (error 87), rompiendo el overlay del glow.
+- **Validado:** build 0/0; harness 10 None `fallos=0 skips=1` (Private 29→29 MB, GDI 24→24);
+  harness 50 overlay+Blur `fallos=0 skips=1` (Private 49→40 MB, GDI 24→24, handles 420→420).
 
 ### Blur GPU (Direct2D GaussianBlur) - implementado
 
@@ -716,7 +734,7 @@ los estados. Además el hit-test no incluye la sombra (correcto: no debe ser cli
 - `FluentWinForms/Form1.cs:126` suscribe `AnimationManager.FrameTicked` y **nunca** se daba de baja;
   cada Form1 dejaba un handler estático. También `Dump()` escribía en el Escritorio en cada
   construcción. **Corregido** (ver "Cambio C" abajo): delegado guardado y `-=` en `FormClosed`;
-  `Dump` solo escribe con `FWF_DIAG_LOG=1`.
+  `Dump` se limitó a `FWF_DIAG_LOG=1` y después se eliminó en la limpieza final.
 
 ---
 
@@ -725,7 +743,8 @@ los estados. Además el hit-test no incluye la sombra (correcto: no debe ser cli
 - **Antes:** cada `new Form1()` añadía un handler permanente a `AnimationManager.FrameTicked`
   (evento estático) y escribía `dpi-log.txt` en el Escritorio.
 - **Ahora:** el delegado se guarda en `_frameTickedHandler` y se da de baja en `FormClosed`;
-  `Dump()` solo escribe si `FWF_DIAG_LOG=1`, dentro de try/catch.
+  `Dump()` se limitó a `FWF_DIAG_LOG=1` y luego se eliminó junto con el override de DPI en la
+  limpieza final.
 - Motivo: el harness crea 500+ Form1 y el coste por frame/IO contaminaba las mediciones.
 - Estado: build 0/0. Pendiente de `@revisor` + `@rompedor`.
 
