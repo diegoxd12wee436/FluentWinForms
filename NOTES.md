@@ -305,9 +305,11 @@ active al usar `.Glow(...)` sin escribir `ModernGlowOverlay.Enabled = true;`.
 
 - **Fondo automático (`ModernFormManager`):** `AutoSetBlackBackground` pasa a `true` por
   defecto y se oculta del diseñador (`Browsable(false)`); sigue disponible por código como
-  opt-out. El manager guarda el `BackColor`/`TransparencyKey` originales al asignar
-  `TargetForm` y los restaura al volver a `None` (o Acrylic sin base negra). Antes, cambiar de
-  Blur a None dejaba el form negro. `Blur` sigue forzando negro; `Acrylic` en Win11 también,
+  opt-out. El manager guarda el `BackColor`/`TransparencyKey` originales en el primer
+  `UpdateFormBackground` con handle, cuando el diseñador ya terminó de asignar `BackColor`
+  (asignar `TargetForm` antes que `BackColor` hacía que en `None` se viera el color por
+  defecto, blanco). Los restaura al volver a `None` (o Acrylic sin base negra). Antes, cambiar
+  de Blur a None dejaba el form negro. `Blur` sigue forzando negro; `Acrylic` en Win11 también,
   salvo opt-out. `TransparentStyle` ahora detiene el blur y restaura los controles.
 - **Overlay automático (`ModernGlowOverlay`):** `Enabled` pasa a `true` por defecto. Solo se
   adjunta a un padre que tenga un control con glow/sombra visible (`HasGlow`); un form con
@@ -316,9 +318,10 @@ active al usar `.Glow(...)` sin escribir `ModernGlowOverlay.Enabled = true;`.
 - **Sin código extra:** la demo ya no tiene `ModernGlowOverlay.Enabled = true;` y el diseñador
   ya no necesita `AutoSetBlackBackground = true;`.
 - **Validado:** build 0/0; harness 10 None `fallos=0`; harness 10 overlay+Blur `fallos=0`;
-  harness 50 overlay+Blur `fallos=0 skips=1`, Private 37→46 MB (1.24x), GDI 24→24,
-  handles 417→420. Sonda: Acrylic/Blur `overlay attached=True`, None `attached=False` y
-  `form.BackColor=Control` (fondo original restaurado).
+  harness 50 overlay+Blur `fallos=0 skips=1`, Private 49→45 MB (0.92x), GDI 24→24,
+  handles 420→420. Sonda: Acrylic/Blur `overlay attached=True`, None `attached=False` y
+  `form.BackColor=Teal` (fondo original restaurado). Regresión: `fondo diseñador None` y
+  `Blur→None` conservan `Teal` con el orden real del diseñador.
 
 ### Blur GPU (Direct2D GaussianBlur) - implementado
 

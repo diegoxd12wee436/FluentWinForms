@@ -178,15 +178,10 @@ namespace FluentWinForms.Core
             {
                 UnsubscribeTargetForm();
                 _targetForm = value;
+                // El fondo original se captura en UpdateFormBackground, cuando
+                // el handle ya existe: el diseñador asigna TargetForm antes que
+                // BackColor y aquí todavía valdría el color por defecto.
                 _hasOriginalBackground = false;
-                if (_targetForm != null)
-                {
-                    // Guardar el fondo de diseño antes de que el backdrop lo
-                    // cambie; así salir de Blur/Acrylic lo restaura tal cual.
-                    _originalBackColor = _targetForm.BackColor;
-                    _originalTransparencyKey = _targetForm.TransparencyKey;
-                    _hasOriginalBackground = true;
-                }
                 if (_targetForm != null)
                 {
                     // Un form solo puede tener un manager activo. Remove+Add
@@ -739,7 +734,17 @@ namespace FluentWinForms.Core
 
         private void UpdateFormBackground()
         {
-            if (_targetForm == null || DesignMode) return;
+            if (_targetForm == null || DesignMode || !_targetForm.IsHandleCreated) return;
+
+            // Primera aplicación con handle: el diseñador ya terminó y este es
+            // el fondo real del form (p. ej. Teal), no el color por defecto que
+            // había cuando se asignó TargetForm.
+            if (!_hasOriginalBackground)
+            {
+                _originalBackColor = _targetForm.BackColor;
+                _originalTransparencyKey = _targetForm.TransparencyKey;
+                _hasOriginalBackground = true;
+            }
 
             // Negro solo cuando el backdrop lo necesita de verdad:
             // - Blur compone sobre negro (siempre).

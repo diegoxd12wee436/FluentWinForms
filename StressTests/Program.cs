@@ -165,6 +165,7 @@ namespace FluentWinForms.StressTests
                 warmFailures += RunOverlayLoadCheck();
                 warmFailures += RunOverlayBackdropCheck();
                 warmFailures += RunAutoBackgroundCheck();
+                warmFailures += RunDesignerBackgroundCheck();
                 warmFailures += RunBackdropToggleCheck();
                 warmFailures += RunBackdropThrottleCheck();
                 if (Environment.GetEnvironmentVariable("FWF_OVERLAY_PIXEL") == "1")
@@ -2306,6 +2307,69 @@ namespace FluentWinForms.StressTests
             catch (Exception ex)
             {
                 Console.WriteLine($"[assert] FALLO AutoBlack automático: {ex.Message}");
+                failures++;
+            }
+            return failures;
+        }
+
+        /// <summary>
+        /// Orden real del diseñador: TargetForm se asigna antes que BackColor
+        /// y antes de crear el handle. En None debe conservar el BackColor
+        /// definitivo (Teal) y al salir de Blur debe restaurarlo, no el color
+        /// por defecto del Form.
+        /// </summary>
+        private static int RunDesignerBackgroundCheck()
+        {
+            using var envScope = new DiagnosticEnvScope();
+            int failures = 0;
+            try
+            {
+                using (var noneForm = new Form
+                {
+                    FormBorderStyle = FormBorderStyle.None,
+                    StartPosition = FormStartPosition.Manual,
+                    Location = new Point(80, 560),
+                    Size = new Size(360, 220),
+                    ShowInTaskbar = false
+                })
+                {
+                    using var mgr = new ModernFormManager { TargetForm = noneForm };
+                    noneForm.BackColor = Color.Teal;
+                    noneForm.Show();
+                    Pump(200);
+                    bool noneKeepsTeal = noneForm.BackColor.ToArgb() == Color.Teal.ToArgb();
+                    Console.WriteLine($"[assert] {(noneKeepsTeal ? "OK" : "FALLO")} fondo diseñador None: BackColor={noneForm.BackColor.Name} (esperado Teal)");
+                    if (!noneKeepsTeal) failures++;
+                    noneForm.Close();
+                }
+
+                using (var blurForm = new Form
+                {
+                    FormBorderStyle = FormBorderStyle.None,
+                    StartPosition = FormStartPosition.Manual,
+                    Location = new Point(80, 560),
+                    Size = new Size(360, 220),
+                    ShowInTaskbar = false
+                })
+                {
+                    using var mgr = new ModernFormManager { TargetForm = blurForm };
+                    mgr.BackdropType = FormBackdropType.Blur;
+                    blurForm.BackColor = Color.Teal;
+                    blurForm.Show();
+                    Pump(500);
+                    bool blurBlack = blurForm.BackColor.ToArgb() == Color.Black.ToArgb();
+                    mgr.BackdropType = FormBackdropType.None;
+                    Pump(250);
+                    bool restoredTeal = blurForm.BackColor.ToArgb() == Color.Teal.ToArgb();
+                    bool ok = blurBlack && restoredTeal;
+                    Console.WriteLine($"[assert] {(ok ? "OK" : "FALLO")} fondo diseñador Blur→None: Blur={blurBlack}, None={restoredTeal} ({blurForm.BackColor.Name})");
+                    if (!ok) failures++;
+                    blurForm.Close();
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[assert] FALLO fondo diseñador: {ex.Message}");
                 failures++;
             }
             return failures;
