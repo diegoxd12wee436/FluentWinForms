@@ -37,7 +37,6 @@ namespace FluentWinForms
             // 
             // modernFormManager1
             // 
-            modernFormManager1.AutoSetBlackBackground = false;
             modernFormManager1.BackdropType = Core.FormBackdropType.None;
             modernFormManager1.BlurAmount = 20;
             modernFormManager1.BorderColor = Color.FromArgb(40, 255, 255, 255);
@@ -50,7 +49,6 @@ namespace FluentWinForms
             modernFormManager1.TargetForm = this;
             modernFormManager1.TransparentStyle = false;
             modernFormManager1.UseModernRoundedCorners = true;
-            modernFormManager1.UseSkia = true;
             // 
             // Form1
             // 

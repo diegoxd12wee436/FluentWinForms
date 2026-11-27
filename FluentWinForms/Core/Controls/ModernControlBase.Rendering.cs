@@ -1,4 +1,4 @@
-﻿#nullable enable
+#nullable enable
 #pragma warning disable CA1416 // Silencia advertencias de compatibilidad de System.Drawing en .NET 6+
 using System;
 using System.Collections.Generic;
@@ -20,17 +20,27 @@ namespace FluentWinForms.Core
     public abstract partial class ModernControlBase
     {
         private SKPath? _cachedClipPath;
+        private SKPath? _cachedFillPath;
+        private SKRect _lastFillRect;
+        private float _lastFillInnerRadius = -1f;
 
         // RUTA MAESTRA DE DIBUJADO
         protected override void OnPaint(PaintEventArgs e)
         {
             if (Width <= 0 || Height <= 0) return;
 
-            if (!_isRenderable || (_useSkiaGraphics && (_gdiWrapper == null || _skCanvas == null || _skBitmap == null)))
+            // Skia es el ÚNICO motor de render (sin fallback GDI). Si los
+            // buffers no existen todavía, se intenta reconstruirlos (debounce
+            // de 500 ms) y se programa un repintado de recuperación: un fallo
+            // transitorio no degrada el control a un motor GDI feo ni lo deja
+            // vacío para siempre. En el diseñador no se pinta ni se reintenta.
+            if (!_isRenderable || _gdiWrapper == null || _skCanvas == null || _skBitmap == null)
             {
-                e.Graphics.Clear(Color.FromArgb(240, 240, 240));
-                using (var pen = new Pen(Color.Red, 2)) e.Graphics.DrawRectangle(pen, 1, 1, Width - 3, Height - 3);
-                e.Graphics.DrawString("Render Error (OOM)", SystemFonts.DefaultFont, Brushes.Red, 5, 5);
+                if (!DesignMode)
+                {
+                    RebuildCanvas();
+                    RetryPaintSoon();
+                }
                 return;
             }
 
@@ -40,6 +50,7 @@ namespace FluentWinForms.Core
                 e.Graphics.TranslateTransform(-Left, -Top);
                 using (var pe = new PaintEventArgs(e.Graphics, Parent.ClientRectangle))
                     InvokePaintBackground(Parent, pe);
+
                 e.Graphics.Restore(state);
             }
 
@@ -63,11 +74,16 @@ namespace FluentWinForms.Core
             var contentRectSK = shadowRectSK; contentRectSK.Inflate(-(activeBorder / 2f), -(activeBorder / 2f));
             var paddedRectSK = new SKRect(contentRectSK.Left + S(Padding.Left), contentRectSK.Top + S(Padding.Top), contentRectSK.Right - S(Padding.Right), contentRectSK.Bottom - S(Padding.Bottom));
 
-            if (UseSkiaGraphics)
+            // Skia SIEMPRE (sin motor GDI alternativo). El try/catch solo
+            // protege al hilo UI: un fallo se registra, el canvas se restaura
+            // a su estado inicial y se programa un repintado de recuperación.
+            // NUNCA se cambia de motor.
+            try
             {
+                int saveCount = _skCanvas!.SaveCount;
                 try
                 {
-                    _skCanvas!.Clear(SKColors.Transparent);
+                    _skCanvas.Clear(SKColors.Transparent);
                     _skCanvas.Save();
                     // =========================================================
                     // 🔥 EL ANCLA MÓVIL: Centrado automático + Traslación CSS
@@ -137,29 +153,62 @@ namespace FluentWinForms.Core
 
                     // 🔥 CRUCIAL: Obligar a Skia a mandar sus pixeles a la memoria RAM
                     _skCanvas.Flush();
-
-                    e.Graphics.CompositingMode = CompositingMode.SourceOver;
-                    e.Graphics.CompositingQuality = CompositingQuality.HighSpeed;
-                    e.Graphics.InterpolationMode = InterpolationMode.Low;
-
-                    // 🔥 MÉTODO ZERO-COPY (.NET 8/10): Al dibujar el GDI Wrapper, ya contiene los pixeles mágicos de Skia.
-                    if (_gdiWrapper != null)
-                    {
-                        e.Graphics.DrawImageUnscaled(_gdiWrapper, 0, 0);
-                    }
                 }
-                catch (Exception ex)
+                finally
                 {
-                    // 🔥 FIX BUCLE INFINITO DE LA MUERTE: Eliminado el Invalidate()
-                    Trace.TraceError($"[ModernForms] Fallo SkiaRender, cambiando a GDI: {ex}");
-                    _useSkiaGraphics = false;
-                    e.Graphics.DrawString("OOM Interceptado. Cambiando motor...", SystemFonts.DefaultFont, Brushes.Red, 0, 0);
+                    // Un fallo a mitad no deja saves/transform/clip colgados
+                    // para el siguiente paint: se vuelve al estado inicial.
+                    _skCanvas.RestoreToCount(saveCount);
                 }
+
+                e.Graphics.CompositingMode = CompositingMode.SourceOver;
+                e.Graphics.CompositingQuality = CompositingQuality.HighSpeed;
+                e.Graphics.InterpolationMode = InterpolationMode.Low;
+
+                // Presentación zero-copy de los píxeles de Skia (blit 1:1,
+                // sin dibujo GDI): es el único punto de contacto con el
+                // paint de WinForms, requerido por la arquitectura HWND.
+                if (_gdiWrapper != null)
+                {
+                    e.Graphics.DrawImageUnscaled(_gdiWrapper, 0, 0);
+                }
+
+                // Paint exitoso: cancela un reintento pendiente para no
+                // provocar un repintado sobrante a los 500 ms.
+                _paintRetryTimer?.Stop();
             }
-            else
+            catch (Exception ex)
             {
-                PaintGDIPipeline(e.Graphics, contentRectF, paddedRectF);
+                // Sin fallback GDI: un fallo se registra y se programa un
+                // repintado de recuperación (con backoff para evitar el bucle
+                // infinito de paints). Nunca se cambia de motor ni se dibuja
+                // el error con GDI.
+                Trace.TraceError($"[ModernForms] Fallo SkiaRender (se reintentará): {ex}");
+                RetryPaintSoon();
             }
+        }
+
+        private System.Windows.Forms.Timer? _paintRetryTimer;
+
+        /// <summary>
+        /// Programa un repintado de recuperación a 500 ms tras un fallo de Skia
+        /// (coalescido por control). Si el fallo persiste, cada paint fallido
+        /// re-arma el timer: la cadena de reintentos continúa sin bucle
+        /// caliente y sin dejar el control transparente para siempre.
+        /// </summary>
+        private void RetryPaintSoon()
+        {
+            if (_paintRetryTimer == null)
+            {
+                _paintRetryTimer = new System.Windows.Forms.Timer { Interval = 500 };
+                _paintRetryTimer.Tick += (s, e) =>
+                {
+                    (s as System.Windows.Forms.Timer)?.Stop();
+                    if (!IsDisposed && IsHandleCreated) Invalidate();
+                };
+            }
+            _paintRetryTimer.Stop();
+            _paintRetryTimer.Start();
         }
 
         // 🔥 FIX DEBILIDAD 1: Renderizado Interpolado (Suavizado de estados)
@@ -292,13 +341,25 @@ namespace FluentWinForms.Core
                 float currX = startX + (endX - startX) * node.HoverProgress;
                 float currY = startY + (endY - startY) * node.HoverProgress;
 
-                // CSS: overflow: hidden (Clip)
-                using var clipPathBuilder = new SKPathBuilder();
-                clipPathBuilder.AddRoundRect(new SKRect(0, 0, node.Layout.Width, node.Layout.Height), node.Corners.TopLeft, node.Corners.TopLeft);
-                using var clipPath = clipPathBuilder.Detach();
+                // CSS: overflow: hidden (Clip) — path cacheado por nodo
+                SKRect sweepRect = new SKRect(0, 0, node.Layout.Width, node.Layout.Height);
+                if (node._cachedSweepClip == null ||
+                    node._lastSweepClipRect != sweepRect ||
+                    // Negación del "menor que": si el valor es NaN la comparación
+                    // da false y el path queda inválido para siempre. Con !(<=)
+                    // NaN cuenta como dirty y se reconstruye.
+                    !(Math.Abs(node._lastSweepClipCorner - node.Corners.TopLeft) <= 0.01f))
+                {
+                    using var clipPathBuilder = new SKPathBuilder();
+                    clipPathBuilder.AddRoundRect(sweepRect, node.Corners.TopLeft, node.Corners.TopLeft);
+                    node._cachedSweepClip?.Dispose();
+                    node._cachedSweepClip = clipPathBuilder.Detach();
+                    node._lastSweepClipRect = sweepRect;
+                    node._lastSweepClipCorner = node.Corners.TopLeft;
+                }
 
                 canvas.Save();
-                canvas.ClipPath(clipPath, SKClipOperation.Intersect, true);
+                canvas.ClipPath(node._cachedSweepClip, SKClipOperation.Intersect, true);
 
                 // Dibujar el pseudo-elemento ::before (Sweep) — paint reusado, solo se actualiza el color (sin alloc)
                 node._cachedSweepPaint ??= new SKPaint { IsAntialias = true, Style = SKPaintStyle.Fill };
@@ -321,12 +382,10 @@ namespace FluentWinForms.Core
             _sharedPaint ??= new SKPaint();
 
             // 6. SOMBRA — horneada UNA VEZ a una imagen cacheada. Por frame solo se blitea (sin recomponer el blur)
+            // 6. SOMBRA — horneada UNA VEZ a una imagen cacheada. Por frame solo se blitea (sin recomponer el blur)
             if (sh.Radius > 0 && sh.Color.A > 0)
             {
-                Color stepColor = node.Shadow.Color;
-                if (node.HoverState.Shadow.HasValue && node.HoverProgress >= 0.5f) stepColor = node.HoverState.Shadow.Value.Color;
-                if (node.PressState.Shadow.HasValue && node.PressProgress >= 0.5f) stepColor = node.PressState.Shadow.Value.Color;
-                if (!node.Enabled && node.DisabledState.Shadow.HasValue) stepColor = node.DisabledState.Shadow.Value.Color;
+                Color stepColor = GetGlowStepColor(node);
 
                 bool filterDirty = node._cachedShadowFilter == null ||
                     node._lastShadowColor != stepColor ||
@@ -337,6 +396,10 @@ namespace FluentWinForms.Core
                 if (filterDirty)
                 {
                     node._cachedShadowFilter?.Dispose();
+                    // DropShadowOnly: solo el halo (sin la silueta). CreateDropShadow
+                    // incluye la forma y dejaría una silueta negra visible en
+                    // controles transparentes/glass. El fade continuo lo da
+                    // edgePad=0 (sin margen del HWND) + este filtro.
                     node._cachedShadowFilter = SKImageFilter.CreateDropShadowOnly(
                             S(sh.OffsetX), S(sh.OffsetY), S(sh.Radius) / 2f, S(sh.Radius) / 2f, stepColor.ToSKColor());
                     node._lastShadowColor = stepColor;
@@ -381,7 +444,17 @@ namespace FluentWinForms.Core
                     node._lastShadowCorner = node.Corners.TopLeft;
                     node._lastShadowImagePadLeft = padLeft;
                     node._lastShadowImagePadTop = padTop;
+
+                    if (ReferenceEquals(node, _visualNode) && UsesSkiaGlowOverlay)
+                        NotifyGlowOverlay();
                 }
+                // La sombra de la raíz se dibuja SIEMPRE en el canvas del
+                // control, aunque el overlay esté activo. El canvas recorta la
+                // parte que cae fuera del HWND y el overlay pinta esa parte por
+                // detrás: las dos copias se encuentran en el borde del HWND y
+                // el halo queda continuo. Sin esto, el fondo opaco del HWND
+                // (badge/translate) tapaba el halo del overlay y dejaba el
+                // "marco" rectangular con hueco en el borde superior.
                 if (node._cachedShadowImage != null)
                     canvas.DrawImage(node._cachedShadowImage, rect.Left - node._lastShadowImagePadLeft, rect.Top - node._lastShadowImagePadTop, new SKSamplingOptions(SKFilterMode.Linear));
             }
@@ -542,22 +615,36 @@ namespace FluentWinForms.Core
             _sharedPaint.ColorFilter = null;
 
             // 8. RIPPLE EFFECT EN NODO
-            if (_isRippling && Enabled && node == _currentPressedNode && node.Ripple.Color.A > 0)
+            if (_isRippling && Enabled && node == _rippleNode && node.Ripple.Color.A > 0)
             {
                 canvas.Save();
                 if (node.Corners.TopLeft > 0)
                 {
-                    using var rClipBuilder = new SKPathBuilder(); // 🔥 FIX LEAK: Cierre hermético de memoria C++
-                    rClipBuilder.AddRoundRect(rect, node.Corners.TopLeft, node.Corners.TopLeft);
-                    using var rClip = rClipBuilder.Detach();
-                    canvas.ClipPath(rClip, SKClipOperation.Intersect, true);
+                    // Clip cacheado: solo se reconstruye si cambia el rect o la esquina.
+                    if (node._cachedRippleClip == null ||
+                        node._lastRippleClipRect != rect ||
+                        // !(<=) para que NaN cuente como dirty (misma regla que
+                        // los demás clips cacheados).
+                        !(Math.Abs(node._lastRippleClipCorner - node.Corners.TopLeft) <= 0.01f))
+                    {
+                        using var rClipBuilder = new SKPathBuilder();
+                        rClipBuilder.AddRoundRect(rect, node.Corners.TopLeft, node.Corners.TopLeft);
+                        node._cachedRippleClip?.Dispose();
+                        node._cachedRippleClip = rClipBuilder.Detach();
+                        node._lastRippleClipRect = rect;
+                        node._lastRippleClipCorner = node.Corners.TopLeft;
+                    }
+                    canvas.ClipPath(node._cachedRippleClip, SKClipOperation.Intersect, true);
                 }
                 else canvas.ClipRect(rect, SKClipOperation.Intersect, true);
 
-                using (var ripplePaint = new SKPaint { Color = node.Ripple.Color.ToSKColor().WithAlpha((byte)(node.Ripple.Opacity * 255)), IsAntialias = true })
-                {
-                    canvas.DrawCircle(_rippleCenter.X, _rippleCenter.Y, _rippleRadius, ripplePaint);
-                }
+                // Paint cacheado: color * opacidad del ripple * fade.
+                node._cachedRipplePaint ??= new SKPaint { IsAntialias = true };
+                byte rippleAlpha = (byte)Math.Clamp(
+                    node.Ripple.Color.A * node.Ripple.Opacity * _rippleOpacity, 0f, 255f);
+                node._cachedRipplePaint.Color =
+                    node.Ripple.Color.ToSKColor().WithAlpha(rippleAlpha);
+                canvas.DrawCircle(_rippleCenter.X, _rippleCenter.Y, _rippleRadius, node._cachedRipplePaint);
                 canvas.Restore();
             }
 
@@ -751,10 +838,19 @@ namespace FluentWinForms.Core
                 canvas.Save();
                 if (node.Corners.TopLeft > 0)
                 {
-                    using var clipPathBuilder = new SKPathBuilder();
-                    clipPathBuilder.AddRoundRect(rect, node.Corners.TopLeft, node.Corners.TopLeft);
-                    using var clipPath = clipPathBuilder.Detach();
-                    canvas.ClipPath(clipPath, SKClipOperation.Intersect, true);
+                    // Clip de hijos cacheado por nodo (antes se creaba por frame).
+                    if (node._cachedChildrenClip == null ||
+                        node._lastChildrenClipRect != rect ||
+                        !(Math.Abs(node._lastChildrenClipCorner - node.Corners.TopLeft) <= 0.01f))
+                    {
+                        using var clipPathBuilder = new SKPathBuilder();
+                        clipPathBuilder.AddRoundRect(rect, node.Corners.TopLeft, node.Corners.TopLeft);
+                        node._cachedChildrenClip?.Dispose();
+                        node._cachedChildrenClip = clipPathBuilder.Detach();
+                        node._lastChildrenClipRect = rect;
+                        node._lastChildrenClipCorner = node.Corners.TopLeft;
+                    }
+                    canvas.ClipPath(node._cachedChildrenClip, SKClipOperation.Intersect, true);
                 }
                 else canvas.ClipRect(rect, SKClipOperation.Intersect, true);
 
@@ -833,11 +929,20 @@ namespace FluentWinForms.Core
             var fillRect = new SKRect(shadowRect.Left + activeBorder / 2f, shadowRect.Top + activeBorder / 2f,
                                       shadowRect.Right - activeBorder / 2f, shadowRect.Bottom - activeBorder / 2f);
 
-            using var fillPathBuilder = new SKPathBuilder(); // Ya estaba protegido, se mantiene.
+            // Relleno interior: path cacheado (antes se creaba por frame).
             float innerRad = Math.Max(0, rad - (activeBorder / 2f));
-            fillPathBuilder.AddRoundRect(fillRect, innerRad, innerRad);
-            using var fillPath = fillPathBuilder.Detach();
-
+            if (_cachedFillPath == null ||
+                _lastFillRect != fillRect ||
+                !(Math.Abs(_lastFillInnerRadius - innerRad) <= 0.01f))
+            {
+                using var fillPathBuilder = new SKPathBuilder();
+                fillPathBuilder.AddRoundRect(fillRect, innerRad, innerRad);
+                _cachedFillPath?.Dispose();
+                _cachedFillPath = fillPathBuilder.Detach();
+                _lastFillRect = fillRect;
+                _lastFillInnerRadius = innerRad;
+            }
+            SKPath fillPath = _cachedFillPath!;
             CalculateStateColors(out Color bgColor1, out Color bgColor2, out Color borderColorTarget);
 
             var acrylicFilter = GetOrCreateAcrylicFilter();
@@ -923,19 +1028,6 @@ namespace FluentWinForms.Core
         protected virtual void DrawRipple(SKCanvas canvas) { /* tu implementación existente */ }
         protected virtual void PaintSkia(SKCanvas canvas, SKRect contentRect, SKRect paddedRect) { /* tu implementación existente */ }
 
-        protected virtual void PaintGDI(Graphics g, RectangleF contentRect, RectangleF paddedRect)
-        {
-            if (g == null) return;
-            using (var brush = new SolidBrush(BackgroundColor))
-            {
-                g.FillRectangle(brush, contentRect);
-            }
-        }
-
-        protected virtual void PaintGDIPipeline(Graphics g, RectangleF contentRect, RectangleF paddedRect)
-        {
-            using (var brush = new SolidBrush(BackgroundColor)) g.FillRectangle(brush, contentRect);
-        }
         // =========================================================
         // 🔥 PASO FINAL: MODO FANTASMA (HIT-TESTING A NIVEL OS CON SCALE)
         // =========================================================
@@ -961,9 +1053,23 @@ namespace FluentWinForms.Core
 
                     // 🎯 Misma fuente de verdad que UpdatePhysicalBounds: reutilizamos maxLeft/Right/Top/Bottom
                     // en vez de descartarlos, para que hit-test y expansión de HWND coincidan siempre.
-                    float currentScaleX = this.ScaleX;
-                    float currentScaleY = this.ScaleY;
+                    // En VisualNode la escala del control no se dibuja: solo la
+                    // del nodo (CalculateBaseOverflow). El camino legacy usa la
+                    // propiedad del control.
+                    float currentScaleX = _visualNode != null ? 1f : Math.Max(1f, this.ScaleX);
+                    float currentScaleY = _visualNode != null ? 1f : Math.Max(1f, this.ScaleY);
                     float maxLeft = 0f, maxRight = 0f, maxTop = 0f, maxBottom = 0f;
+                    float badgeLeft = 0f, badgeRight = 0f, badgeTop = 0f, badgeBottom = 0f;
+
+                    // Base del árbol (translate/escala CSS): debe coincidir con
+                    // UpdatePhysicalBounds para que el clic llegue al dibujado.
+                    if (_visualNode != null)
+                    {
+                        CalculateBaseOverflow(_visualNode, ref currentScaleX, ref currentScaleY,
+                            ref maxLeft, ref maxRight, ref maxTop, ref maxBottom);
+                        CalculateBadgeOverflow(_visualNode,
+                            ref badgeLeft, ref badgeRight, ref badgeTop, ref badgeBottom);
+                    }
 
                     if (_visualNode != null && (_isAnimating || _isHoveringInternal || _isMouseDownInternal))
                     {
@@ -978,10 +1084,10 @@ namespace FluentWinForms.Core
 
                     // 🚀 FIX: LTRB idéntico al de UpdatePhysicalBounds (exLeft/exRight/exTop/exBottom)
                     RectangleF drawnArea = RectangleF.FromLTRB(
-                        EngineOffset.X + this.TranslateX - (scaleExW + maxLeft),
-                        EngineOffset.Y + this.TranslateY - (scaleExH + maxTop),
-                        EngineOffset.X + this.TranslateX + logicalW + (scaleExW + maxRight),
-                        EngineOffset.Y + this.TranslateY + logicalH + (scaleExH + maxBottom)
+                        EngineOffset.X + this.TranslateX - (scaleExW + maxLeft + badgeLeft),
+                        EngineOffset.Y + this.TranslateY - (scaleExH + maxTop + badgeTop),
+                        EngineOffset.X + this.TranslateX + logicalW + (scaleExW + maxRight + badgeRight),
+                        EngineOffset.Y + this.TranslateY + logicalH + (scaleExH + maxBottom + badgeBottom)
                     );
 
                     // Damos 1px de margen de seguridad (Inflate) para absorber errores de redondeo nativo de Windows

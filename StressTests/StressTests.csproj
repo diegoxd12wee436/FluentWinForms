@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>12</LangVersion>
+    <AssemblyName>FluentWinForms.StressTests</AssemblyName>
+    <RootNamespace>FluentWinForms.StressTests</RootNamespace>
+    <!-- El overlay usa ventanas hijas layered: el proceso debe declarar
+         Windows 10/11 en el manifiesto o Windows aplica el modo Win7. -->
+    <ApplicationManifest>..\FluentWinForms\app.manifest</ApplicationManifest>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\FluentWinForms\FluentWinForms.csproj" />
+  </ItemGroup>
+
+</Project>

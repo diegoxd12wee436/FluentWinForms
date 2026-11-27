@@ -1,5 +1,6 @@
 #nullable enable
 using Svg.Skia;
+using SkiaSharp;
 using System;
 using System.ComponentModel;
 using System.Drawing;
@@ -187,11 +188,6 @@ namespace FluentWinForms.Core
         { _node.Opacity = (float)Math.Max(0.0, Math.Min(1.0, o)); return this; }
         public ControlBuilder<T> Visible(bool v = true) { _node.IsVisible = v; return this; }
         public ControlBuilder<T> Enabled(bool e = true) { _node.Enabled = e; return this; }
-        public ControlBuilder<T> UseSkia(bool enabled = true)
-        {
-            if (_hostControl != null) _hostControl.UseSkiaGraphics = enabled;
-            return this;
-        }
         public ControlBuilder<T> Cursor(Cursor cursor)
         { if (_hostControl != null) _hostControl.Cursor = cursor; return this; }
         public ControlBuilder<T> HandCursor() => Cursor(Cursors.Hand);
@@ -260,11 +256,29 @@ namespace FluentWinForms.Core
         public ControlBuilder<T> OnHoverLeave(Action<RenderNode> a) { _node.OnHoverLeaveAction = a; return this; }
 
         public ControlBuilder<T> Ripple(string hexColor = "#40000000", double opacity = 1.0)
+            => Ripple(hexColor, opacity, 600);
+
+        public ControlBuilder<T> Ripple(string hexColor, double opacity, double durationMs)
         {
             var rp = _node.Ripple;
             try { rp.Color = ParseHex(hexColor); } catch { }
             rp.Opacity = (float)opacity;
             _node.Ripple = rp;
+            // El builder debe activar el ripple del control; antes solo
+            // configuraba el nodo y `UseRipple` quedaba en false.
+            if (_hostControl != null)
+            {
+                _hostControl.UseRipple = true;
+                _hostControl.RippleDuration = (float)durationMs;
+            }
+            return this;
+        }
+
+        /// <summary>Duración del ripple en milisegundos (onda más lenta/visible).</summary>
+        public ControlBuilder<T> RippleDuration(double durationMs)
+        {
+            if (_hostControl != null)
+                _hostControl.RippleDuration = (float)durationMs;
             return this;
         }
         public ControlBuilder<T> NoRipple()
@@ -273,6 +287,7 @@ namespace FluentWinForms.Core
             rp.Color = System.Drawing.Color.Transparent;
             rp.Opacity = 0f;
             _node.Ripple = rp;
+            if (_hostControl != null) _hostControl.UseRipple = false;
             return this;
         }
         /// <summary>
@@ -309,9 +324,20 @@ namespace FluentWinForms.Core
 
                 if (picture != null)
                 {
-                    _node.SvgPicture = picture;
-                    _node.SvgSize = new SizeF((float)width, (float)height);
-                    if (!string.IsNullOrWhiteSpace(color)) _node.SvgTintColor = ParseHex(color!);
+                    // El SKSvg (using) es dueño del picture; clonarlo antes de
+                    // que se libere para que el nodo tenga uno válido.
+                    using var data = picture.Serialize();
+                    var clone = data != null ? SKPicture.Deserialize(data) : null;
+                    if (clone != null)
+                    {
+                        _node.SvgPicture = clone;
+                        _node.SvgSize = new SizeF((float)width, (float)height);
+                        if (!string.IsNullOrWhiteSpace(color)) _node.SvgTintColor = ParseHex(color!);
+                    }
+                    else
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[FluentWinForms] IconSvg: clone nulo en '{_node.Id}'.");
+                    }
                 }
                 else
                 {
@@ -353,9 +379,18 @@ namespace FluentWinForms.Core
 
                 if (picture != null)
                 {
-                    _node.SvgPicture = picture;
-                    _node.SvgSize = new SizeF((float)width, (float)height);
-                    if (!string.IsNullOrWhiteSpace(color)) _node.SvgTintColor = ParseHex(color!);
+                    using var data = picture.Serialize();
+                    var clone = data != null ? SKPicture.Deserialize(data) : null;
+                    if (clone != null)
+                    {
+                        _node.SvgPicture = clone;
+                        _node.SvgSize = new SizeF((float)width, (float)height);
+                        if (!string.IsNullOrWhiteSpace(color)) _node.SvgTintColor = ParseHex(color!);
+                    }
+                    else
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[FluentWinForms] IconSvgFile: clone nulo en '{_node.Id}'.");
+                    }
                 }
                 else
                 {
@@ -718,15 +753,16 @@ namespace FluentWinForms.Core
                 _node.Layout = new RectangleF(0, 0, _node.Layout.Width, _node.Layout.Height);
             }
 
-            DpiTrace.Log($"Apply {_hostControl.Name} layout=({_node.Layout.X},{_node.Layout.Y},{_node.Layout.Width},{_node.Layout.Height}) parent={parent?.GetType().Name} parentDpi={parent?.DeviceDpi} parentHandle={parent?.IsHandleCreated}");
-            DpiTrace.Log($"Apply {_hostControl.Name} hostBounds={_hostControl.Bounds}");
-
             OnApplied?.Invoke(_node);
 
             if (parent != null && !parent.Controls.Contains(_hostControl))
                 parent.Controls.Add(_hostControl);
             else if (parent == null && _hostControl.Parent == null && Application.OpenForms.Count > 0)
                 Application.OpenForms[0]!.Controls.Add(_hostControl);
+
+            // El Translate/Scale del builder se aplicó antes de tener bounds;
+            // recalcular la expansión ahora que el HWND ya está ubicado.
+            _hostControl.RefreshPhysicalBounds();
 
             return _hostControl;
         }

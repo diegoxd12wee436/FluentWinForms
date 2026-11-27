@@ -1,11 +1,15 @@
 {
   "$schema": "https://opencode.ai/config.json",
-  "agent": {
-    "build": {
-      "permission": {
-        "edit": "ask",
-        "bash": "ask"
-      }
+  "permission": {
+    "edit": "allow",
+    "bash": {
+      "*": "allow",
+      "rm *": "deny",
+      "del *": "deny",
+      "Remove-Item *": "deny",
+      "git push *": "deny",
+      "git reset --hard*": "deny",
+      "git clean *": "deny"
     }
   }
 }

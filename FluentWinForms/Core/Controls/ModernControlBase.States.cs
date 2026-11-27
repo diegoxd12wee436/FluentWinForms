@@ -5,11 +5,6 @@ using System.Drawing;
 
 namespace FluentWinForms.Core
 {
-    public struct ModernTheme
-    {
-        public Color Background, Border, Focus, Checked, Checked2;
-    }
-
     public abstract partial class ModernControlBase
     {
         #region 🔵 Visual State Manager

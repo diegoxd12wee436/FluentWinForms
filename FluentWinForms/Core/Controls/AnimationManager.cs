@@ -321,9 +321,15 @@ namespace FluentWinForms.Core
                         try { if (currentSubs[i].TryGetTarget(out var c)) c.AnimationTick((float)dt); } catch { }
                     }
 
-                    try { FrameTicked?.Invoke(dt); } catch { }
+                    // Recolección periódica UNA vez por frame global (antes cada
+                    // control la ejecutaba en el mismo frame: N recolecciones).
+                    long frame = Interlocked.Increment(ref _frames);
+                    if (frame > 0 && (frame % 600) == 0)
+                    {
+                        try { GC.Collect(); } catch { }
+                    }
 
-                    Interlocked.Increment(ref _frames);
+                    try { FrameTicked?.Invoke(dt); } catch { }
                     lock (_metricsLock)
                     {
                         _accDt += dt;

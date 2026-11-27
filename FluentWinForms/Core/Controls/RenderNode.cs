@@ -1,4 +1,4 @@
-﻿#nullable enable
+#nullable enable
 using SkiaSharp;
 using System;
 using System.Collections.ObjectModel;
@@ -24,7 +24,7 @@ namespace FluentWinForms.Core
     [ToolboxItem(false)]
     [TypeConverter(typeof(ExpandableObjectConverter))]
     [DebuggerDisplay("{Id,nq} ({Layout.Width}x{Layout.Height})")]
-    public sealed class RenderNode
+    public sealed class RenderNode : IDisposable
     {
         [Browsable(false)] public string Id { get; init; } = Guid.NewGuid().ToString("N");
         [Browsable(false)] public bool StretchX { get; set; } = false;
@@ -74,7 +74,42 @@ namespace FluentWinForms.Core
         [Category("5. Contenedor")][NotifyParentProperty(true)] public Align AlignItems { get; set; } = Align.Start;
         [Category("5. Contenedor")][NotifyParentProperty(true)] public Justify JustifyContent { get; set; } = Justify.Start;
 
-        [Browsable(false)] public ObservableCollection<RenderNode> Children { get; } = new ObservableCollection<RenderNode>();
+        [Browsable(false)] public ObservableCollection<RenderNode> Children { get; } = new RenderNodeChildren();
+
+        /// <summary>
+        /// Colección que libera solo cachés reconstruibles de los nodos que
+        /// salen del árbol. No toca SvgPicture ni datos públicos: el nodo puede
+        /// reinsertarse y se re-bakea en el siguiente paint.
+        /// </summary>
+        private sealed class RenderNodeChildren : ObservableCollection<RenderNode>
+        {
+            protected override void ClearItems()
+            {
+                var old = new RenderNode[Count];
+                CopyTo(old, 0);
+                base.ClearItems();
+                foreach (var node in old)
+                {
+                    // Un handler pudo reinsertarlo durante CollectionChanged.
+                    if (!Contains(node)) node.ReleaseReconstructibleCaches();
+                }
+            }
+
+            protected override void RemoveItem(int index)
+            {
+                RenderNode node = this[index];
+                base.RemoveItem(index);
+                if (!Contains(node)) node.ReleaseReconstructibleCaches();
+            }
+
+            protected override void SetItem(int index, RenderNode item)
+            {
+                RenderNode old = this[index];
+                base.SetItem(index, item);
+                if (!ReferenceEquals(old, item) && !Contains(old))
+                    old.ReleaseReconstructibleCaches(item);
+            }
+        }
 
         [Browsable(false)] public VisualStateOverrides HoverState;
         [Browsable(false)] public VisualStateOverrides PressState;
@@ -102,6 +137,17 @@ namespace FluentWinForms.Core
         [Browsable(false)] internal SKShader? _cachedGradientShader;
         [Browsable(false)] internal SKPaint? _cachedSweepPaint;
         [Browsable(false)] internal SKPaint? _cachedOpacityPaint;
+        // Ripple: paint y clip reutilizados (antes se creaban por frame).
+        [Browsable(false)] internal SKPath? _cachedSweepClip;
+        [Browsable(false)] internal SKRect _lastSweepClipRect;
+        [Browsable(false)] internal float _lastSweepClipCorner = -1f;
+        [Browsable(false)] internal SKPath? _cachedChildrenClip;
+        [Browsable(false)] internal SKRect _lastChildrenClipRect;
+        [Browsable(false)] internal float _lastChildrenClipCorner = -1f;
+        [Browsable(false)] internal SKPaint? _cachedRipplePaint;
+        [Browsable(false)] internal SKPath? _cachedRippleClip;
+        [Browsable(false)] internal SKRect _lastRippleClipRect;
+        [Browsable(false)] internal float _lastRippleClipCorner = -1f;
         [Browsable(false)] internal Color _lastGradientColor1 = Color.Empty;
         [Browsable(false)] internal Color _lastGradientColor2 = Color.Empty;
         [Browsable(false)] internal SKRect _lastGradientRect;
@@ -116,7 +162,10 @@ namespace FluentWinForms.Core
         [Browsable(false)] internal float _lastFilterGrayscale = -1f;
         [Browsable(false)] internal float _lastFilterBrightness = -1f;
         [Browsable(false)] internal float _lastFilterContrast = -1f;
-        internal void ReleaseNativeResources()
+        /// <summary>Libera los recursos nativos del nodo (idempotente).</summary>
+        public void Dispose() => ReleaseNativeResources();
+
+        private void ReleaseCachesLocal()
         {
             _cachedShadowFilter?.Dispose();
             _cachedShadowFilter = null;
@@ -133,6 +182,14 @@ namespace FluentWinForms.Core
             _cachedSweepPaint = null;
             _cachedOpacityPaint?.Dispose();
             _cachedOpacityPaint = null;
+            _cachedRipplePaint?.Dispose();
+            _cachedRipplePaint = null;
+            _cachedRippleClip?.Dispose();
+            _cachedRippleClip = null;
+            _cachedSweepClip?.Dispose();
+            _cachedSweepClip = null;
+            _cachedChildrenClip?.Dispose();
+            _cachedChildrenClip = null;
             _cachedAcrylicTintPaint?.Dispose();
             _cachedAcrylicTintPaint = null;
             _cachedAcrylicGlowPaint?.Dispose();
@@ -143,9 +200,33 @@ namespace FluentWinForms.Core
             _cachedFilterImageFilter = null;
             _cachedFilterColorFilterOnly?.Dispose();
             _cachedFilterColorFilterOnly = null;
+        }
+
+        /// <summary>
+        /// Libera cachés reconstruibles de este nodo y sus hijos, salvo el
+        /// subárbol <paramref name="except"/> (p. ej. un hijo promovido a root).
+        /// Conserva SvgPicture y datos públicos para permitir reinsertar.
+        /// </summary>
+        internal void ReleaseReconstructibleCaches(RenderNode? except = null)
+        {
+            if (ReferenceEquals(this, except)) return;
+            ReleaseCachesLocal();
+            for (int i = 0; i < Children.Count; i++)
+                Children[i].ReleaseReconstructibleCaches(except);
+        }
+
+        /// <summary>
+        /// Libera todo, incluido SvgPicture y el subárbol, salvo <paramref name="except"/>.
+        /// Se usa cuando el árbol se descarta definitivamente (VisualNode/Dispose).
+        /// </summary>
+        internal void ReleaseNativeResources(RenderNode? except = null)
+        {
+            if (ReferenceEquals(this, except)) return;
+            ReleaseCachesLocal();
             SvgPicture?.Dispose();
             SvgPicture = null;
-            foreach (var child in Children) child.ReleaseNativeResources();
+            for (int i = 0; i < Children.Count; i++)
+                Children[i].ReleaseNativeResources(except);
         }
 
         public void ClearSvg()

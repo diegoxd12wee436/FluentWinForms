@@ -68,10 +68,6 @@ namespace FluentWinForms.Core
         protected SKImageFilter? _cachedAcrylicFilter;
         #endregion
 
-        // Debounce purge
-        private static readonly object _purgeLock = new object();
-        private static System.Threading.Timer? _purgeTimer;
-
         protected void ClearCaches()
         {
             // Dispose de filtros cacheados (cuando el usuario pide limpiar)
@@ -79,13 +75,7 @@ namespace FluentWinForms.Core
             SafeDispose(ref _cachedAcrylicFilter);
             ClearImageCache();
             ClearTextCache();
-
-            // Timer único compartido por TODOS los controles — reprograma en vez de crear una Task nueva por cada Focus/LostFocus
-            lock (_purgeLock)
-            {
-                _purgeTimer ??= new System.Threading.Timer(_ => GdiRenderer.ClearCache(), null, System.Threading.Timeout.Infinite, System.Threading.Timeout.Infinite);
-                _purgeTimer.Change(50, System.Threading.Timeout.Infinite);
-            }
+            // (El purge timer del GdiRenderer se eliminó con el motor GDI.)
         }
 
         // Crear o devolver filtro de sombra cacheado

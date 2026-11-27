@@ -1,4 +1,4 @@
-﻿#nullable enable
+#nullable enable
 #pragma warning disable CA1416 // Silencia la advertencia de compatibilidad de System.Drawing
 #pragma warning disable IDE0090 // Silencia sugerencias de simplificar 'new'
 #pragma warning disable IDE0028 // Silencia sugerencias de inicialización de colecciones
@@ -7,6 +7,7 @@ using FluentWinForms.Custom_Controls;
 using SkiaSharp;
 using System;
 using System.Collections.Concurrent; // 🔥 INYECCIÓN: Para Caché Concurrente
+using System.Collections.Generic;
 using System.Collections.Specialized; // 🔥 INYECCIÓN: Para Reactividad del Árbol
 using System.ComponentModel;
 using System.Diagnostics;
@@ -44,6 +45,7 @@ namespace FluentWinForms.Core
 
         // 🔥 INYECCIÓN: El nodo raíz de la UI (El Lienzo)
         private RenderNode? _visualNode;
+        private readonly HashSet<RenderNode> _subscribedNodes = new();
 
         [Browsable(false)]
         [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
@@ -52,43 +54,143 @@ namespace FluentWinForms.Core
             get => _visualNode;
             set
             {
-                // 🔥 FIX REACTIVIDAD: Nos desuscribimos del viejo y nos suscribimos al nuevo
-                if (_visualNode != null) _visualNode.Children.CollectionChanged -= VisualNode_ChildrenChanged;
+                UnsubscribeAllNodes();
+                RenderNode? oldNode = _visualNode;
 
                 _visualNode = value;
+                _rippleNode = null;
 
-                if (_visualNode != null)
-                {
-                    _visualNode.Children.CollectionChanged += VisualNode_ChildrenChanged;
+                SubscribeTree(_visualNode);
+                if (_visualNode != null && Width > 0 && Height > 0)
                     FluentWinForms.Core.LayoutEngine.ComputeLayout(_visualNode, new RectangleF(0, 0, Width, Height));
-                }
+
+                // El árbol viejo se descarta: liberar todo (incluido SVG) salvo
+                // el nuevo root si era descendiente suyo. Si el nuevo root
+                // CONTIENE al viejo, el viejo sigue en el árbol nuevo: no liberar.
+                bool oldInNew = oldNode != null && value != null && IsNodeInTree(oldNode, value);
+                if (oldNode != null && !ReferenceEquals(oldNode, value) && !oldInNew)
+                    oldNode.ReleaseNativeResources(value);
+
+                ClearDetachedNodeState();
                 RefreshVisuals();
+            }
+        }
+
+        private void SubscribeTree(RenderNode? node)
+        {
+            if (node == null) return;
+            if (_subscribedNodes.Add(node))
+                node.Children.CollectionChanged += VisualNode_ChildrenChanged;
+            for (int i = 0; i < node.Children.Count; i++)
+                SubscribeTree(node.Children[i]);
+        }
+
+        private void UnsubscribeAllNodes()
+        {
+            foreach (var node in _subscribedNodes)
+                node.Children.CollectionChanged -= VisualNode_ChildrenChanged;
+            _subscribedNodes.Clear();
+        }
+
+        private static void CollectNodes(RenderNode? node, HashSet<RenderNode> set)
+        {
+            if (node == null) return;
+            set.Add(node);
+            for (int i = 0; i < node.Children.Count; i++)
+                CollectNodes(node.Children[i], set);
+        }
+
+        /// <summary>
+        /// Reconcilia las suscripciones recursivas tras cualquier cambio de
+        /// Children (incluye nietos, Clear/Reset y Replace).
+        /// </summary>
+        private void SyncNodeSubscriptions()
+        {
+            var current = new HashSet<RenderNode>();
+            CollectNodes(_visualNode, current);
+
+            var stale = new List<RenderNode>();
+            foreach (var node in _subscribedNodes)
+                if (!current.Contains(node)) stale.Add(node);
+            foreach (var node in stale)
+            {
+                node.Children.CollectionChanged -= VisualNode_ChildrenChanged;
+                _subscribedNodes.Remove(node);
+            }
+            foreach (var node in current)
+            {
+                if (_subscribedNodes.Add(node))
+                    node.Children.CollectionChanged += VisualNode_ChildrenChanged;
             }
         }
 
         // 🔥 FIX REACTIVIDAD: Cuando el programador hace AddChild, esto acomoda todo
         private void VisualNode_ChildrenChanged(object? sender, NotifyCollectionChangedEventArgs e)
         {
+            SyncNodeSubscriptions();
             if (_visualNode != null)
             {
-                FluentWinForms.Core.LayoutEngine.ComputeLayout(_visualNode, new RectangleF(0, 0, Width, Height));
+                // Si el control aún no tiene tamaño (builder antes de Apply),
+                // no recalcular: borraría el Layout declarado con .Layout(x,y).
+                if (Width > 0 && Height > 0)
+                    FluentWinForms.Core.LayoutEngine.ComputeLayout(_visualNode, new RectangleF(0, 0, Width, Height));
+                ClearDetachedNodeState();
                 RefreshVisuals();
             }
+        }
+
+        /// <summary>Pone a null los punteros a nodos que ya no están en el árbol.</summary>
+        private void ClearDetachedNodeState()
+        {
+            if (_visualNode == null)
+            {
+                if (_currentHoveredNode != null) _currentHoveredNode.IsHovered = false;
+                if (_currentPressedNode != null) _currentPressedNode.IsPressed = false;
+                _currentHoveredNode = null;
+                _currentPressedNode = null;
+                _rippleNode = null;
+                _isRippling = false;
+                _rippleOpacity = 0f;
+                return;
+            }
+
+            if (_currentHoveredNode != null && !IsNodeInTree(_currentHoveredNode, _visualNode))
+            {
+                _currentHoveredNode.IsHovered = false;
+                _currentHoveredNode = null;
+            }
+            if (_currentPressedNode != null && !IsNodeInTree(_currentPressedNode, _visualNode))
+            {
+                _currentPressedNode.IsPressed = false;
+                _currentPressedNode = null;
+            }
+            if (_rippleNode != null && !IsNodeInTree(_rippleNode, _visualNode))
+            {
+                _rippleNode = null;
+                _isRippling = false;
+                _rippleOpacity = 0f;
+            }
+        }
+
+        private static bool IsNodeInTree(RenderNode node, RenderNode root)
+        {
+            if (ReferenceEquals(node, root)) return true;
+            for (int i = 0; i < root.Children.Count; i++)
+                if (IsNodeInTree(node, root.Children[i])) return true;
+            return false;
         }
         //Desing
         public ControlBuilder<ModernControlBase> Design()
         {
-            _visualNode ??= new RenderNode();
+            VisualNode ??= new RenderNode();
 
-            
-            var builder = new ControlBuilder<ModernControlBase>(_visualNode, this);
+            var builder = new ControlBuilder<ModernControlBase>(VisualNode!, this);
 
             builder.OnApplied = node =>
             {
-                // 🔥 FIX 2: Siempre forzar ComputeLayout — sin condición
-                _visualNode = node;
-                FluentWinForms.Core.LayoutEngine.ComputeLayout(_visualNode, new RectangleF(0, 0, Width, Height));
-                RefreshVisuals();
+                // Pasar por el setter: suscripciones recursivas, oldInNew y
+                // limpieza de punteros; el setter ya recalcula layout/refresh.
+                VisualNode = node;
             };
             return builder;
         }
@@ -122,11 +224,41 @@ namespace FluentWinForms.Core
 
         protected override void OnDpiChangedAfterParent(EventArgs e)
         {
-            DpiTrace.Log($"OnDpiChangedAfterParent {Name} dpiScaleAntes={_dpiScale * 96f:0} dpiControl={DeviceDpi} bounds={Bounds} logical={_logicalBounds}");
+            float oldScale = _dpiScale;
             _dpiScale = DeviceDpi / 96f;   // FASE 1b
+
+            // El HWND lo escala WinForms, pero el árbol visual (Layout de los
+            // nodos) conserva el tamaño de diseño. Escalarlo por el factor
+            // real evita el recorte a DPI menor y el texto "chico" a DPI mayor.
+            float factor = oldScale > 0f ? _dpiScale / oldScale : 1f;
+            if (_visualNode != null && Math.Abs(factor - 1f) > 0.001f)
+                ScaleNodeLayout(_visualNode, factor);
+
             ClearCaches();
             UpdatePhysicalBounds();        // FASE 1: recalcula el margen desde el tamaño LÓGICO
             RebuildCanvas();
+            base.OnDpiChangedAfterParent(e);
+        }
+
+        private static void ScaleNodeLayout(RenderNode node, float factor)
+        {
+            var l = node.Layout;
+            node.Layout = new RectangleF(l.X * factor, l.Y * factor, l.Width * factor, l.Height * factor);
+
+            if (node.Badge.IsVisible)
+            {
+                var b = node.Badge;
+                b.Size = (float)(b.Size * factor);
+                b.OffsetX = (float)(b.OffsetX * factor);
+                b.OffsetY = (float)(b.OffsetY * factor);
+                node.Badge = b;
+            }
+
+            node.Spacing *= factor;
+            node.GridMinColumnWidth *= factor;
+
+            for (int i = 0; i < node.Children.Count; i++)
+                ScaleNodeLayout(node.Children[i], factor);
         }
 
         // FASE 1: WinForms debe escalar el rectángulo LÓGICO (el del botón), no el inflado con margen.
@@ -134,12 +266,10 @@ namespace FluentWinForms.Core
         {
             Rectangle source = _logicalBounds.IsEmpty ? bounds : _logicalBounds;
             Rectangle scaled = base.GetScaledBounds(source, factor, specified);
-            DpiTrace.Log($"GetScaledBounds {Name} in={bounds} logical={_logicalBounds} factor=({factor.Width:0.###},{factor.Height:0.###}) out={scaled}");
             return scaled;
         }
         protected override void ScaleControl(SizeF factor, BoundsSpecified specified)
         {
-            DpiTrace.Log($"ScaleControl {Name} factor=({factor.Width:0.###},{factor.Height:0.###}) specified={specified} bounds={Bounds} logical={_logicalBounds}");
             base.ScaleControl(factor, specified);
         }
         #endregion
@@ -223,11 +353,6 @@ namespace FluentWinForms.Core
         [Browsable(false), EditorBrowsable(EditorBrowsableState.Never)]
         protected PointF EngineOffset => _logicalBounds.IsEmpty ? PointF.Empty : new PointF(_logicalBounds.X - this.Left, _logicalBounds.Y - this.Top);
 
-        private bool _useSkiaGraphics = true;
-        [Category("Modern - Engine")]
-        [Description("Habilita o deshabilita el uso de SkiaSharp para renderizar el control. Deshabilitarlo puede mejorar la compatibilidad en entornos de diseño, pero reducirá la calidad visual y el rendimiento.\nEnable or disable the use of SkiaSharp for rendering the control. Disabling it may improve compatibility in design environments but will reduce visual quality and performance.")]
-        [DesignerSerializationVisibility(DesignerSerializationVisibility.Visible)]
-        public bool UseSkiaGraphics { get => _useSkiaGraphics; set { _useSkiaGraphics = value; ClearCaches(); RefreshVisuals(); } }
         #endregion
 
         // Invalidación Segura
@@ -305,10 +430,9 @@ namespace FluentWinForms.Core
 
             if (isDesignTime)
             {
-                // Designer host is sensitive to native Skia allocations; keep a safe GDI-only path.
-                _useSkiaGraphics = false;
-                _isRenderable = true;
-                UpdateCachedClipPath();
+                // Designer host: sin Skia ni GDI — el control queda vacío en el
+                // diseñador (solo se edita por código). No se cambia de motor.
+                _isRenderable = false;
                 RefreshVisuals();
                 return;
             }
@@ -347,10 +471,12 @@ namespace FluentWinForms.Core
         {
             if (disposing)
             {
+                UnhookOverlayAttach();
                 // 🔥 FIX TEMAS: Limpiamos la suscripción para evitar Memory Leaks
                 AppTheme.ThemeChanged -= OnThemeChanged;
                 if (_themeUpdater != null) AppTheme.ThemeChanged -= _themeUpdater;
                 if (_visualNode != null) _visualNode.Children.CollectionChanged -= VisualNode_ChildrenChanged;
+                UnsubscribeAllNodes();
 
                 DisposeAnimations();
                 ClearCaches();
@@ -363,10 +489,18 @@ namespace FluentWinForms.Core
                 SafeDispose(ref _skCanvas);
                 SafeDispose(ref _skBitmap);
                 SafeDispose(ref _cachedClipPath);
+                SafeDispose(ref _cachedFillPath);
+
+                if (_paintRetryTimer != null)
+                {
+                    _paintRetryTimer.Stop();
+                    _paintRetryTimer.Dispose();
+                    _paintRetryTimer = null;
+                }
             }
             base.Dispose(disposing);
         }
 
-        public void RefreshVisuals() => InvalidateIfVisible();
+        public void RefreshVisuals() { InvalidateIfVisible(); NotifyGlowOverlay(); }
     }
 }
